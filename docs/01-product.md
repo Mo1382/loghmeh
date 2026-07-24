@@ -5,7 +5,6 @@
 - [Product Type](#product-type)
 - [Platform](#platform)
 - [Current Version](#current-version)
-  - [Product Definition](#product-definition)
 - [Product Overview](#product-overview)
 - [Vision](#vision)
 - [Mission](#mission)
@@ -71,10 +70,6 @@ Responsive Web Application
 # Current Version
 
 1.0 (MVP)
-
-## Product Definition
-
-Recipe social media app web application
 
 ---
 
