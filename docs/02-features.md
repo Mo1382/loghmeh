@@ -40,5 +40,3 @@ Future Versions
 - Trending Recipes
 - Meal Planner
 - AI Recipe Assistant
-
----
