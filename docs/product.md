@@ -19,7 +19,7 @@
 - [User Roles](#user-roles)
 - [Success Metrics](#success-metrics)
 - [Technical Goals](#technical-goals)
-- [Tech Stack](#tech-stack) - [Framework](#framework) - [Language](#language) - [UI](#ui) - [Database](#database) - [ODM](#odm) - [Authentication](#authentication) - [Validation](#validation) - [Forms](#forms) - [Deployment](#deployment) - [Uploads](#uploads) - [Package manager](#package-manager) - [Version Control System](#version-control-system) - [Hosting provider](#hosting-provider) - [UI state management](#ui-state-management) - [Other libraries](#other-libraries)
+- [Tech Stack](#tech-stack) - [Framework](#framework) - [Language](#language) - [UI](#ui) - [Database](#database) - [ODM](#odm) - [Authentication](#authentication) - [Validation](#validation) - [Forms](#forms) - [Deployment](#deployment) - [Uploads](#uploads) - [Package manager](#package-manager) - [Version Control System](#version-control-system) - [Hosting provider](#hosting-provider) - [UI state management](#ui-state-management) - [Enail service](#enail-service) - [Other libraries](#other-libraries)
   - [Future tools](#future-tools)
     - [Search](#search)
     - [Analytics](#analytics)
@@ -291,6 +291,10 @@ The success of the project will be measured by:
 #### UI state management
 
 - Context API
+
+#### Enail service
+
+- Resend
 
 #### Other libraries
 
