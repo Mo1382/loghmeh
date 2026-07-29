@@ -1,386 +1,469 @@
-# Loqmeh (لقمه)
+# Loghmeh (لقمه)
 
-- [Loqmeh (لقمه)](#loqmeh-لقمه)
-- [Project Name](#project-name)
-- [Product Type](#product-type)
-  - [Scope](#scope)
-- [Platform](#platform)
-- [Current Version](#current-version)
-- [Product Overview](#product-overview)
-- [Vision](#vision)
-- [Mission](#mission)
-- [Problem Statement](#problem-statement)
-- [Target Audience](#target-audience)
-- [Product Goals](#product-goals)
-- [Core Features](#core-features) - [Version 1](#version-1) - [Future versions core features](#future-versions-core-features)
-- [Unique Value Proposition](#unique-value-proposition)
-- [Platform](#platform-1)
-- [Supported Languages](#supported-languages)
-- [User Roles](#user-roles)
-- [Success Metrics](#success-metrics)
-- [Technical Goals](#technical-goals)
-- [Tech Stack](#tech-stack) - [Framework](#framework) - [Language](#language) - [UI](#ui) - [Database](#database) - [ODM](#odm) - [Authentication](#authentication) - [Validation](#validation) - [Forms](#forms) - [Deployment](#deployment) - [Uploads](#uploads) - [Package manager](#package-manager) - [Version Control System](#version-control-system) - [Hosting provider](#hosting-provider) - [UI state management](#ui-state-management) - [Enail service](#enail-service) - [Other libraries](#other-libraries)
-  - [Future tools](#future-tools)
-    - [Search](#search)
-    - [Analytics](#analytics)
-    - [Monitoring](#monitoring)
-    - [Caching](#caching)
-    - [Testing](#testing)
-- [Future Roadmap](#future-roadmap) - [Version 1](#version-1-1) - [Version 1.1](#version-11) - [Version 1.2](#version-12) - [Version 2](#version-2) - [Version 3](#version-3) - [Version 4](#version-4) - [Version 5](#version-5) - [Version 6](#version-6) - [Version 7](#version-7) - [Version 8](#version-8)
-- [Out of Scope (MVP)](#out-of-scope-mvp)
-
-# Project Name
-
-Loqmeh
-
-# Product Type
-
-Social Recipe Sharing Platform
-
-## Scope
-
-This project contains only the public-facing application
-
-Administration, moderation, category management, and system management are implemented in a separate Admin Dashboard project.
-
-# Platform
-
-Responsive Web Application
-
-# Current Version
-
-1.0 (MVP)
+A modern Persian recipe-sharing platform for discovering, creating, and sharing cooking recipes.
 
 ---
 
-# Product Overview
+## Document Structure
 
-Loqmeh is a modern Persian recipe-sharing platform that enables users to discover, create, organize, and share cooking recipes while building an active cooking community
+### Document Sections
 
-The platform helps home cooks discover high-quality recipes and provides chefs and food enthusiasts with a place to showcase their culinary skills
-
----
-
-# Vision
-
-To become the most trusted and user-friendly Persian recipe platform where anyone can learn cooking, share knowledge, and discover new foods.
-
----
-
-# Mission
-
-Provide a beautiful, fast, and accessible platform that allows users to:
-
-- Discover recipes
-- Share recipes
-- Save favorite recipes
-- Rate and Comment others recipes
-- Build a cooking community
+1. **Product Identity** - Name, type, scope, version
+2. **Strategic Vision** - Vision, mission, goals, value proposition
+3. **Market Analysis** - Problem statement, target audience
+4. **Product Features** - Core features, roadmap
+5. **Technical Specifications** - Platform, tech stack, architecture
+6. **Success Metrics** - KPIs and measurement criteria
 
 ---
 
-# Problem Statement
+## Quick Reference
 
-Many Persian recipe websites suffer from one or more of the following issues:
-
-- Poor user interface
-- Slow performance
-- Outdated design
-- Difficult navigation
-- Excessive advertisements
-- Poor mobile experience
-- Low-quality recipe organization
-- Lack of community interaction
-
-Loqmeh aims to solve these problems by providing a modern web experience.
+| Aspect           | Value                          |
+| ---------------- | ------------------------------ |
+| Product Name     | Loghmeh (لقمه)                 |
+| Product Type     | Social Recipe Sharing Platform |
+| Platform         | Responsive Web Application     |
+| Current Version  | 1.0 (MVP)                      |
+| Primary Language | Persian                        |
+| Target Market    | Persian-speaking users         |
 
 ---
 
-# Target Audience
+# 1. Product Identity
 
-Primary Audience
+## 1.1 Project Name
 
-- Home cooks
-- Students
-- Beginners
-- Cooking enthusiasts
+**Loghmeh** (لقمه)
 
-Secondary Audience
+Persian word meaning "bite" or "morsel" - representing bite-sized culinary content.
 
-- Professional chefs
-- Food bloggers
-- Nutrition enthusiasts
+## 1.2 Product Type
 
----
+**Social Recipe Sharing Platform**
 
-# Product Goals
+A web application that enables users to discover, create, organize, and share cooking recipes while building an active cooking community.
 
-The main goals of Loqmeh are:
+## 1.3 Project Scope
 
-- Create a modern Persian recipe platform.
-- Encourage users to share recipes.
-- Provide a fast recipe discovery experience.
-- Build an active cooking community.
-- Deliver an excellent mobile experience.
-- Maintain high-quality content.
+| Scope            | Description                                                        |
+| ---------------- | ------------------------------------------------------------------ |
+| **In Scope**     | Public-facing application for end users                            |
+| **Out of Scope** | Administration, moderation, category management, system management |
 
----
+Administrative functionality is implemented in a separate **Admin Dashboard** project.
 
-# Core Features
+## 1.4 Current Version
 
-#### Version 1
-
-- Authentication
-
-- Recipes
-
-- Categories
-
-- Search
-
-- Bookmarks
-
-- Ratings
-
-- Comments
-
-- Community
-
-- Notifications
-
-- Support Tickets
-
-#### Future versions core features
-
-- Trending Recipes
-- Meal Planner
-- AI Recipe Assistant
+| Version   | Status         | Release Target |
+| --------- | -------------- | -------------- |
+| 1.0 (MVP) | In Development | 2024           |
 
 ---
 
-# Unique Value Proposition
+# 2. Strategic Vision
 
-Loqmeh is not just another recipe website.
+## 2.1 Product Vision
 
-It focuses on:
+> To become the most trusted and user-friendly Persian recipe platform where anyone can learn cooking, share knowledge, and discover new foods.
 
-- Modern UI/UX
-- High performance
-- Clean design
-- Community-driven content
-- Mobile-first experience
-- Easy recipe publishing
+### Vision Pillars
 
----
+| Pillar        | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| Trust         | Reliable, high-quality recipes from real users        |
+| User-Friendly | Intuitive design accessible to all skill levels       |
+| Learning      | Platform for culinary education and skill development |
+| Discovery     | Gateway to exploring new cuisines and techniques      |
 
-# Platform
+## 2.2 Product Mission
 
-Web Application
+> Provide a beautiful, fast, and accessible platform that enables culinary discovery, sharing, and community building.
 
-Responsive Design
+### Mission Objectives
 
-Desktop
+| Objective | Description                                               |
+| --------- | --------------------------------------------------------- |
+| Discover  | Help users find high-quality recipes easily               |
+| Share     | Enable users to publish and showcase their recipes        |
+| Save      | Allow users to bookmark favorites for future reference    |
+| Engage    | Foster community through ratings, comments, and following |
+| Build     | Create an active, supportive cooking community            |
 
-Tablet
+## 2.3 Product Goals
 
-Mobile
+| Goal               | Priority | Description                              |
+| ------------------ | -------- | ---------------------------------------- |
+| Modern Platform    | High     | Create a modern Persian recipe platform  |
+| User Engagement    | High     | Encourage users to share recipes         |
+| Fast Discovery     | High     | Provide fast recipe discovery experience |
+| Community Building | High     | Build an active cooking community        |
+| Mobile Experience  | High     | Deliver excellent mobile experience      |
+| Content Quality    | Medium   | Maintain high-quality content            |
 
----
+## 2.4 Unique Value Proposition
 
-# Supported Languages
+**Loghmeh is not just another recipe website.**
 
-Initial Version
-
-- Persian
-
-Future
-
-- English
-
----
-
-# User Roles
-
-Guest
-
-Registered User
-
----
-
-# Success Metrics
-
-The success of the project will be measured by:
-
-- Number of registered users
-- Number of published recipes
-- Daily active users
-- Monthly active users
-- Average session duration
-- Number of saved recipes
-- Number of comments
-- Returning users
+| Differentiator          | Problem Solved                              |
+| ----------------------- | ------------------------------------------- |
+| Modern UI/UX            | Outdated, cluttered interfaces              |
+| High Performance        | Slow, unresponsive websites                 |
+| Clean Design            | Excessive advertisements, poor organization |
+| Community-Driven        | Lack of user interaction                    |
+| Mobile-First Experience | Poor mobile usability                       |
+| Easy Publishing         | Complex recipe submission processes         |
 
 ---
 
-# Technical Goals
+# 3. Market Analysis
 
-- High Performance
-- Responsive Design
-- SEO Friendly
-- Accessibility
-- Scalable Architecture
-- Maintainable Codebase
+## 3.1 Problem Statement
 
----
+Many Persian recipe websites suffer from critical issues that impact user experience:
 
-# Tech Stack
+| Problem                       | Impact                      | Loghmeh Solution                  |
+| ----------------------------- | --------------------------- | --------------------------------- |
+| Poor user interface           | Difficult to navigate       | Modern, intuitive UI              |
+| Slow performance              | Frustrating user experience | Optimized, fast loading           |
+| Outdated design               | Unprofessional appearance   | Clean, contemporary design        |
+| Difficult navigation          | Users can't find content    | Clear information architecture    |
+| Excessive advertisements      | Content buried in ads       | Minimal, non-intrusive ads        |
+| Poor mobile experience        | 60%+ users on mobile        | Mobile-first responsive design    |
+| Low-quality organization      | Hard to browse recipes      | Structured categories and filters |
+| Lack of community interaction | No user engagement          | Social features built-in          |
 
-#### Framework
+## 3.2 Target Audience
 
-- Next.js
+### Primary Audience
 
-#### Language
+| Segment             | Description                   | Needs                    |
+| ------------------- | ----------------------------- | ------------------------ |
+| Home Cooks          | Individuals cooking at home   | Easy recipes, meal ideas |
+| Students            | Young adults learning to cook | Simple, quick recipes    |
+| Beginners           | New to cooking                | Step-by-step guidance    |
+| Cooking Enthusiasts | Hobbyist cooks                | Variety, inspiration     |
 
-- Javascript
+### Secondary Audience
 
-#### UI
+| Segment               | Description            | Needs                      |
+| --------------------- | ---------------------- | -------------------------- |
+| Professional Chefs    | Culinary professionals | Platform to showcase work  |
+| Food Bloggers         | Content creators       | Audience building, sharing |
+| Nutrition Enthusiasts | Health-focused cooks   | Healthy recipe options     |
 
-- Tailwind CSS
-- shadcn/ui
+### Audience Demographics
 
-#### Database
-
-- MongoDB
-
-#### ODM
-
-- Mongoose
-
-#### Authentication
-
-- Auth.js
-
-#### Validation
-
-- Zod
-
-#### Forms
-
-- React Hook Form
-
-#### Deployment
-
-- Vercel
-
-#### Uploads
-
-- UploadThing
-
-#### Package manager
-
-- NPM
-
-#### Version Control System
-
-- Github
-
-#### Hosting provider
-
-- Vercel
-
-#### UI state management
-
-- Context API
-
-#### Enail service
-
-- Resend
-
-#### Other libraries
-
-- date-fns
-- react-spinners
-
-## Future tools
-
-#### Search
-
-- Algolia
-
-#### Analytics
-
-- PostHog
-
-#### Monitoring
-
-- Sentry
-
-#### Caching
-
-- Redis
-
-#### Testing
-
-- Vitest
-- Playwright
-- React testing library
+| Aspect            | Primary                | Secondary                 |
+| ----------------- | ---------------------- | ------------------------- |
+| Age Range         | 18-45                  | 25-55                     |
+| Language          | Persian                | Persian, English (future) |
+| Location          | Iran, Persian diaspora | Global                    |
+| Device Preference | Mobile-first           | Desktop/Mobile            |
+| Tech Proficiency  | Basic to Intermediate  | Intermediate to Advanced  |
 
 ---
 
-# Future Roadmap
+# 4. Product Features
 
-#### Version 1
+## 4.1 Core Features (Version 1.0)
 
-- Implement the app with all mvp features
+### Feature Categories
 
-#### Version 1.1
+| Category      | Features                                    |
+| ------------- | ------------------------------------------- |
+| **Core**      | Authentication, Recipes, Categories, Search |
+| **User**      | User Profile, Bookmarks, Ratings, Comments  |
+| **Social**    | Following System, Notifications             |
+| **Support**   | Support Tickets, Settings                   |
+| **Discovery** | Home Feed                                   |
 
-- Add app tests with Vitest, Playwright and React testing library
+### Feature Details
 
-#### Version 1.2
+| Feature          | Description                                                      | Priority |
+| ---------------- | ---------------------------------------------------------------- | -------- |
+| Authentication   | Secure account creation, email verification, password management | Highest  |
+| Recipes          | Create, publish, discover, search, filter, sort, rate recipes    | Highest  |
+| Categories       | Browse recipes by category with filtering and sorting            | High     |
+| Recipe Search    | Real-time search with suggestions                                | High     |
+| User Profile     | Public profile, avatar, bio, social links, recipe showcase       | High     |
+| Bookmarks        | Save recipes for quick access                                    | High     |
+| Ratings          | Rate recipes (1-5 stars), view average ratings                   | High     |
+| Comments         | Post comments, like/dislike, recipe owner replies                | High     |
+| Following System | Follow users, view followers/following, personalized feed        | High     |
+| Notifications    | Activity notifications, platform announcements                   | High     |
+| Support Tickets  | Contact support, track tickets                                   | Medium   |
+| Settings         | Profile management, password change, privacy settings            | Medium   |
+| Home Feed        | Curated sections with popular content                            | High     |
 
-- Keep track of the app by adding PostHog and Sentry to project
+## 4.2 Future Features
 
-#### Version 2
+### Version 1.x Enhancements
 
-- Implementing dark mode
+| Feature                | Version | Description                               |
+| ---------------------- | ------- | ----------------------------------------- |
+| Comprehensive Testing  | 1.1     | Vitest, Playwright, React Testing Library |
+| Analytics & Monitoring | 1.2     | PostHog analytics, Sentry monitoring      |
 
-#### Version 3
+### Version 2.0+
 
-- Adding Redis for cache handling
-- Adding Algolia for more advanced searching
+| Feature               | Version | Description                        |
+| --------------------- | ------- | ---------------------------------- |
+| Dark Mode             | 2.0     | Theme customization                |
+| Advanced Search       | 3.0     | Redis caching, Algolia integration |
+| Recommendation Engine | 4.0     | Personalized recipe suggestions    |
+| AI Cooking Assistant  | 5.0     | AI-powered cooking help            |
+| Meal Planning         | 6.0     | Weekly meal planning tools         |
+| Native Mobile App     | 7.0     | iOS and Android applications       |
+| Multi-Language        | 8.0     | English and other languages        |
 
-#### Version 4
-
-- Recommendation engine
-
-#### Version 5
-
-- Implementing AI-powered cooking assistant
-
-#### Version 6
-
-- Adding meal planning ecosystem
-
-#### Version 7
-
-- Native mobile app
-
-#### Version 8
-
-- Multi-language
-
----
-
-# Out of Scope (MVP)
+## 4.3 Out of Scope (MVP)
 
 The following features are intentionally excluded from Version 1:
 
-- AI
-- Meal planner
-- Recommendation engine
-- Redis
-- Algolia
-- Native mobile app
-- Multi-language
-- Dark Mode
+| Feature               | Reason                              | Future Version |
+| --------------------- | ----------------------------------- | -------------- |
+| AI Features           | Requires significant infrastructure | v5.0           |
+| Meal Planner          | Complex feature, needs validation   | v6.0           |
+| Recommendation Engine | Requires user data and ML models    | v4.0           |
+| Redis Caching         | Premature optimization              | v3.0           |
+| Algolia Search        | Basic search sufficient for MVP     | v3.0           |
+| Native Mobile App     | Web app priority                    | v7.0           |
+| Multi-Language        | Focus on Persian market first       | v8.0           |
+| Dark Mode             | Nice-to-have feature                | v2.0           |
+
+---
+
+# 5. Technical Specifications
+
+## 5.1 Platform
+
+| Aspect     | Specification               |
+| ---------- | --------------------------- |
+| Type       | Responsive Web Application  |
+| Framework  | Next.js (App Router)        |
+| Rendering  | Server-Side Rendering (SSR) |
+| Responsive | Desktop, Tablet, Mobile     |
+
+### Supported Platforms
+
+| Platform | Support Level | Breakpoints    |
+| -------- | ------------- | -------------- |
+| Desktop  | Full          | > 1024px       |
+| Tablet   | Full          | 768px - 1024px |
+| Mobile   | Full          | < 768px        |
+
+## 5.2 Supported Languages
+
+| Version   | Languages               |
+| --------- | ----------------------- |
+| MVP (1.0) | Persian (fa-IR)         |
+| Future    | English (en-US), others |
+
+### Language Considerations
+
+| Aspect         | Implementation                  |
+| -------------- | ------------------------------- |
+| Text Direction | RTL (Right-to-Left) for Persian |
+| Font           | Persian-optimized web fonts     |
+| Date Format    | Persian calendar support        |
+| Number Format  | Persian numerals option         |
+
+## 5.3 Tech Stack
+
+### Frontend
+
+| Category          | Technology      | Purpose               |
+| ----------------- | --------------- | --------------------- |
+| Framework         | Next.js         | Application framework |
+| Language          | JavaScript      | Programming language  |
+| UI Library        | React           | Component library     |
+| Styling           | Tailwind CSS    | Utility-first CSS     |
+| Component Library | shadcn/ui       | UI components         |
+| Forms             | React Hook Form | Form management       |
+| Validation        | Zod             | Schema validation     |
+| State Management  | Context API     | Global state          |
+| Date Handling     | date-fns        | Date utilities        |
+| Loading           | react-spinners  | Loading indicators    |
+
+### Backend
+
+| Category       | Technology | Purpose             |
+| -------------- | ---------- | ------------------- |
+| Database       | MongoDB    | NoSQL database      |
+| ODM            | Mongoose   | Object modeling     |
+| Authentication | Auth.js    | User authentication |
+| Email          | Resend     | Email service       |
+
+### Infrastructure
+
+| Category        | Technology  | Purpose               |
+| --------------- | ----------- | --------------------- |
+| Deployment      | Vercel      | Hosting platform      |
+| File Uploads    | UploadThing | Image storage         |
+| Package Manager | NPM         | Dependency management |
+| Version Control | GitHub      | Source control        |
+
+### Development Tools
+
+| Tool     | Purpose         |
+| -------- | --------------- |
+| ESLint   | Code linting    |
+| Prettier | Code formatting |
+| Git      | Version control |
+
+## 5.4 Future Tools
+
+### Planned Integrations
+
+| Category   | Tool    | Version | Purpose             |
+| ---------- | ------- | ------- | ------------------- |
+| Search     | Algolia | v3.0    | Advanced search     |
+| Analytics  | PostHog | v1.2    | User analytics      |
+| Monitoring | Sentry  | v1.2    | Error tracking      |
+| Caching    | Redis   | v3.0    | Performance caching |
+
+### Testing Stack
+
+| Tool                  | Purpose           | Version |
+| --------------------- | ----------------- | ------- |
+| Vitest                | Unit testing      | v1.1    |
+| Playwright            | E2E testing       | v1.1    |
+| React Testing Library | Component testing | v1.1    |
+
+## 5.5 Technical Goals
+
+| Goal                  | Priority | Description                       |
+| --------------------- | -------- | --------------------------------- |
+| High Performance      | Critical | Fast load times, optimized assets |
+| Responsive Design     | Critical | Works on all device sizes         |
+| SEO Friendly          | High     | Optimized for search engines      |
+| Accessibility         | High     | WCAG compliance                   |
+| Scalable Architecture | High     | Handles growth efficiently        |
+| Maintainable Codebase | High     | Clean, documented code            |
+
+---
+
+# 6. Success Metrics
+
+## 6.1 Key Performance Indicators (KPIs)
+
+### User Acquisition
+
+| Metric                     | Target  | Measurement               |
+| -------------------------- | ------- | ------------------------- |
+| Registered Users           | 10,000+ | Total registered accounts |
+| Monthly Active Users (MAU) | 5,000+  | Unique users per month    |
+| Daily Active Users (DAU)   | 1,000+  | Unique users per day      |
+
+### Engagement
+
+| Metric                   | Target     | Measurement           |
+| ------------------------ | ---------- | --------------------- |
+| Average Session Duration | 5+ minutes | Time per visit        |
+| Pages per Session        | 3+ pages   | Navigation depth      |
+| Returning Users          | 40%+       | Return within 30 days |
+
+### Content
+
+| Metric            | Target  | Measurement          |
+| ----------------- | ------- | -------------------- |
+| Published Recipes | 1,000+  | Total public recipes |
+| Comments          | 5,000+  | Total comments       |
+| Saved Recipes     | 10,000+ | Total bookmarks      |
+
+### Quality
+
+| Metric                | Target     | Measurement       |
+| --------------------- | ---------- | ----------------- |
+| Average Rating        | 4.0+ stars | Platform average  |
+| Support Response Time | < 24 hours | Ticket resolution |
+
+## 6.2 Measurement Tools
+
+| Tool             | Purpose          | Implementation |
+| ---------------- | ---------------- | -------------- |
+| PostHog          | User analytics   | v1.2           |
+| Sentry           | Error monitoring | v1.2           |
+| Custom Dashboard | Business metrics | Admin app      |
+
+---
+
+# 7. Roadmap
+
+## 7.1 Development Roadmap
+
+### Phase 1: Foundation (v1.0)
+
+| Milestone        | Description                           |
+| ---------------- | ------------------------------------- |
+| Core Features    | Authentication, Recipes, Categories   |
+| User Features    | Profile, Bookmarks, Ratings, Comments |
+| Social Features  | Following, Notifications              |
+| Support Features | Tickets, Settings                     |
+| Launch           | MVP release                           |
+
+### Phase 2: Stabilization (v1.1 - v1.2)
+
+| Version | Focus                    |
+| ------- | ------------------------ |
+| v1.1    | Testing infrastructure   |
+| v1.2    | Analytics and monitoring |
+
+### Phase 3: Enhancement (v2.0+)
+
+| Version | Major Feature                             |
+| ------- | ----------------------------------------- |
+| v2.0    | Dark mode                                 |
+| v3.0    | Performance optimization (Redis, Algolia) |
+| v4.0    | Recommendation engine                     |
+| v5.0    | AI cooking assistant                      |
+| v6.0    | Meal planning                             |
+| v7.0    | Native mobile apps                        |
+| v8.0    | Multi-language support                    |
+
+## 7.2 Version Timeline
+
+```
+v1.0 ─── v1.1 ─── v1.2 ─── v2.0 ─── v3.0 ─── v4.0 ─── v5.0 ─── v6.0 ─── v7.0 ─── v8.0
+ MVP     Tests   Monitor  Dark    Search   Recommend   AI      Meal    Mobile  Multi-
+                                       Mode   Enhance   Engine  Assist  Plan    App   Language
+```
+
+---
+
+# Appendix
+
+## A. Project Files Reference
+
+| Document              | Purpose                          |
+| --------------------- | -------------------------------- |
+| 01-product.md         | Product overview (this document) |
+| 02-features.md        | Feature specifications           |
+| business-rules.md     | Business rules and constraints   |
+| project-principles.md | Development principles           |
+| roles.md              | User roles and permissions       |
+
+## B. External References
+
+| Resource          | Purpose                    |
+| ----------------- | -------------------------- |
+| Figma Design      | UI/UX specifications       |
+| Admin Dashboard   | Administrative application |
+| API Documentation | Backend endpoints          |
+
+## C. Glossary
+
+| Term | Definition                |
+| ---- | ------------------------- |
+| MVP  | Minimum Viable Product    |
+| DAU  | Daily Active Users        |
+| MAU  | Monthly Active Users      |
+| KPI  | Key Performance Indicator |
+| ODM  | Object Document Mapper    |
+| SSR  | Server-Side Rendering     |
+
+---
+
+_Document Version: 1.0_
+_Last Updated: July 2026_
