@@ -1,0 +1,151 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@theme {
+  /* Breakpoints */
+  --breakpoint-sm: 0px; /* mobile */
+  --breakpoint-md: 768px; /* tablet */
+  --breakpoint-md2: 890px; /* tablet */
+  --breakpoint-lg: 1440px; /* desktop */
+
+  /* Font Sizes */
+  --text-8: 0.5rem; /* 8px */
+  --text-9: 0.5625rem; /* 9px */
+  --text-10: 0.625rem; /* 10px */
+  --text-11: 0.6875rem; /* 11px */
+  --text-12: 0.75rem; /* 12px */
+  --text-13: 0.8125rem; /* 13px */
+  --text-14: 0.875rem; /* 14px */
+  --text-15: 0.9375rem; /* 15px */
+  --text-16: 1rem; /* 16px */
+  --text-17: 1.0625rem; /* 17px */
+  --text-18: 1.125rem; /* 18px */
+  --text-19: 1.1875rem; /* 19px */
+  --text-20: 1.25rem; /* 20px */
+  --text-21: 1.3125rem; /* 21px */
+  --text-22: 1.375rem; /* 22px */
+  --text-24: 1.5rem; /* 24px */
+  --text-25: 1.5625rem; /* 25px */
+  --text-26: 1.625rem; /* 26px */
+
+  /* Colors - Red */
+  --color-red-50: #fffafa;
+  --color-red-100: #fed2d2;
+  --color-red-200: #fbabab;
+  --color-red-300: #f68787;
+  --color-red-400: #ef6464;
+  --color-red-500: #e64444;
+  --color-red-600: #dc2121;
+  --color-red-700: #b11d1d;
+  --color-red-800: #881818;
+  --color-red-900: #601313;
+  --color-red-950: #390c0c;
+  --color-red-hover: #cd2f2f;
+  --color-red-notif: #ea4545;
+
+  /* Colors - Neutral */
+  --color-neutral-1: #ffffff;
+  --color-neutral-2: #fcfcfc;
+  --color-neutral-3: #f5f5f5;
+  --color-neutral-4: #f0f0f0;
+  --color-neutral-5: #d9d9d9;
+  --color-neutral-6: #bfbfbf;
+  --color-neutral-7: #8c8c8c;
+  --color-neutral-8: #595959;
+  --color-neutral-9: #454545;
+  --color-neutral-10: #262626;
+  --color-neutral-11: #1f1f1f;
+  --color-neutral-12: #141414;
+  --color-neutral-13: #000000;
+
+  /* Colors - Accent */
+  --accent-green-notif: #2ac04e;
+  --accent-yellow-400: #f9b06f;
+  --accent-yellow-500: #f69c4c;
+  --accent-yellow-600: #f1882a;
+
+  /* Border Radius */
+  --radius-none: 0; /* 0px */
+  --radius-sm: 0.125rem; /* 2px */
+  --radius-default: 0.25rem; /* 4px */
+  --radius-md: 0.375rem; /* 6px */
+  --radius-lg: 0.5rem; /* 8px */
+  --radius-xl: 0.75rem; /* 12px */
+  --radius-2xl: 1rem; /* 16px */
+  --radius-3xl: 1.5rem; /* 24px */
+  --radius-card: 1.5rem; /* 24px */
+  --radius-card-sm: 1.125rem; /* 18px */
+  --radius-card-xs: 1rem; /* 16px */
+
+  /* Spacing */
+  --spacing-2: 0.125rem; /* 2px */
+  --spacing-4: 0.25rem; /* 4px */
+  --spacing-6: 0.375rem; /* 6px */
+  --spacing-8: 0.5rem; /* 8px */
+  --spacing-10: 0.625rem; /* 10px */
+  --spacing-12: 0.75rem; /* 12px */
+  --spacing-14: 0.875rem; /* 14px */
+  --spacing-16: 1rem; /* 16px */
+  --spacing-18: 1.125rem; /* 18px */
+  --spacing-20: 1.25rem; /* 20px */
+  --spacing-22: 1.375rem; /* 22px */
+  --spacing-24: 1.5rem; /* 24px */
+  --spacing-26: 1.625rem; /* 26px */
+  --spacing-28: 1.75rem; /* 28px */
+  --spacing-30: 1.875rem; /* 30px */
+  --spacing-32: 2rem; /* 32px */
+  --spacing-34: 2.125rem; /* 34px */
+  --spacing-36: 2.25rem; /* 36px */
+  --spacing-38: 2.375rem; /* 38px */
+  --spacing-40: 2.5rem; /* 40px */
+  --spacing-52: 3.25rem; /* 52px */
+  --spacing-58: 3.625rem; /* 58px */
+  --spacing-page-x-desktop: 2.5rem; /* 40px */
+  --spacing-page-x-mobile: 1.5rem; /* 24px */
+  --spacing-card-gap-x-desktop: 2rem; /* 32px */
+  --spacing-card-gap-x-tablet: 1.5rem; /* 24px */
+  --spacing-card-gap-x-mobile: 1rem; /* 16px */
+  --spacing-card-gap-y-desktop: 2.375rem; /* 38px */
+  --spacing-card-gap-y-tablet: 1.75rem; /* 28px */
+  --spacing-card-gap-y-mobile: 1rem; /* 16px */
+
+  /* Box Shadow */
+  --shadow-modal: 0px 4px 4px 0px rgba(230, 230, 230, 0.2);
+
+  /* Font Family */
+  /* --font-sans: "IRANSansX", sans-serif;
+  --font-num: "IRANSansXFaNum", sans-serif; */
+}
+
+body {
+  font-family: var(--font-iransans);
+  -moz-font-feature-settings: "ss02";
+  -webkit-font-feature-settings: "ss02";
+  font-feature-settings: "ss02";
+  font-size: 16px;
+}
+
+button,
+a {
+  cursor: pointer;
+}
+
+/* Chrome, Safari, Edge */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+input {
+  outline: none;
+}
+
+li {
+  list-style-type: none;
+}
