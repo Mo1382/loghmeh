@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowLeftCircleIcon, CloseIcon, FilterIcon } from "../icons";
 import FilterSortBtn from "../ui/Buttons/FilterSortBtn";
 import ChevronLeftIcon from "../icons/ChevronLeft";
 import DeleteFiltersBtn from "../ui/Buttons/DeleteFiltersBtn";
 import FilterConfirmBtn from "../ui/Buttons/FilterConfirmBtn";
 import Checkbox from "../ui/Checkbox";
+import FilterSelectBar from "./FilterSelectBar";
+import useClickOutside from "@/lib/hooks/useClickOutside";
 
 const filterItems = [
   // Options must be fetched from the backend
@@ -58,7 +60,18 @@ export default function Filter() {
     setOpenedFilterId(null);
   };
 
+  const handleOpenFilter = (filterId) => {
+    setOpenedFilterId((prev) => (prev === filterId ? null : filterId));
+  };
+
+  const filterRef = useRef(null);
+
+  useClickOutside(filterRef, () => {
+    setOpenedFilterId(null);
+  });
+
   // Get already filtered items fron url parameters
+  const filteredValues = ["غذای اصلی", "آسان", "ایران"];
 
   return (
     <>
@@ -73,7 +86,10 @@ export default function Filter() {
                 <FilterIcon className="w-22 h-22 stroke-2" />
                 <span className="text-18 font-regular">فیلترها</span>
               </div>
-              <CloseIcon className="w-22 h-22 stroke-2 cursor-pointer" />
+              <CloseIcon
+                className="w-22 h-22 stroke-2 cursor-pointer"
+                onClose={handleCloseFilter}
+              />
             </div>
             <ul className="mt-4 flex flex-col px-4">
               {filterItems.map((item, i) => {
@@ -91,7 +107,7 @@ export default function Filter() {
             </ul>
             <div className="flex flex-row justify-between items-center mt-auto gap-x-32 px-4">
               <div className="flex w-1/2">
-                <FilterConfirmBtn />
+                <FilterConfirmBtn onCloseFilter={handleCloseFilter} />
               </div>
               <div className="flex w-1/2">
                 <DeleteFiltersBtn />
@@ -115,7 +131,7 @@ export default function Filter() {
                   <li
                     key={option}
                     // Must change filters parameter in URI
-                    onClick={() => {}}
+                    // onClick={() => {}}
                     className="cursor-pointer flex flex-row justify-between items-center py-22 border-b border-neutral-5 last:border-b-0"
                   >
                     <span className="text-16 font-regular">{option}</span>
@@ -132,7 +148,46 @@ export default function Filter() {
       </div>
 
       {/* Filter component for tabelt and desktop screens */}
-      <div className="hidden md:flex"></div>
+      <div className="hidden md:flex flex-row gap-x-24 relative lg:gap-x-32">
+        <div className="flex flex-row items-start gap-x-8 text-neutral-8 pt-6 lg:gap-x-10 lg:pt-[7px]">
+          <FilterIcon className="w-16 h-16 stroke-2 lg:w-18 lg:h-18" />
+          <span className="text-14 font-regular lg:text-16 lg:font-medium">
+            فیلترها
+          </span>
+        </div>
+        <div className="flex flex-col gap-y-16 items-start grow">
+          <ul className="flex flex-row gap-x-16 lg:gap-x-20" ref={filterRef}>
+            {filterItems.map((item, i) => {
+              return (
+                <FilterSelectBar
+                  key={i}
+                  label={item.label}
+                  options={item.options}
+                  onOpenFilter={() => handleOpenFilter(item.id)}
+                  isOpen={openedFilterId === item.id}
+                />
+              );
+            })}
+          </ul>
+          <div className="w-full flex flex-row justify-between items-center">
+            <ul className="flex flex-row py-[5px] gap-x-12 lg:gap-y-0">
+              {filteredValues.map((value) => {
+                return (
+                  <li
+                    className="bg-neutral-3 rounded-lg lg:rounded-[10px] border border-neutral-5 text-neutral-7 text-11 lg:text-12 font-medium py-[7] lg:py-8 px-10 lg:px-12"
+                    key={value}
+                  >
+                    {value}
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="lg:absolute lg:left-0 lg:top-0">
+              <DeleteFiltersBtn />
+            </div>
+          </div>
+        </div>
+      </div>
     </>
   );
 }

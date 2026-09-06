@@ -1,4 +1,7 @@
 ﻿import Filter from "@/components/shared/Filter";
+import FilterSelectBar from "@/components/shared/FilterSelectBar";
+import Sort from "@/components/shared/Sort";
+import SelectBar from "@/components/ui/Form/SelectBar";
 
 export default function Home() {
   // const [activeTab, setActiveTab] = useState("profile");
@@ -22,7 +25,8 @@ export default function Home() {
         {/* <MainNavigation /> */}
         {/* <SettingTabs activeTab={activeTab} onTabChange={setActiveTab} /> */}
         {/* <FilterSortBtn type="filter" /> */}
-        <Filter />
+        {/* <Filter /> */}
+        {/* <Sort /> */}
       </div>
     </main>
   );

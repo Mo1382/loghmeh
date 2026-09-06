@@ -1,5 +1,6 @@
-const CloseIcon = ({ className }) => (
+const CloseIcon = ({ className, onClose }) => (
   <svg
+    onClick={onClose}
     xmlns="http://www.w3.org/2000/svg"
     fill="none"
     viewBox="0 0 40 40"
