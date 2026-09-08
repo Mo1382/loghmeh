@@ -1,4 +1,4 @@
-const InfoCircleIcon = ({ className }) => (
+const AlertCircleIcon = ({ className }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     fill="none"
@@ -14,4 +14,4 @@ const InfoCircleIcon = ({ className }) => (
     />
   </svg>
 );
-export default InfoCircleIcon;
+export default AlertCircleIcon;

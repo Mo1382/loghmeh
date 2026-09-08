@@ -1,14 +1,20 @@
-﻿import Filter from "@/components/shared/Filter";
-import FilterSelectBar from "@/components/shared/FilterSelectBar";
-import Sort from "@/components/shared/Sort";
-import SelectBar from "@/components/ui/Form/SelectBar";
+﻿import { ClockIcon, ImageIcon } from "@/components/icons";
+import AppError from "@/components/shared/AppError";
+import Modal from "@/components/shared/Modal";
+import NoItemExist from "@/components/shared/NoItemExist";
+import NotAuthError from "@/components/shared/NotAuthError";
+import NoItemFound from "@/components/shared/NotFound";
+import RecipeBadge from "@/components/shared/RecipeBadge";
+import IngredientRow from "@/components/ui/IngredientRow";
+import RecipeMetadata from "@/components/ui/RecipeMetadata";
+import StepRow from "@/components/ui/StepRow";
 
 export default function Home() {
   // const [activeTab, setActiveTab] = useState("profile");
 
   return (
     <main className="w-full">
-      <div className="mx-auto max-[1400px] mx-28 my-24">
+      <div className="mx-auto max-w-[600px] mx-28 my-24 flex flex-col gap-y-40">
         {/* <MyProfile /> */}
         {/* <BioForm /> */}
         {/* <SocialLinkForm /> */}
@@ -27,6 +33,44 @@ export default function Home() {
         {/* <FilterSortBtn type="filter" /> */}
         {/* <Filter /> */}
         {/* <Sort /> */}
+        {/* <Comment isUserRecipe={true} />
+        <Comment type="reply" /> */}
+        {/* <NoItemFound msg="برای فیلتر شما هیچ دستور پختی پیدا نشد." /> */}
+        {/* <AppError /> */}
+        {/* <NoItemExist msg="هنوز هیچ دستور پختی را ذخیره نکرده‌اید." /> */}
+        {/* <NotAuthError type="recipe">
+          برای دسترسی به این صفحه و ذخیره دستور پخت‌های دلخواه خود، ابتدا باید
+          وارد حساب کاربری خود شوید.
+        </NotAuthError>
+        <NotAuthError type="comment">
+          <>
+            <span className="inline-block md:hidden">
+              برای امتیاز دهی به این دستور پخت یا ثبت نظر در مورد آن، ابتدا باید
+              وارد حساب کاربری خود شوید.
+            </span>
+            <span className="hidden md:inline-block">
+              برای ثبت نظر یا واکنش به نظرات دیگر افراد، ابتدا باید وارد حساب
+              کاربری خود شوید.
+            </span>
+          </>
+        </NotAuthError>
+        <NotAuthError type="rate">
+          <>
+            <span className="inline-block md:hidden">
+              برای امتیاز دهی به این دستور پخت یا ثبت نظر در مورد آن، ابتدا باید
+              وارد حساب کاربری خود شوید.
+            </span>
+            <span className="hidden md:inline-block">
+              برای ذخیره‌ی دستور پخت در بخش دستور پخت‌های من یا امتیاز دهی به
+              آن‌ها، ابتدا باید وارد حساب کاربری خود شوید.
+            </span>
+          </>
+        </NotAuthError> */}
+        {/* <Modal /> */}
+        {/* <IngredientRow servingNumber={5} /> */}
+        {/* <StepRow /> */}
+        {/* <RecipeBadge>دسر</RecipeBadge> */}
+        {/* <RecipeMetadata /> */}
       </div>
     </main>
   );

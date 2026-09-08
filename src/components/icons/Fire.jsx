@@ -1,4 +1,4 @@
-const ImageIcon = ({ className }) => (
+const FireIcon = ({ className }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     xmlnsXlink="http://www.w3.org/1999/xlink"
@@ -26,4 +26,4 @@ const ImageIcon = ({ className }) => (
     </defs>
   </svg>
 );
-export default ImageIcon;
+export default FireIcon;
