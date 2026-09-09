@@ -4,6 +4,7 @@ import { IRANSansX } from "@/fonts/fonts";
 import MainNavigation from "@/components/layout/navigation/MainNavigation";
 import MenuProvider from "@/components/layout/navigation/MenuContext";
 import TopNavigation from "@/components/layout/navigation/TopNavigation";
+import { Toaster } from "react-hot-toast";
 
 export const metadata = {
   // metadataBase: new URL(APP_URL),
@@ -89,6 +90,14 @@ export default function RootLayout({ children }) {
           <TopNavigation /> */}
         {children}
         {/* </MenuProvider> */}
+
+        <Toaster
+          position="top-center"
+          gutter={16}
+          containerStyle={{
+            top: 43,
+          }}
+        />
       </body>
     </html>
   );

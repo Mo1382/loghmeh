@@ -9,7 +9,6 @@ const MessageSquareIcon = ({ className }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M35 25a3.333 3.333 0 0 1-3.333 3.333h-20L5 35V8.333A3.333 3.333 0 0 1 8.333 5h23.334A3.333 3.333 0 0 1 35 8.333z"
     />
   </svg>

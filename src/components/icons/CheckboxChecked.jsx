@@ -9,14 +9,12 @@ const CheckboxCheckedIcon = ({ className }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="m15 18.333 5 5L36.667 6.667"
     />
     <path
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M35 20v11.667A3.333 3.333 0 0 1 31.667 35H8.333A3.333 3.333 0 0 1 5 31.667V8.333A3.333 3.333 0 0 1 8.333 5h18.334"
     />
   </svg>

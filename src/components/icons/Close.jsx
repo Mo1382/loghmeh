@@ -10,7 +10,6 @@ const CloseIcon = ({ className, onClose }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M30 10 10 30M10 10l20 20"
     />
   </svg>

@@ -19,7 +19,9 @@ export default function RecipeCard({
     "w-full group cursor-pointer bg-neutral-1 rounded-card-sm  border border-neutral-5 hover:border-red-400 transition overflow-hidden lg:rounded-card";
 
   return (
-    <div className={`relative w-1/2 ${isInHome ? "w-[154px]" : ""} md:w-1/4`}>
+    <div
+      className={`relative shrink-0 basis-1/2 ${isInHome ? "basis-[154px]" : ""} md:basis-[calc((100%_-_72px)_/_4)] lg:basis-[calc((100%_-_96px)_/_4)]`}
+    >
       <div className={wrapperClassName}>
         <div className="relative w-full aspect-square overflow-hidden rounded-t-card-sm rounded-b-[14px] rounded-t-card rounded-b-[20px]">
           <Image

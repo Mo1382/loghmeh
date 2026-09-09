@@ -9,7 +9,6 @@ const ChevronUpIcon = ({ className }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="m10 25 10-10 10 10"
     />
   </svg>

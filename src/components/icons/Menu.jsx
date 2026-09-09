@@ -9,7 +9,6 @@ export default function MenuIcon({ className }) {
       <path
         d="M5 10h30M5 16.67h30M5 23.33h30M5 30h30"
         stroke="currentColor"
-        strokeWidth="2"
         strokeLinecap="round"
       />
     </svg>

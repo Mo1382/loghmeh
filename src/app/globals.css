@@ -60,10 +60,10 @@
   --color-neutral-13: #000000;
 
   /* Colors - Accent */
-  --accent-green-notif: #2ac04e;
-  --accent-yellow-400: #f9b06f;
-  --accent-yellow-500: #f69c4c;
-  --accent-yellow-600: #f1882a;
+  --color-green-notif: #2ac04e;
+  --color-yellow-400: #f9b06f;
+  --color-yellow-500: #f69c4c;
+  --color-yellow-600: #f1882a;
 
   /* Border Radius */
   --radius-none: 0; /* 0px */
@@ -112,6 +112,7 @@
 
   /* Box Shadow */
   --shadow-modal: 0px 4px 4px 0px rgba(230, 230, 230, 0.2);
+  --shadow-slider: 0px 4px 4px 0px rgba(230, 230, 230, 0.14);
   --shadow-card: 0px 4px 4px 0px rgba(230, 230, 230, 0.08);
 
   /* Font Family */

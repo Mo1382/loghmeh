@@ -9,7 +9,6 @@ const LogOutIcon = ({ className }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M15 5H8.333A3.333 3.333 0 0 0 5 8.333v23.334A3.333 3.333 0 0 0 8.333 35H15M23.333 28.333 15 20l8.333-8.333M15 20h20"
     />
   </svg>

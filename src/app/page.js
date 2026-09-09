@@ -1,10 +1,16 @@
-﻿import { ClockIcon, ImageIcon } from "@/components/icons";
+﻿import { CheckCircleIcon, ClockIcon, ImageIcon } from "@/components/icons";
+import AlertCircleIcon from "@/components/icons/AlertCircle";
 import AppError from "@/components/shared/AppError";
+import Footer from "@/components/shared/Footer";
 import Modal from "@/components/shared/Modal";
 import NoItemExist from "@/components/shared/NoItemExist";
 import NotAuthError from "@/components/shared/NotAuthError";
 import NoItemFound from "@/components/shared/NotFound";
+import Notification from "@/components/shared/Notification";
 import RecipeBadge from "@/components/shared/RecipeBadge";
+import RecipeSlider from "@/components/shared/RecipeSilder";
+import Example from "@/components/shared/Test";
+import Test2 from "@/components/shared/Test2";
 import IngredientRow from "@/components/ui/IngredientRow";
 import RecipeMetadata from "@/components/ui/RecipeMetadata";
 import StepRow from "@/components/ui/StepRow";
@@ -14,7 +20,7 @@ export default function Home() {
 
   return (
     <main className="w-full">
-      <div className="mx-auto max-w-[600px] mx-28 my-24 flex flex-col gap-y-40">
+      <div className="mx-auto max-w-[1000px] mx-28 my-24 flex flex-col gap-y-40">
         {/* <MyProfile /> */}
         {/* <BioForm /> */}
         {/* <SocialLinkForm /> */}
@@ -71,6 +77,63 @@ export default function Home() {
         {/* <StepRow /> */}
         {/* <RecipeBadge>دسر</RecipeBadge> */}
         {/* <RecipeMetadata /> */}
+        {/* <Footer /> */}
+        {/* <Notification /> */}
+        {/* <Example /> */}
+        {/* <Test2 /> */}
+        {/* <Example /> */}
+        {/* <RecipeSlider
+          recipes={[
+            {
+              rate: "4.5",
+              img: "/img/chocolate-cake-with-chocolate-drops-cream.png",
+              name: "کیک بروانی شکلاتی",
+              category: "دسر",
+              userImg: "/img/test-avatar.png",
+              username: "Sara_953",
+            },
+            {
+              rate: "4.5",
+              img: "/img/chocolate-cake-with-chocolate-drops-cream.png",
+              name: "کیک بروانی شکلاتی",
+              category: "دسر",
+              userImg: "/img/test-avatar.png",
+              username: "Sara_953",
+            },
+            {
+              rate: "4.5",
+              img: "/img/chocolate-cake-with-chocolate-drops-cream.png",
+              name: "کیک بروانی شکلاتی",
+              category: "دسر",
+              userImg: "/img/test-avatar.png",
+              username: "Sara_953",
+            },
+            {
+              rate: "4.5",
+              img: "/img/chocolate-cake-with-chocolate-drops-cream.png",
+              name: "کیک بروانی شکلاتی",
+              category: "دسر",
+              userImg: "/img/test-avatar.png",
+              username: "Sara_953",
+            },
+            {
+              rate: "4.5",
+              img: "/img/chocolate-cake-with-chocolate-drops-cream.png",
+              name: "کیک بروانی شکلاتی",
+              category: "دسر",
+              userImg: "/img/test-avatar.png",
+              username: "Sara_953",
+            },
+            {
+              rate: "4.5",
+              img: "/img/chocolate-cake-with-chocolate-drops-cream.png",
+              name: "کیک بروانی شکلاتی",
+              category: "دسر",
+              userImg: "/img/test-avatar.png",
+              username: "Sara_953",
+            },
+          ]}
+        /> */}
       </div>
     </main>
   );

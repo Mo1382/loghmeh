@@ -9,7 +9,6 @@ const PlusLargeIcon = ({ className }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M20 8.333v23.334M8.333 20h23.334"
     />
   </svg>

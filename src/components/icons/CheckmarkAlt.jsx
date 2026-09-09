@@ -9,7 +9,6 @@ const CheckmarkAltIcon = ({ className }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M33.333 10 15 28.333 6.667 20"
     />
   </svg>

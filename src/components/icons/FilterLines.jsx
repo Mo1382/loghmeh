@@ -9,7 +9,6 @@ export default function SortIcon({ className }) {
       <path
         stroke="currentColor"
         strokeLinecap="round"
-        strokeWidth={2}
         d="M5 11.667h30M10 20h20M16.667 28.333h6.666"
       />
     </svg>

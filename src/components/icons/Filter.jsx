@@ -9,7 +9,6 @@ const FilterIcon = ({ className }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M36.667 5H3.333l13.334 15.767v10.9L23.333 35V20.767z"
     />
   </svg>

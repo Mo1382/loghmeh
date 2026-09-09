@@ -9,12 +9,10 @@ export default function AddCircleIcon({ className }) {
       <path
         d="M20 3.5a16.5 16.5 0 1 0 0 33 16.5 16.5 0 0 0 0-33Z"
         stroke="currentColor"
-        strokeWidth="1.67"
       />
       <path
         d="M20 13.33v13.34M13.33 20h13.34"
         stroke="currentColor"
-        strokeWidth="1.67"
         strokeLinecap="round"
       />
     </svg>

@@ -9,14 +9,12 @@ const RefreshIcon = ({ className }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M38.333 6.667v10h-10M1.667 33.333v-10h10"
     />
     <path
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M5.85 15A15 15 0 0 1 30.6 9.4l7.733 7.267M1.667 23.333 9.4 30.6A15 15 0 0 0 34.15 25"
     />
   </svg>

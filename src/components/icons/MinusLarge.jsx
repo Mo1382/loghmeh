@@ -9,7 +9,6 @@ const MinusLargeIcon = ({ className }) => (
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth={2}
       d="M8.333 20h23.334"
     />
   </svg>
