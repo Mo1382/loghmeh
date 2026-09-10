@@ -14,7 +14,7 @@ const stepIconClassName =
 const notificationClassName =
   "rounded-lg p-[7px] md:p-14 md:rounded-xl lg:p-16";
 const notificationIconClassName =
-  "h-18 w-18 stroke-[1px] md:h-24 md:w-24 lg:h-26 lg:w-26 lg:stroke-[1.5px]";
+  "h-18 w-18 stroke-2 md:h-24 md:w-24 lg:h-26 lg:w-26";
 
 export default function RemoveItemBtn({ type = "notification" }) {
   let buttonClassName;

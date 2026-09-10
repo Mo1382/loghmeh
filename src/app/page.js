@@ -1,16 +1,23 @@
 ﻿import { CheckCircleIcon, ClockIcon, ImageIcon } from "@/components/icons";
 import AlertCircleIcon from "@/components/icons/AlertCircle";
 import AppError from "@/components/shared/AppError";
+import BookmarkRecipe from "@/components/shared/BookmarkRecipe";
 import Footer from "@/components/shared/Footer";
 import Modal from "@/components/shared/Modal";
 import NoItemExist from "@/components/shared/NoItemExist";
 import NotAuthError from "@/components/shared/NotAuthError";
 import NoItemFound from "@/components/shared/NotFound";
 import Notification from "@/components/shared/Notification";
+import NotificationRow from "@/components/shared/NotificationRow";
 import RecipeBadge from "@/components/shared/RecipeBadge";
+import RecipeRate from "@/components/shared/RecipeRate";
 import RecipeSlider from "@/components/shared/RecipeSilder";
+import SocialLinks from "@/components/shared/SocialLinks";
+import SocialLink from "@/components/shared/SocialLinks";
 import Example from "@/components/shared/Test";
 import Test2 from "@/components/shared/Test2";
+import RateForm from "@/components/ui/Form/RateForm";
+import SocialLinkForm from "@/components/ui/Form/SocialLinkForm";
 import IngredientRow from "@/components/ui/IngredientRow";
 import RecipeMetadata from "@/components/ui/RecipeMetadata";
 import StepRow from "@/components/ui/StepRow";
@@ -134,6 +141,14 @@ export default function Home() {
             },
           ]}
         /> */}
+
+        {/* <NotificationRow /> */}
+        {/* <RecipeRate avgRate={3.4} rateNumber={28} /> */}
+        {/* <RecipeRate avgRate={4.55} rateNumber={0} /> */}
+        {/* <BookmarkRecipe /> */}
+        {/* <RateForm /> */}
+
+        {/* <SocialLinks /> */}
       </div>
     </main>
   );
