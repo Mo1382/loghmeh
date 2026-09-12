@@ -112,7 +112,7 @@
 
   /* Box Shadow */
   --shadow-modal: 0px 4px 4px 0px rgba(230, 230, 230, 0.2);
-  --shadow-slider: 0px 4px 4px 0px rgba(230, 230, 230, 0.14);
+  --shadow-button: 0px 4px 4px 0px rgba(230, 230, 230, 0.14);
   --shadow-card: 0px 4px 4px 0px rgba(230, 230, 230, 0.08);
 
   /* Font Family */

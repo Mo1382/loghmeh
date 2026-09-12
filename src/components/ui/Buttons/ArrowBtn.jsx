@@ -14,7 +14,7 @@ export default function ArrowBtn({ type = "left", onClick, isDisabled }) {
             top-1/2
             -translate-y-1/2
             ${isDisabled ? "md:hidden" : "md:flex"}
-            z-10 hidden group  disabled:opacity-40 justify-center items-center  w-[58px] h-[58px] lg:w-[76px] lg:h-[76px] rounded-full bg-neutral-3 border border-transparent hover:border-red-300 transition-colors shadow-modal`}
+            z-10 hidden group  disabled:opacity-40 justify-center items-center  w-[58px] h-[58px] lg:w-[76px] lg:h-[76px] rounded-full bg-neutral-3 border border-transparent hover:border-red-300 transition-colors shadow-button`}
       onClick={onClick}
       disabled={isDisabled}
     >

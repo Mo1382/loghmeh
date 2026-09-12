@@ -19,7 +19,7 @@ export default function RecipeRate({ avgRate, rateNumber }) {
       <span className="font-extralight md:font-light text-9 md:text-11 text-neutral-7">
         ( <span className="font-light">{rateNumber}</span> نفر )
       </span>
-      <div className="flex flex-row gap-x-4 items-start md:gap-x-8">
+      <div className="flex flex-row gap-x-6 items-start md:gap-x-8">
         <div dir="ltr" className="flex flex-row gap-x-[1px]">
           {arr.map((_, i) => {
             const isActive = i + 1 <= integeravgRateRounded;

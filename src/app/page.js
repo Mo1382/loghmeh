@@ -1,6 +1,7 @@
 ﻿import { CheckCircleIcon, ClockIcon, ImageIcon } from "@/components/icons";
 import AlertCircleIcon from "@/components/icons/AlertCircle";
 import AppError from "@/components/shared/AppError";
+import AppLinks from "@/components/shared/AppLinks";
 import BookmarkRecipe from "@/components/shared/BookmarkRecipe";
 import Footer from "@/components/shared/Footer";
 import Modal from "@/components/shared/Modal";
@@ -9,13 +10,18 @@ import NotAuthError from "@/components/shared/NotAuthError";
 import NoItemFound from "@/components/shared/NotFound";
 import Notification from "@/components/shared/Notification";
 import NotificationRow from "@/components/shared/NotificationRow";
+import ProfileHeader from "@/components/shared/ProfileHeader";
 import RecipeBadge from "@/components/shared/RecipeBadge";
+import RecipeDetailHeader from "@/components/shared/RecipeDetailHeader";
 import RecipeRate from "@/components/shared/RecipeRate";
 import RecipeSlider from "@/components/shared/RecipeSilder";
+import ServingsCounter from "@/components/shared/ServingsCounter";
 import SocialLinks from "@/components/shared/SocialLinks";
 import SocialLink from "@/components/shared/SocialLinks";
 import Example from "@/components/shared/Test";
 import Test2 from "@/components/shared/Test2";
+import AddEditRecipeBtn from "@/components/ui/Buttons/AddRecipeBtn";
+import ProfileBtn from "@/components/ui/Buttons/ProfileBtn";
 import RateForm from "@/components/ui/Form/RateForm";
 import SocialLinkForm from "@/components/ui/Form/SocialLinkForm";
 import IngredientRow from "@/components/ui/IngredientRow";
@@ -27,7 +33,8 @@ export default function Home() {
 
   return (
     <main className="w-full">
-      <div className="mx-auto max-w-[1000px] mx-28 my-24 flex flex-col gap-y-40">
+      <div className="mx-auto max-w-[1000px] mx-28 my-24 flex flex-col gap-y-40 px-40">
+        {/* <div> */}
         {/* <MyProfile /> */}
         {/* <BioForm /> */}
         {/* <SocialLinkForm /> */}
@@ -149,6 +156,14 @@ export default function Home() {
         {/* <RateForm /> */}
 
         {/* <SocialLinks /> */}
+        {/* <AppLinks /> */}
+
+        {/* <ProfileHeader type="currentUser" /> */}
+        {/* <ProfileHeader type="otherUser" /> */}
+
+        <RecipeDetailHeader />
+
+        {/* <ServingsCounter defaultServings={12} /> */}
       </div>
     </main>
   );
