@@ -1,8 +1,10 @@
 ﻿import { CheckCircleIcon, ClockIcon, ImageIcon } from "@/components/icons";
 import AlertCircleIcon from "@/components/icons/AlertCircle";
+import MainNavigation from "@/components/layout/navigation/MainNavigation";
 import AppError from "@/components/shared/AppError";
 import AppLinks from "@/components/shared/AppLinks";
 import BookmarkRecipe from "@/components/shared/BookmarkRecipe";
+import ButtonSpinner from "@/components/shared/ButtonSpinner";
 import Footer from "@/components/shared/Footer";
 import Modal from "@/components/shared/Modal";
 import NoItemExist from "@/components/shared/NoItemExist";
@@ -10,6 +12,7 @@ import NotAuthError from "@/components/shared/NotAuthError";
 import NoItemFound from "@/components/shared/NotFound";
 import Notification from "@/components/shared/Notification";
 import NotificationRow from "@/components/shared/NotificationRow";
+import PageSpinner from "@/components/shared/PageSpinner";
 import ProfileHeader from "@/components/shared/ProfileHeader";
 import RecipeBadge from "@/components/shared/RecipeBadge";
 import RecipeDetailHeader from "@/components/shared/RecipeDetailHeader";
@@ -21,6 +24,8 @@ import SocialLink from "@/components/shared/SocialLinks";
 import Example from "@/components/shared/Test";
 import Test2 from "@/components/shared/Test2";
 import AddEditRecipeBtn from "@/components/ui/Buttons/AddRecipeBtn";
+import FilterSortBtn from "@/components/ui/Buttons/FilterSortBtn";
+import ModalConfirmBtn from "@/components/ui/Buttons/ModalConfirmBtn";
 import ProfileBtn from "@/components/ui/Buttons/ProfileBtn";
 import RateForm from "@/components/ui/Form/RateForm";
 import SocialLinkForm from "@/components/ui/Form/SocialLinkForm";
@@ -32,9 +37,9 @@ export default function Home() {
   // const [activeTab, setActiveTab] = useState("profile");
 
   return (
-    <main className="w-full">
-      <div className="mx-auto max-w-[1000px] mx-28 my-24 flex flex-col gap-y-40 px-40">
-        {/* <div> */}
+    <main dir="ltr" className="h-screen overflow-y-auto mr-[320px]">
+      {/* <div className="mx-auto max-w-[1000px] mx-28 my-24 flex flex-col gap-y-40 px-40"> */}
+      <div dir="rtl ">
         {/* <MyProfile /> */}
         {/* <BioForm /> */}
         {/* <SocialLinkForm /> */}
@@ -161,9 +166,20 @@ export default function Home() {
         {/* <ProfileHeader type="currentUser" /> */}
         {/* <ProfileHeader type="otherUser" /> */}
 
-        <RecipeDetailHeader />
+        {/* <RecipeDetailHeader /> */}
 
         {/* <ServingsCounter defaultServings={12} /> */}
+
+        {/* <PageSpinner isLoading={true} /> */}
+
+        {/* <button className="bg-red-500 px-24 py-8 rounded-lg">
+          <ButtonSpinner />
+        </button> */}
+
+        {/* <ModalConfirmBtn /> */}
+
+        {/* <div className="h-[4000px] w-[1000px] mb-[600px]">hey</div>
+        <div className="h-[4000px] w-[1000px] mb-[600px]">heycscscscs</div> */}
       </div>
     </main>
   );

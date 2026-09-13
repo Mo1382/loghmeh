@@ -85,11 +85,11 @@ export default function RootLayout({ children }) {
   return (
     <html lang="fa" className={`${IRANSansX.variable}`} dir="rtl">
       <body className="min-h-full flex flex-col bg-neutral-2">
-        {/* <MenuProvider>
-          <MainNavigation />
-          <TopNavigation /> */}
-        {children}
-        {/* </MenuProvider> */}
+        <MenuProvider>
+          {/* <MainNavigation /> */}
+          {/* <TopNavigation /> */}
+          {children}
+        </MenuProvider>
 
         <Toaster
           position="top-center"

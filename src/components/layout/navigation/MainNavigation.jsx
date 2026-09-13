@@ -91,7 +91,7 @@ export default function MainNavigation({}) {
 
       {/* Tablet and desktop navigation */}
       <nav
-        className={`hidden md:flex flex-col fixed bg-neutral-1 rounded-l-3xl bottom-0 top-0 -right-[300px] transition-all duration-500 ${isMenuOpen ? "right-0" : ""} w-[300px] pt-22 pb-32 pr-22 gap-y-10 z-[5000] lg:w-[320px] lg:static lg:h-screen lg:rounded-l-none border-l border-neutral-4
+        className={`hidden md:flex flex-col fixed bg-neutral-1 rounded-l-3xl bottom-0 top-0 -right-[300px] transition-all duration-500 ${isMenuOpen ? "right-0" : ""} w-[300px] pt-22 pb-32 pr-22 gap-y-10 z-[5000] lg:w-[320px] lg:fixed lg:top-0 lg:bottom-0 lg:right-0 lg:rounded-l-none border-l border-neutral-4
 `}
       >
         <Logo />

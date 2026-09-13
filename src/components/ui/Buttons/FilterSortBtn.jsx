@@ -1,8 +1,9 @@
 import { FilterIcon } from "@/components/icons";
 import SortIcon from "@/components/icons/FilterLines";
+import ButtonSpinner from "@/components/shared/ButtonSpinner";
 
 const buttonClassName =
-  "rounded-md bg-red-50 py-6 pr-[11px] pl-[13px] border border-red-400 flex items-center gap-6 text-sm font-medium text-red-400 hover:text-red-hover transition-colors";
+  "relative rounded-md bg-red-50 py-6 pr-[11px] pl-[13px] border border-red-400 flex items-center gap-6 text-sm font-medium text-red-400 hover:text-red-hover transition-colors";
 const iconClassName = "w-16 h-16";
 
 export default function FilterSortBtn({ type = "filter", onOpen }) {

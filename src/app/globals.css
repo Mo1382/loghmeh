@@ -131,6 +131,9 @@ body {
 button,
 a {
   cursor: pointer;
+  /* To make spinners centerized easily */
+  position: relative;
+  overflow: hidden;
 }
 
 /* Chrome, Safari, Edge */
@@ -150,4 +153,34 @@ input {
 
 li {
   list-style-type: none;
+}
+
+::-webkit-scrollbar {
+  /* width: 7px; */
+  /* height: 7px; */
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  /* background: #ef6464; */
+  background: var(--color-neutral-6);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #e64444;
+}
+
+/* Firefox */
+@-moz-document url-prefix() {
+  * {
+    scrollbar-width: thin;
+    /* scrollbar-color: #ef6464 transparent; */
+    scrollbar-color: var(--color-neutral-6) transparent;
+  }
 }

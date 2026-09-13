@@ -9,6 +9,7 @@ import Avatar from "../ui/Avatar";
 import RecipeMetadata from "../ui/RecipeMetadata";
 import RecipeRate from "./RecipeRate";
 import ServingsCounter from "./ServingsCounter";
+import FollowBtn from "../ui/Buttons/FollowBtn";
 
 function MobileActionBtn({ Icon, onClick }) {
   return (
@@ -20,7 +21,7 @@ function MobileActionBtn({ Icon, onClick }) {
 
 function RecipeBadge({ children: label }) {
   return (
-    <span className="text-9 md:text-11 font-regular text-neutral-1 bg-neutral-6 rounded-md px-[7px] md:px-[9px] py-4 md:py-[5px]">
+    <span className="text-9 md:text-11 lg:text-12 font-regular text-neutral-1 bg-neutral-6 rounded-md px-[7px] md:px-[9px] py-4 md:py-[5px] lg:px-10">
       {label}
     </span>
   );
@@ -171,7 +172,80 @@ export default function RecipeDetailHeader({ isBookmarked }) {
       </div>
 
       {/* Recipe detail header in desktop screen */}
-      <div className="hidden lg:flex"></div>
+      <div className="hidden lg:flex items-start gap-x-32">
+        <div className="relative w-1/2">
+          <div className="relative w-full aspect-square max-w-[640px] overflow-hidden rounded-[48px]">
+            <Image
+              src={recipe.img}
+              alt={recipe.title}
+              className="object-contain"
+              fill
+            />
+          </div>
+          <div className="absolute top-28 right-22 cursor-pointer">
+            <BookmarkOutlineIcon className="text-red-400 w-[76px] h-[76px] stroke-[2px]" />
+          </div>
+          <div className="absolute right-16 -bottom-[90px] flex flex-row items-end gap-x-16">
+            <div className="flex flex-col items-center gap-y-12">
+              <Avatar
+                src={recipe.user.avatar}
+                className="w-[112px] h-[112px]"
+              />
+              <span className="text-16 font-medium text-neutral-7">
+                {recipe.user.username}
+              </span>
+            </div>
+            <div className="flex flex-col gap-y-12">
+              <div className="flex flex-row gap-x-20 items-center">
+                <div className="flex flex-row-reverse items-center gap-x-6">
+                  <StarIcon
+                    className="w-18 h-18 rouned-full text-yellow-400"
+                    filled={true}
+                  />
+                  <span className="text-neutral-7 text-14 font-medium leading-0 pt-[1px]">
+                    {recipe.user.rate}
+                  </span>
+                </div>
+                <span className="text-14 text-neutral-7 font-medium">
+                  {recipe.user.title}
+                </span>
+              </div>
+              <FollowBtn type="sm" className="w-fit" />
+            </div>
+          </div>
+        </div>
+
+        <div className="relative w-1/2 grow-1 flex-col pt-30">
+          <h2 className="text-[42px] font-semibold text-neutral-8 leading-[180%] mb-10">
+            {recipe.title}
+          </h2>
+          <p className="text-16 font-light leading-[197%] text-neutral-9 mb-24">
+            {recipe.description}
+          </p>
+          <div className="flex flex-row justify-between items-center mb-40">
+            <RecipeBadge>{recipe.category}</RecipeBadge>
+            <RecipeRate avgRate={recipe.rate} rateNumber={recipe.rateNum} />
+          </div>
+
+          <div className="mb-[54px]">
+            <RecipeMetadata />
+          </div>
+
+          <div className="flex flex-row items-center gap-x-40">
+            <div className="flex flex-row items-center gap-x-10">
+              <UsersIcon className="w-[48px] h-[48px] text-neutral-8" />
+              <span className="text-18 font-regular text-neutral-8">
+                تعداد نفرات
+              </span>
+            </div>
+            <ServingsCounter defaultServings={recipe.defaultServings} />
+          </div>
+
+          <div className="absolute">
+            <ArrowLeftCircleIcon />
+          </div>
+        </div>
+      </div>
     </>
   );
 }
