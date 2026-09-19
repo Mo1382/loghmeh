@@ -31,6 +31,22 @@ export function findCommentById(commentId, session) {
 }
 
 /**
+ * Find a soft-deleted comment by ID.
+ *
+ * Used by the Admin Panel when restoring a comment.
+ */
+export function findDeletedCommentById(commentId, session) {
+  const query = Comment.findOne({
+    _id: commentId,
+    deletedAt: {
+      $ne: null,
+    },
+  });
+
+  return applySession(query, session);
+}
+
+/**
  * Find a comment by its ID and author.
  *
  * Useful for operations that belong specifically
@@ -260,6 +276,50 @@ export function updateReactionCounts(
       $set: {
         likeCount,
         dislikeCount,
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  return applySession(query, session);
+}
+
+/**
+ * Find an active comment containing a specific reply.
+ *
+ * The Service layer uses the returned comment to:
+ * - identify the reply author
+ * - perform authorization
+ * - retrieve the reply before deletion
+ */
+export function findCommentByReplyId(replyId, session) {
+  const query = Comment.findOne({
+    "replies._id": replyId,
+    deletedAt: null,
+  });
+
+  return applySession(query, session);
+}
+
+/**
+ * Delete an embedded reply by its ID.
+ *
+ * Authorization is intentionally handled by the Service layer.
+ */
+export function deleteCommentReplyById(replyId, session) {
+  const query = Comment.findOneAndUpdate(
+    {
+      "replies._id": replyId,
+      deletedAt: null,
+    },
+    {
+      $pull: {
+        replies: {
+          _id: replyId,
+        },
       },
     },
     {

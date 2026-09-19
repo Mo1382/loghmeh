@@ -6,9 +6,9 @@ import { z } from "zod";
 
 const ratingValueSchema = z
   .number()
-  .int("Rating value must be an integer.")
-  .min(1, "Rating must be at least 1.")
-  .max(5, "Rating must not exceed 5.");
+  .int("مقدار امتیاز باید یک عدد صحیح باشد.")
+  .min(1, "امتیاز باید حداقل ۱ باشد.")
+  .max(5, "امتیاز نباید بیشتر از ۵ باشد.");
 
 /**
  * Create rating

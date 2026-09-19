@@ -7,8 +7,8 @@ import { z } from "zod";
 const messageSchema = z
   .string()
   .trim()
-  .min(20, "Message must be at least 20 characters.")
-  .max(3000, "Message must not exceed 3000 characters.");
+  .min(20, "پیام باید حداقل ۲۰ کاراکتر باشد.")
+  .max(3000, "پیام نباید بیشتر از ۳۰۰۰ کاراکتر باشد.");
 
 /**
  * Create support ticket

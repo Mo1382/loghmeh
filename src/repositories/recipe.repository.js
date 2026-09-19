@@ -210,6 +210,15 @@ export function findRecipeById(recipeId, session) {
   return applySession(query, session);
 }
 
+export function findDeletedRecipeById(recipeId, session) {
+  const query = Recipe.findOne({
+    _id: recipeId,
+    deletedAt: { $ne: null },
+  });
+
+  return applySession(query, session);
+}
+
 /**
  * Find a recipe by slug.
  *
@@ -219,6 +228,20 @@ export function findRecipeBySlug(slug, session) {
   const query = Recipe.findOne({
     slug,
     deletedAt: null,
+  });
+
+  return applySession(query, session);
+}
+
+/**
+ * Find a recipe by slug regardless of deletion status.
+ *
+ * Used when checking slug uniqueness.
+ * Soft-deleted recipes also reserve their slugs.
+ */
+export function findRecipeBySlugAny(slug, session) {
+  const query = Recipe.findOne({
+    slug,
   });
 
   return applySession(query, session);

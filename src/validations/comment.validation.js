@@ -7,14 +7,14 @@ import { z } from "zod";
 const commentTextSchema = z
   .string()
   .trim()
-  .min(1, "Comment cannot be empty.")
-  .max(1000, "Comment must not exceed 1000 characters.");
+  .min(1, "دیدگاه نمی‌تواند خالی باشد.")
+  .max(1000, "دیدگاه نباید بیشتر از ۱۰۰۰ کاراکتر باشد.");
 
 const replyTextSchema = z
   .string()
   .trim()
-  .min(1, "Reply cannot be empty.")
-  .max(1000, "Reply must not exceed 1000 characters.");
+  .min(1, "پاسخ نمی‌تواند خالی باشد.")
+  .max(1000, "پاسخ نباید بیشتر از ۱۰۰۰ کاراکتر باشد.");
 
 /**
  * Create comment

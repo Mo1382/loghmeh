@@ -4,45 +4,50 @@ import { z } from "zod";
  * Reusable fields
  */
 
-const objectIdSchema = z.string().regex(/^[a-fA-F0-9]{24}$/, "Invalid ID.");
+const objectIdSchema = z
+  .string()
+  .regex(/^[a-fA-F0-9]{24}$/, "شناسه نامعتبر است.");
 
 const titleSchema = z
   .string()
   .trim()
-  .min(5, "Recipe title must be at least 5 characters.")
-  .max(120, "Recipe title must not exceed 120 characters.");
+  .min(5, "عنوان دستور غذا باید حداقل ۵ کاراکتر باشد.")
+  .max(120, "عنوان دستور غذا نباید بیشتر از ۱۲۰ کاراکتر باشد.");
 
 const descriptionSchema = z
   .string()
   .trim()
-  .min(30, "Description must be at least 30 characters.")
-  .max(500, "Description must not exceed 500 characters.");
+  .min(30, "توضیحات باید حداقل ۳۰ کاراکتر باشد.")
+  .max(500, "توضیحات نباید بیشتر از ۵۰۰ کاراکتر باشد.");
 
 const originSchema = z
   .string()
   .trim()
-  .max(60, "Origin must not exceed 60 characters.");
+  .max(60, "مبدأ نباید بیشتر از ۶۰ کاراکتر باشد.");
 
 const difficultySchema = z.enum(["آسان", "متوسط", "سخت"]);
 
 const preparationTimeSchema = z
   .number()
   .int()
-  .min(1, "Preparation time must be at least 1 minute.");
+  .min(1, "زمان آماده‌سازی باید حداقل ۱ دقیقه باشد.");
 
 const servingsSchema = z
   .number()
   .int()
-  .min(1, "Serving size must be at least 1.")
-  .max(100, "Serving size must not exceed 100.");
+  .min(1, "تعداد وعده باید حداقل ۱ باشد.")
+  .max(100, "تعداد وعده نباید بیشتر از ۱۰۰ باشد.");
 
 const imageSchema = z
   .string()
   .trim()
-  .url("Image must be a valid URL.")
-  .refine((value) => value.startsWith("https://"), "Image URL must use HTTPS.");
+  .url("نشانی تصویر باید معتبر باشد.")
+  .refine(
+    (value) => value.startsWith("https://"),
+    "نشانی تصویر باید از HTTPS استفاده کند."
+  );
 
-const caloriesSchema = z.number().min(0, "Calories cannot be negative.");
+const caloriesSchema = z.number().min(0, "کالری نمی‌تواند منفی باشد.");
 
 /**
  * Ingredient
@@ -50,15 +55,15 @@ const caloriesSchema = z.number().min(0, "Calories cannot be negative.");
 
 const ingredientSchema = z
   .object({
-    name: z.string().trim().min(1, "Ingredient name is required."),
+    name: z.string().trim().min(1, "نام ماده اولیه الزامی است."),
 
     quantity: z
       .number()
-      .min(0, "Ingredient quantity cannot be negative.")
+      .min(0, "مقدار ماده اولیه نمی‌تواند منفی باشد.")
       .nullable()
       .optional(),
 
-    unit: z.string().trim().min(1, "Ingredient unit is required."),
+    unit: z.string().trim().min(1, "واحد ماده اولیه الزامی است."),
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -66,15 +71,14 @@ const ingredientSchema = z
       if (data.quantity != null) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message:
-            'Quantity must not be provided when unit is "به مقدار کافی".',
+          message: "وقتی واحد «به مقدار کافی» است، نباید مقداری وارد شود.",
           path: ["quantity"],
         });
       }
     } else if (data.quantity == null) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Ingredient quantity is required.",
+        message: "مقدار ماده اولیه الزامی است.",
         path: ["quantity"],
       });
     }
@@ -86,7 +90,7 @@ const ingredientSchema = z
 
 const ingredientsSchema = z
   .array(ingredientSchema)
-  .min(1, "Recipe must contain at least one ingredient.");
+  .min(1, "دستور غذا باید حداقل یک ماده اولیه داشته باشد.");
 
 /**
  * Cooking step
@@ -94,11 +98,11 @@ const ingredientsSchema = z
 
 const stepSchema = z
   .object({
-    order: z.number().int().min(1, "Step order must start from 1."),
+    order: z.number().int().min(1, "ترتیب مرحله باید از ۱ شروع شود."),
 
-    title: z.string().trim().min(1, "Step title is required."),
+    title: z.string().trim().min(1, "عنوان مرحله الزامی است."),
 
-    description: z.string().trim().min(1, "Step description is required."),
+    description: z.string().trim().min(1, "توضیحات مرحله الزامی است."),
   })
   .strict();
 
@@ -108,7 +112,7 @@ const stepSchema = z
 
 const stepsSchema = z
   .array(stepSchema)
-  .min(1, "Recipe must contain at least one cooking step.")
+  .min(1, "دستور غذا باید حداقل یک مرحله پخت داشته باشد.")
   .superRefine((steps, ctx) => {
     const orders = steps.map((step) => step.order);
 
@@ -121,7 +125,7 @@ const stepsSchema = z
     if (!isSequential) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Cooking step orders must be sequential starting from 1.",
+        message: "ترتیب مراحل پخت باید از ۱ شروع شده و پیوسته باشد.",
         path: ["order"],
       });
     }
@@ -195,5 +199,5 @@ export const updateRecipeSchema = z
   })
   .strict()
   .refine((data) => Object.keys(data).length > 0, {
-    message: "At least one field must be provided.",
+    message: "حداقل یک فیلد باید وارد شود.",
   });

@@ -7,35 +7,33 @@ import { z } from "zod";
 const usernameSchema = z
   .string()
   .trim()
-  .min(3, "Username must be at least 3 characters.")
-  .max(30, "Username must not exceed 30 characters.")
+  .min(3, "نام کاربری باید حداقل ۳ کاراکتر باشد.")
+  .max(30, "نام کاربری نباید بیشتر از ۳۰ کاراکتر باشد.")
   .regex(
     /^[a-zA-Z0-9_\u0600-\u06FF]+$/,
-    "Username may only contain letters, numbers, Persian characters, and underscores."
+    "نام کاربری فقط می‌تواند شامل حروف، اعداد، نویسه‌های فارسی و زیرخط باشد."
   );
 
 const emailSchema = z
   .string()
   .trim()
-  .email("Please enter a valid email address.")
+  .email("لطفاً یک نشانی ایمیل معتبر وارد کنید.")
   .transform((value) => value.toLowerCase());
 
-const passwordSchema = z
-  .string()
-  .min(8, "Password must be at least 8 characters.");
+const passwordSchema = z.string().min(8, "رمز عبور باید حداقل ۸ کاراکتر باشد.");
 
 const bioSchema = z
   .string()
   .trim()
-  .max(300, "Bio must not exceed 300 characters.");
+  .max(300, "معرفی‌نامه نباید بیشتر از ۳۰۰ کاراکتر باشد.");
 
 const avatarSchema = z
   .string()
   .trim()
-  .url("Avatar must be a valid URL.")
+  .url("نشانی تصویر پروفایل باید معتبر باشد.")
   .refine(
     (value) => value.startsWith("https://"),
-    "Avatar URL must use HTTPS."
+    "نشانی تصویر پروفایل باید از HTTPS استفاده کند."
   );
 
 const optionalAvatarSchema = avatarSchema.nullable().optional();
@@ -47,28 +45,28 @@ const optionalAvatarSchema = avatarSchema.nullable().optional();
 const instagramUrlSchema = z
   .string()
   .trim()
-  .url("Instagram link must be a valid URL.")
+  .url("پیوند اینستاگرام باید یک نشانی معتبر باشد.")
   .refine(
     (value) => /^https:\/\/(www\.)?instagram\.com\//i.test(value),
-    "Invalid Instagram URL."
+    "نشانی اینستاگرام نامعتبر است."
   );
 
 const telegramUrlSchema = z
   .string()
   .trim()
-  .url("Telegram link must be a valid URL.")
+  .url("پیوند تلگرام باید یک نشانی معتبر باشد.")
   .refine(
     (value) => /^https:\/\/(www\.)?(t\.me|telegram\.me)\//i.test(value),
-    "Invalid Telegram URL."
+    "نشانی تلگرام نامعتبر است."
   );
 
 const xUrlSchema = z
   .string()
   .trim()
-  .url("X link must be a valid URL.")
+  .url("پیوند X باید یک نشانی معتبر باشد.")
   .refine(
     (value) => /^https:\/\/(www\.)?(x\.com|twitter\.com)\//i.test(value),
-    "Invalid X URL."
+    "نشانی X نامعتبر است."
   );
 
 const optionalInstagramUrlSchema = instagramUrlSchema.nullable().optional();
@@ -110,9 +108,9 @@ export const registerUserSchema = z
 
 export const loginUserSchema = z
   .object({
-    identifier: z.string().trim().min(3, "Username or email is required."),
+    identifier: z.string().trim().min(3, "نام کاربری یا ایمیل الزامی است."),
 
-    password: z.string().min(1, "Password is required."),
+    password: z.string().min(1, "رمز عبور الزامی است."),
   })
   .strict();
 
@@ -132,7 +130,7 @@ export const forgotPasswordSchema = z
 
 export const verifyPasswordResetCodeSchema = z
   .object({
-    code: z.string().regex(/^\d{6}$/, "Verification code must be 6 digits."),
+    code: z.string().regex(/^\d{6}$/, "کد تأیید باید ۶ رقمی باشد."),
   })
   .strict();
 
@@ -144,11 +142,11 @@ export const resetPasswordSchema = z
   .object({
     newPassword: passwordSchema,
 
-    confirmPassword: z.string().min(1, "Password confirmation is required."),
+    confirmPassword: z.string().min(1, "تأیید رمز عبور الزامی است."),
   })
   .strict()
   .refine((data) => data.newPassword === data.confirmPassword, {
-    message: "Passwords do not match.",
+    message: "رمزهای عبور یکسان نیستند.",
     path: ["confirmPassword"],
   });
 
@@ -158,19 +156,19 @@ export const resetPasswordSchema = z
 
 export const changePasswordSchema = z
   .object({
-    currentPassword: z.string().min(1, "Current password is required."),
+    currentPassword: z.string().min(1, "رمز عبور فعلی الزامی است."),
 
     newPassword: passwordSchema,
 
-    confirmPassword: z.string().min(1, "Password confirmation is required."),
+    confirmPassword: z.string().min(1, "تأیید رمز عبور الزامی است."),
   })
   .strict()
   .refine((data) => data.newPassword === data.confirmPassword, {
-    message: "Passwords do not match.",
+    message: "رمزهای عبور یکسان نیستند.",
     path: ["confirmPassword"],
   })
   .refine((data) => data.currentPassword !== data.newPassword, {
-    message: "New password must be different from current password.",
+    message: "رمز عبور جدید باید با رمز عبور فعلی متفاوت باشد.",
     path: ["newPassword"],
   });
 

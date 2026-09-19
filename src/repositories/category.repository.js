@@ -57,6 +57,20 @@ export function findActiveCategoryBySlug(slug, session) {
 }
 
 /**
+ * Find a category by name.
+ *
+ * Includes both active and inactive categories.
+ * This is useful for checking category-name uniqueness.
+ */
+export function findCategoryByName(name, session) {
+  const query = Category.findOne({
+    name,
+  });
+
+  return applySession(query, session);
+}
+
+/**
  * Find an active category by name.
  *
  * Useful when resolving a category from user-facing input.
