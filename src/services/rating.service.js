@@ -14,6 +14,11 @@ import {
   updateAverageRating,
 } from "@/repositories/recipe.repository";
 
+import {
+  createSystemNotification,
+  NOTIFICATION_TYPES,
+} from "@/services/notification.service";
+
 import { withTransaction } from "@/lib/transaction";
 import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
@@ -230,6 +235,20 @@ export async function createRating(currentUser, recipeId, value) {
      * Recalculate the average from the Rating collection.
      */
     await refreshRecipeAverageRating(recipeId, session);
+
+    if (recipe.authorId.toString() !== currentUser._id.toString()) {
+      await createSystemNotification(
+        {
+          userId: recipe.authorId,
+          actorId: currentUser._id,
+          type: NOTIFICATION_TYPES.RECIPE_RATED,
+          title: "امتیاز جدید برای دستور پخت شما",
+          message: `${currentUser.username} به دستور پخت شما امتیاز داد.`,
+          recipeId: recipe._id,
+        },
+        session
+      );
+    }
 
     return rating;
   });

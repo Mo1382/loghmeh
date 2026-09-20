@@ -128,6 +128,23 @@ export function findUserById(userId, session) {
 }
 
 /**
+ * Find active, non-deleted users by their IDs.
+ *
+ * Used for public/user-facing lists where
+ * suspended, deactivated, and soft-deleted accounts
+ * must not be displayed.
+ */
+export function findActiveUsersByIds(userIds, session) {
+  const query = User.find({
+    _id: { $in: userIds },
+    accountStatus: "ACTIVE",
+    deletedAt: null,
+  });
+
+  return applySession(query, session);
+}
+
+/**
  * Find a user by email.
  */
 export function findUserByEmail(email, session) {

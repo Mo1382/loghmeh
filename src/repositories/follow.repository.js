@@ -1,4 +1,11 @@
 import Follow from "@/db/models/Follow";
+import User from "@/db/models/User";
+
+/**
+ * --------------------------------------------------------------------------
+ * Helpers
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Apply MongoDB session only when provided.
@@ -6,6 +13,12 @@ import Follow from "@/db/models/Follow";
 function applySession(query, session) {
   return session ? query.session(session) : query;
 }
+
+/**
+ * --------------------------------------------------------------------------
+ * Find
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Find a follow relationship by its ID.
@@ -36,10 +49,16 @@ export function findFollowByFollowerAndFollowing(
 }
 
 /**
+ * --------------------------------------------------------------------------
+ * Create
+ * --------------------------------------------------------------------------
+ */
+
+/**
  * Create a follow relationship.
  *
  * followerId and followingId are determined by the
- * authenticated user and the target user.
+ * Service layer.
  */
 export function createFollow(followData, session) {
   if (session) {
@@ -48,6 +67,12 @@ export function createFollow(followData, session) {
 
   return Follow.create(followData);
 }
+
+/**
+ * --------------------------------------------------------------------------
+ * Delete
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Delete a follow relationship between two users.
@@ -69,8 +94,9 @@ export function deleteFollowByFollowerAndFollowing(
  * Delete a follow relationship by its ID.
  *
  * Authorization must be handled in the Service layer.
- * Prefer deleteFollowByFollowerAndFollowing() for
- * normal user operations.
+ *
+ * Prefer deleteFollowByFollowerAndFollowing()
+ * for normal user operations.
  */
 export function deleteFollowById(followId, session) {
   const query = Follow.findByIdAndDelete(followId);
@@ -79,14 +105,22 @@ export function deleteFollowById(followId, session) {
 }
 
 /**
+ * --------------------------------------------------------------------------
+ * Following
+ * --------------------------------------------------------------------------
+ */
+
+/**
  * Find users that a specific user is following.
  *
- * Returns Follow documents ordered by the time the
- * relationship was created.
+ * Only active, non-deleted target users are included.
  *
  * Sort order:
  * - createdAt DESC
  * - _id DESC
+ *
+ * The active-user filter is applied before pagination so
+ * that limit and hasMore remain accurate.
  *
  * Cursor structure:
  * {
@@ -100,12 +134,18 @@ export function findFollowingByUser({
   limit = 16,
   session,
 }) {
-  const filter = {
+  const matchStage = {
     followerId,
   };
 
+  /**
+   * Apply cursor condition before looking up users.
+   *
+   * This allows MongoDB to narrow down the Follow
+   * documents before the lookup stage.
+   */
   if (cursor) {
-    filter.$or = [
+    matchStage.$or = [
       {
         createdAt: {
           $lt: cursor.createdAt,
@@ -120,25 +160,97 @@ export function findFollowingByUser({
     ];
   }
 
-  const query = Follow.find(filter)
-    .sort({
-      createdAt: -1,
-      _id: -1,
-    })
-    .limit(limit);
+  const pipeline = [
+    {
+      $match: matchStage,
+    },
+
+    /**
+     * Resolve the user being followed.
+     */
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: "followingId",
+        foreignField: "_id",
+        as: "followingUser",
+      },
+    },
+
+    /**
+     * Convert the lookup array into a single User document.
+     *
+     * If the User no longer exists, the Follow document
+     * is removed from the result.
+     */
+    {
+      $unwind: "$followingUser",
+    },
+
+    /**
+     * Only active, non-deleted users are visible.
+     */
+    {
+      $match: {
+        "followingUser.accountStatus": "ACTIVE",
+        "followingUser.deletedAt": null,
+      },
+    },
+
+    /**
+     * Preserve the Follow pagination order.
+     */
+    {
+      $sort: {
+        createdAt: -1,
+        _id: -1,
+      },
+    },
+
+    /**
+     * limit is applied AFTER inactive users have
+     * been excluded.
+     */
+    {
+      $limit: limit,
+    },
+
+    /**
+     * Return the Follow document shape expected
+     * by the Service layer.
+     */
+    {
+      $project: {
+        _id: 1,
+        followerId: 1,
+        followingId: 1,
+        createdAt: 1,
+      },
+    },
+  ];
+
+  const query = Follow.aggregate(pipeline);
 
   return applySession(query, session);
 }
 
 /**
+ * --------------------------------------------------------------------------
+ * Followers
+ * --------------------------------------------------------------------------
+ */
+
+/**
  * Find users who follow a specific user.
  *
- * Returns Follow documents ordered by the time the
- * relationship was created.
+ * Only active, non-deleted follower users are included.
  *
  * Sort order:
  * - createdAt DESC
  * - _id DESC
+ *
+ * The active-user filter is applied before pagination so
+ * that limit and hasMore remain accurate.
  *
  * Cursor structure:
  * {
@@ -152,12 +264,15 @@ export function findFollowersByUser({
   limit = 16,
   session,
 }) {
-  const filter = {
+  const matchStage = {
     followingId,
   };
 
+  /**
+   * Apply cursor condition before looking up users.
+   */
   if (cursor) {
-    filter.$or = [
+    matchStage.$or = [
       {
         createdAt: {
           $lt: cursor.createdAt,
@@ -172,34 +287,194 @@ export function findFollowersByUser({
     ];
   }
 
-  const query = Follow.find(filter)
-    .sort({
-      createdAt: -1,
-      _id: -1,
-    })
-    .limit(limit);
+  const pipeline = [
+    {
+      $match: matchStage,
+    },
+
+    /**
+     * Resolve the user who follows the target user.
+     */
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: "followerId",
+        foreignField: "_id",
+        as: "followerUser",
+      },
+    },
+
+    /**
+     * Remove Follow documents whose follower
+     * no longer exists.
+     */
+    {
+      $unwind: "$followerUser",
+    },
+
+    /**
+     * Only active, non-deleted followers are visible.
+     */
+    {
+      $match: {
+        "followerUser.accountStatus": "ACTIVE",
+        "followerUser.deletedAt": null,
+      },
+    },
+
+    /**
+     * Preserve Follow pagination order.
+     */
+    {
+      $sort: {
+        createdAt: -1,
+        _id: -1,
+      },
+    },
+
+    /**
+     * Apply limit after inactive followers
+     * have been excluded.
+     */
+    {
+      $limit: limit,
+    },
+
+    /**
+     * Return only the Follow fields required
+     * by the Service layer.
+     */
+    {
+      $project: {
+        _id: 1,
+        followerId: 1,
+        followingId: 1,
+        createdAt: 1,
+      },
+    },
+  ];
+
+  const query = Follow.aggregate(pipeline);
 
   return applySession(query, session);
 }
 
 /**
- * Count how many users a user is following.
+ * --------------------------------------------------------------------------
+ * Counts
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Count how many active users a user is following.
+ *
+ * Only Follow relationships whose target user is:
+ * - ACTIVE
+ * - not soft-deleted
+ *
+ * are included in the count.
  */
 export function countFollowingByUser(followerId, session) {
-  const query = Follow.countDocuments({
-    followerId,
-  });
+  const pipeline = [
+    {
+      $match: {
+        followerId,
+      },
+    },
 
-  return applySession(query, session);
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: "followingId",
+        foreignField: "_id",
+        pipeline: [
+          {
+            $match: {
+              accountStatus: "ACTIVE",
+              deletedAt: null,
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+            },
+          },
+        ],
+        as: "followingUser",
+      },
+    },
+
+    {
+      $match: {
+        "followingUser.0": {
+          $exists: true,
+        },
+      },
+    },
+
+    {
+      $count: "count",
+    },
+  ];
+
+  const query = Follow.aggregate(pipeline);
+
+  return applySession(query, session).then(([result]) => result?.count ?? 0);
 }
 
 /**
- * Count how many followers a user has.
+ * Count how many active users follow a user.
+ *
+ * Only Follow relationships whose follower user is:
+ * - ACTIVE
+ * - not soft-deleted
+ *
+ * are included in the count.
  */
 export function countFollowersByUser(followingId, session) {
-  const query = Follow.countDocuments({
-    followingId,
-  });
+  const pipeline = [
+    {
+      $match: {
+        followingId,
+      },
+    },
 
-  return applySession(query, session);
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: "followerId",
+        foreignField: "_id",
+        pipeline: [
+          {
+            $match: {
+              accountStatus: "ACTIVE",
+              deletedAt: null,
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+            },
+          },
+        ],
+        as: "followerUser",
+      },
+    },
+
+    {
+      $match: {
+        "followerUser.0": {
+          $exists: true,
+        },
+      },
+    },
+
+    {
+      $count: "count",
+    },
+  ];
+
+  const query = Follow.aggregate(pipeline);
+
+  return applySession(query, session).then(([result]) => result?.count ?? 0);
 }

@@ -21,6 +21,10 @@ import {
 import { withTransaction } from "@/lib/transaction";
 import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
+import {
+  createSystemNotification,
+  NOTIFICATION_TYPES,
+} from "./notification.service";
 
 /**
  * --------------------------------------------------------------------------
@@ -470,6 +474,20 @@ export async function createComment(currentUser, recipeId, text) {
       );
     }
 
+    if (recipe.authorId.toString() !== currentUser._id.toString()) {
+      await createSystemNotification(
+        {
+          userId: recipe.authorId,
+          actorId: currentUser._id,
+          type: NOTIFICATION_TYPES.RECIPE_COMMENTED,
+          title: "نظر جدید برای دستور پخت شما",
+          message: `${currentUser.username} روی دستور پخت شما نظر گذاشت.`,
+          recipeId: recipe._id,
+          commentId: comment._id,
+        },
+        session
+      );
+    }
     return comment;
   });
 }
@@ -530,6 +548,21 @@ export async function createCommentReply(currentUser, commentId, text) {
         "Comment reply could not be added.",
         ERROR_CODES.COMMENT_NOT_FOUND,
         404
+      );
+    }
+
+    if (comment.authorId.toString() !== currentUser._id.toString()) {
+      await createSystemNotification(
+        {
+          userId: comment.authorId,
+          actorId: currentUser._id,
+          type: NOTIFICATION_TYPES.COMMENT_REPLIED,
+          title: "پاسخ جدید به نظر شما",
+          message: `${currentUser.username} به نظر شما پاسخ داد.`,
+          recipeId: recipe._id,
+          commentId: comment._id,
+        },
+        session
       );
     }
 
