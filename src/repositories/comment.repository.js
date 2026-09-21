@@ -1,4 +1,4 @@
-import Comment from "@/db/models/Comment";
+import Comment from "@/models/Comment";
 
 /**
  * Apply MongoDB session only when provided.

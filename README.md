@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/status-in%20development-yellow" alt="Project Status" />
   <img src="https://img.shields.io/badge/version-1.0.0--mvp-blue" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
-  <img src="https://img.shields.io/badge/next.js-14+-black" alt="Next.js" />
+  <img src="https://img.shields.io/badge/next.js-16.3-black" alt="Next.js" />
   <img src="https://img.shields.io/badge/mongodb-atlas-brightgreen" alt="MongoDB" />
 </p>
 
@@ -60,10 +60,18 @@ This repository contains the **public-facing web application** only. Administrat
 
 > Our vision is to become the most trusted and user-friendly Persian recipe platform where anyone can learn cooking, share knowledge, and discover new foods.
 
+## Current Implementation Status
+
+The repository currently contains the initial application shell plus server-side domain code. The only implemented App Router page is `/`; the feature pages, Server Actions, API handlers, and middleware described in the planning documents have not been implemented yet.
+
+The `src/services`, `src/repositories`, `src/models`, and `src/validations` directories contain the current domain-layer implementation. Validation schemas are defined, but are not currently connected to an App Router action or route boundary.
+
+Administration, moderation, category management, and system management are planned for a separate Admin Dashboard project. Do not remove shared database fields or models based only on the absence of Admin call sites in this repository.
+
 ## Features
 
-- 🔐 **Authentication** — registration with email verification (OTP), login, password reset/change
-- 🍲 **Recipes** — create, publish, edit, and browse recipes with ingredients, steps, and nutrition info
+- 🔐 **Authentication (domain layer)** — registration, login, email verification, password reset, and password change services are present; the UI and route boundary are not implemented
+- 🍲 **Recipes (domain layer)** — recipe creation, editing, browsing, and statistics services are present; draft/publish workflow and feature pages are not implemented
 - 🗂️ **Categories** — browse recipes by category with filtering and sorting
 - 🔍 **Search** — real-time recipe search with suggestions
 - 👤 **User Profiles** — public profile, avatar, bio, and social media links
@@ -72,28 +80,28 @@ This repository contains the **public-facing web application** only. Administrat
 - 🔖 **Bookmarks** — save recipes for quick access later
 - 👥 **Following System** — follow other users and see their recipes in a personalized feed
 - 🔔 **Notifications** — activity notifications and platform announcements
-- 🎫 **Support Tickets** — contact support directly from the app
-- 🏠 **Home Feed** — curated sections with popular recipes, categories, and creators
+- 🎫 **Support Tickets (domain layer)** — ticket creation and user ticket services are present; the support page and Admin ticket workflow are not implemented here
+- 🏠 **Home Feed (domain layer)** — service methods exist for popular and category recipes; the home UI is not implemented
 
 See [`docs/features.md`](./docs/features.md) for the full feature specification.
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Framework | [Next.js](https://nextjs.org/) (App Router) |
-| Language | JavaScript |
-| UI | [React](https://react.dev/), [Tailwind CSS](https://tailwindcss.com/), [shadcn/ui](https://ui.shadcn.com/) |
-| Forms | [React Hook Form](https://react-hook-form.com/) |
-| Validation | [Zod](https://zod.dev/) |
-| Database | [MongoDB](https://www.mongodb.com/) |
-| ODM | [Mongoose](https://mongoosejs.com/) |
-| Authentication | [Auth.js](https://authjs.dev/) |
-| File Uploads | [UploadThing](https://uploadthing.com/) |
-| Email | [Resend](https://resend.com/) |
-| State Management | React Context API |
-| Deployment | [Vercel](https://vercel.com/) |
-| Package Manager | NPM |
+| Layer            | Technology                                                                                                 |
+| ---------------- | ---------------------------------------------------------------------------------------------------------- |
+| Framework        | [Next.js](https://nextjs.org/) (App Router)                                                                |
+| Language         | JavaScript                                                                                                 |
+| UI               | [React](https://react.dev/), [Tailwind CSS](https://tailwindcss.com/), [shadcn/ui](https://ui.shadcn.com/) |
+| Forms            | [React Hook Form](https://react-hook-form.com/)                                                            |
+| Validation       | [Zod](https://zod.dev/)                                                                                    |
+| Database         | [MongoDB](https://www.mongodb.com/)                                                                        |
+| ODM              | [Mongoose](https://mongoosejs.com/)                                                                        |
+| Authentication   | [Auth.js](https://authjs.dev/)                                                                             |
+| File Uploads     | [UploadThing](https://uploadthing.com/)                                                                    |
+| Email            | [Resend](https://resend.com/)                                                                              |
+| State Management | React Context API                                                                                          |
+| Deployment       | [Vercel](https://vercel.com/)                                                                              |
+| Package Manager  | NPM                                                                                                        |
 
 ## Screenshots
 
@@ -169,24 +177,27 @@ The app will be available at [http://localhost:3000](http://localhost:3000).
 
 ## Available Scripts
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Start the app in development mode |
-| `npm run build` | Create a production build |
+| Command         | Description                                  |
+| --------------- | -------------------------------------------- |
+| `npm run dev`   | Start the app in development mode            |
+| `npm run build` | Create a production build                    |
 | `npm run start` | Start the production server (after building) |
-| `npm run lint` | Run ESLint across the project |
+| `npm run lint`  | Run ESLint across the project                |
+
 <!-- TODO: add `test`, `test:e2e`, etc. once Vitest/Playwright are introduced in v1.1 -->
 
 ## Project Structure
 
 ```text
 src/
-├── app/            # Next.js App Router — routes, layouts, pages
-├── features/       # Feature-based modules (auth, recipes, profile, ...)
+├── app/            # Current App Router shell: root page, layout, and global CSS
+├── components/     # Shared UI components
+├── features/       # Reserved feature-module directories; currently empty
 ├── models/         # Mongoose models, one per database collection
-├── lib/            # Shared utilities (db connection, auth config, email, uploads)
-├── components/     # Shared, cross-feature UI components
-└── middleware.ts   # Route protection
+├── repositories/   # Database queries and mutations
+├── services/       # Business rules and use-case orchestration
+├── validations/    # Zod schemas; currently not wired to a route/action
+└── lib/            # Shared utilities and infrastructure helpers
 ```
 
 See [`docs/architecture.md`](./docs/architecture.md) for the full architectural breakdown.
@@ -195,34 +206,34 @@ See [`docs/architecture.md`](./docs/architecture.md) for the full architectural 
 
 Detailed project documentation lives in the [`docs`](./docs) folder:
 
-| Document | Description |
-|---|---|
-| [`product.md`](./docs/product.md) | Product vision, goals, and roadmap |
-| [`features.md`](./docs/features.md) | Full feature specification |
-| [`architecture.md`](./docs/architecture.md) | System architecture |
-| [`database.md`](./docs/database.md) | Database schema and relationships |
-| [`business-rules.md`](./docs/business-rules.md) | Business rules and constraints |
-| [`roles.md`](./docs/roles.md) | User roles and permissions |
-| [`routes.md`](./docs/routes.md) | Application routes and navigation |
-| [`user-flows.md`](./docs/user-flows.md) | Detailed user flow diagrams |
+| Document                                                | Description                          |
+| ------------------------------------------------------- | ------------------------------------ |
+| [`product.md`](./docs/product.md)                       | Product vision, goals, and roadmap   |
+| [`features.md`](./docs/features.md)                     | Full feature specification           |
+| [`architecture.md`](./docs/architecture.md)             | System architecture                  |
+| [`database.md`](./docs/database.md)                     | Database schema and relationships    |
+| [`business-rules.md`](./docs/business-rules.md)         | Business rules and constraints       |
+| [`roles.md`](./docs/roles.md)                           | User roles and permissions           |
+| [`routes.md`](./docs/routes.md)                         | Application routes and navigation    |
+| [`user-flows.md`](./docs/user-flows.md)                 | Detailed user flow diagrams          |
 | [`project-principles.md`](./docs/project-principles.md) | Development principles and standards |
 
 <!-- TODO: adjust these paths if the docs are stored elsewhere in the repository -->
 
 ## Roadmap
 
-| Version | Focus |
-|---|---|
-| 1.0 (MVP) | Core features: auth, recipes, categories, search, community |
-| 1.1 | Automated testing (Vitest, Playwright, React Testing Library) |
-| 1.2 | Analytics & monitoring (PostHog, Sentry) |
-| 2.0 | Dark mode |
-| 3.0 | Redis caching, Algolia search |
-| 4.0 | Recommendation engine |
-| 5.0 | AI-powered cooking assistant |
-| 6.0 | Meal planning |
-| 7.0 | Native mobile apps |
-| 8.0 | Multi-language support |
+| Version   | Focus                                                         |
+| --------- | ------------------------------------------------------------- |
+| 1.0 (MVP) | Core features: auth, recipes, categories, search, community   |
+| 1.1       | Automated testing (Vitest, Playwright, React Testing Library) |
+| 1.2       | Analytics & monitoring (PostHog, Sentry)                      |
+| 2.0       | Dark mode                                                     |
+| 3.0       | Redis caching, Algolia search                                 |
+| 4.0       | Recommendation engine                                         |
+| 5.0       | AI-powered cooking assistant                                  |
+| 6.0       | Meal planning                                                 |
+| 7.0       | Native mobile apps                                            |
+| 8.0       | Multi-language support                                        |
 
 ## Contributing
 
@@ -238,10 +249,12 @@ Contributions are welcome! Please:
 ## License
 
 <!-- TODO: confirm the actual license and add a LICENSE file to the repository root -->
+
 This project is licensed under the [MIT License](./LICENSE).
 
 ## Contact
 
 <!-- TODO: replace with real contact information -->
+
 - Project maintainer: **Your Name** — your.email@example.com
 - Issues & feature requests: [GitHub Issues](https://github.com/your-org/loqmeh/issues)

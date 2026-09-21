@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import AppError from "@/lib/errors/AppError";
+import { ERROR_CODES } from "@/constants/error-codes";
 
 import {
   findNotificationByIdAndUser,
@@ -38,7 +39,7 @@ const CURSOR_VERSION = 1;
 const CURSOR_SECRET = process.env.CURSOR_SECRET;
 
 if (!CURSOR_SECRET) {
-  throw new Error("CURSOR_SECRET is not configured.");
+  throw new Error("متغیر CURSOR_SECRET تنظیم نشده است.");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -48,9 +49,9 @@ if (!CURSOR_SECRET) {
 function assertAuthenticated(currentUser) {
   if (!currentUser?._id) {
     throw new AppError(
-      "Authentication is required.",
-      "AUTHENTICATION_REQUIRED",
-      401
+      ERROR_CODES.AUTHENTICATION_REQUIRED,
+      "ورود به حساب کاربری الزامی است.",
+      { statusCode: 401 }
     );
   }
 }
@@ -60,9 +61,9 @@ function assertAdmin(currentUser) {
 
   if (currentUser.role !== "ADMIN") {
     throw new AppError(
-      "Administrator privileges are required.",
-      "ADMIN_ACCESS_REQUIRED",
-      403
+      ERROR_CODES.ADMIN_ACCESS_REQUIRED,
+      "دسترسی مدیر سیستم الزامی است.",
+      { statusCode: 403 }
     );
   }
 }
@@ -73,16 +74,24 @@ function assertAdmin(currentUser) {
 
 function assertValidObjectId(value, fieldName = "ID") {
   if (!mongoose.isValidObjectId(value)) {
-    throw new AppError(`Invalid ${fieldName}.`, "INVALID_OBJECT_ID", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_OBJECT_ID,
+      `شناسه ${fieldName} نامعتبر است.`,
+      {
+        statusCode: 400,
+      }
+    );
   }
 }
 
 function assertValidNotificationType(type) {
   if (!VALID_NOTIFICATION_TYPES.has(type)) {
     throw new AppError(
-      "Invalid notification type.",
-      "INVALID_NOTIFICATION_TYPE",
-      400
+      ERROR_CODES.INVALID_NOTIFICATION_TYPE,
+      "نوع اعلان نامعتبر است.",
+      {
+        statusCode: 400,
+      }
     );
   }
 }
@@ -96,9 +105,9 @@ function normalizeLimit(limit) {
 
   if (!Number.isInteger(normalizedLimit) || normalizedLimit < 1) {
     throw new AppError(
-      "Notification limit must be a positive integer.",
-      "INVALID_LIMIT",
-      400
+      ERROR_CODES.INVALID_LIMIT,
+      "تعداد اعلان‌ها باید یک عدد صحیح مثبت باشد.",
+      { statusCode: 400 }
     );
   }
 
@@ -108,9 +117,9 @@ function normalizeLimit(limit) {
 function normalizeNotificationText(value, fieldName) {
   if (typeof value !== "string") {
     throw new AppError(
-      `${fieldName} is required.`,
-      "INVALID_NOTIFICATION_DATA",
-      400
+      ERROR_CODES.INVALID_NOTIFICATION_DATA,
+      `${fieldName} الزامی است.`,
+      { statusCode: 400 }
     );
   }
 
@@ -118,9 +127,9 @@ function normalizeNotificationText(value, fieldName) {
 
   if (!normalizedValue) {
     throw new AppError(
-      `${fieldName} cannot be empty.`,
-      "INVALID_NOTIFICATION_DATA",
-      400
+      ERROR_CODES.INVALID_NOTIFICATION_DATA,
+      `${fieldName} نمی‌تواند خالی باشد.`,
+      { statusCode: 400 }
     );
   }
 
@@ -154,13 +163,25 @@ function encodeCursor({ userId, createdAt, id }) {
 
 function decodeCursor(cursor, userId) {
   if (typeof cursor !== "string" || !cursor.trim()) {
-    throw new AppError("Invalid notification cursor.", "INVALID_CURSOR", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر اعلان نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   const parts = cursor.split(".");
 
   if (parts.length !== 2) {
-    throw new AppError("Invalid notification cursor.", "INVALID_CURSOR", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر اعلان نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   const [payload, signature] = parts;
@@ -173,7 +194,13 @@ function decodeCursor(cursor, userId) {
     actualBuffer.length !== expectedBuffer.length ||
     !timingSafeEqual(actualBuffer, expectedBuffer)
   ) {
-    throw new AppError("Invalid notification cursor.", "INVALID_CURSOR", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر اعلان نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   let parsedPayload;
@@ -183,14 +210,20 @@ function decodeCursor(cursor, userId) {
       Buffer.from(payload, "base64url").toString("utf8")
     );
   } catch {
-    throw new AppError("Invalid notification cursor.", "INVALID_CURSOR", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر اعلان نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   if (parsedPayload.v !== CURSOR_VERSION) {
     throw new AppError(
-      "Unsupported notification cursor version.",
-      "INVALID_CURSOR",
-      400
+      ERROR_CODES.INVALID_CURSOR,
+      "نسخه نشانگر اعلان پشتیبانی نمی‌شود.",
+      { statusCode: 400 }
     );
   }
 
@@ -200,9 +233,9 @@ function decodeCursor(cursor, userId) {
 
   if (parsedPayload.userId !== userId.toString()) {
     throw new AppError(
-      "Notification cursor does not belong to this user.",
-      "INVALID_CURSOR",
-      400
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر اعلان متعلق به این کاربر نیست.",
+      { statusCode: 400 }
     );
   }
 
@@ -210,9 +243,11 @@ function decodeCursor(cursor, userId) {
 
   if (Number.isNaN(createdAt.getTime())) {
     throw new AppError(
-      "Invalid notification cursor date.",
-      "INVALID_CURSOR",
-      400
+      ERROR_CODES.INVALID_CURSOR,
+      "تاریخ نشانگر اعلان نامعتبر است.",
+      {
+        statusCode: 400,
+      }
     );
   }
 
@@ -241,9 +276,9 @@ function createNextCursor(notification, userId) {
 function normalizeSystemNotificationData(notificationData) {
   if (!notificationData || typeof notificationData !== "object") {
     throw new AppError(
-      "Notification data is required.",
-      "INVALID_NOTIFICATION_DATA",
-      400
+      ERROR_CODES.INVALID_NOTIFICATION_DATA,
+      "اطلاعات اعلان الزامی است.",
+      { statusCode: 400 }
     );
   }
 
@@ -281,8 +316,8 @@ function normalizeSystemNotificationData(notificationData) {
     userId,
     actorId,
     type,
-    title: normalizeNotificationText(title, "Title"),
-    message: normalizeNotificationText(message, "Message"),
+    title: normalizeNotificationText(title, "عنوان"),
+    message: normalizeNotificationText(message, "متن پیام"),
     recipeId,
     commentId,
     supportTicketId,
@@ -307,11 +342,9 @@ export async function getNotificationById(currentUser, notificationId) {
   );
 
   if (!notification) {
-    throw new AppError(
-      "Notification not found.",
-      "NOTIFICATION_NOT_FOUND",
-      404
-    );
+    throw new AppError(ERROR_CODES.NOTIFICATION_NOT_FOUND, "اعلان پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return notification;
@@ -382,11 +415,9 @@ export async function markNotificationRead(currentUser, notificationId) {
   );
 
   if (!notification) {
-    throw new AppError(
-      "Notification not found.",
-      "NOTIFICATION_NOT_FOUND",
-      404
-    );
+    throw new AppError(ERROR_CODES.NOTIFICATION_NOT_FOUND, "اعلان پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   // Idempotent behavior:
@@ -401,11 +432,9 @@ export async function markNotificationRead(currentUser, notificationId) {
   );
 
   if (!updatedNotification) {
-    throw new AppError(
-      "Notification not found.",
-      "NOTIFICATION_NOT_FOUND",
-      404
-    );
+    throw new AppError(ERROR_CODES.NOTIFICATION_NOT_FOUND, "اعلان پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return updatedNotification;
@@ -426,11 +455,9 @@ export async function deleteNotification(currentUser, notificationId) {
   );
 
   if (!deletedNotification) {
-    throw new AppError(
-      "Notification not found.",
-      "NOTIFICATION_NOT_FOUND",
-      404
-    );
+    throw new AppError(ERROR_CODES.NOTIFICATION_NOT_FOUND, "اعلان پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return deletedNotification;
@@ -484,23 +511,25 @@ export async function createGlobalNotification(
 
   if (!Array.isArray(recipientUserIds)) {
     throw new AppError(
-      "Recipient user IDs must be an array.",
-      "INVALID_RECIPIENTS",
-      400
+      ERROR_CODES.INVALID_RECIPIENTS,
+      "شناسه‌های کاربران دریافت‌کننده باید آرایه باشند.",
+      { statusCode: 400 }
     );
   }
 
   if (recipientUserIds.length === 0) {
     throw new AppError(
-      "At least one recipient is required.",
-      "NO_RECIPIENTS",
-      400
+      ERROR_CODES.NO_RECIPIENTS,
+      "حداقل یک دریافت‌کننده الزامی است.",
+      {
+        statusCode: 400,
+      }
     );
   }
 
-  const normalizedTitle = normalizeNotificationText(title, "Title");
+  const normalizedTitle = normalizeNotificationText(title, "عنوان");
 
-  const normalizedMessage = normalizeNotificationText(message, "Message");
+  const normalizedMessage = normalizeNotificationText(message, "متن پیام");
 
   const uniqueRecipientIds = [
     ...new Set(recipientUserIds.map((id) => id.toString())),
@@ -514,9 +543,9 @@ export async function createGlobalNotification(
 
   if (activeUsers.length === 0) {
     throw new AppError(
-      "No active recipients were found.",
-      "NO_ACTIVE_RECIPIENTS",
-      400
+      ERROR_CODES.NO_ACTIVE_RECIPIENTS,
+      "هیچ دریافت‌کننده فعالی پیدا نشد.",
+      { statusCode: 400 }
     );
   }
 

@@ -1,4 +1,4 @@
-import Category from "@/db/models/Category";
+import Category from "@/models/Category";
 
 /**
  * Apply MongoDB session only when provided.

@@ -22,9 +22,9 @@ const MAX_LIST_LIMIT = 100;
 function assertAuthenticated(currentUser) {
   if (!currentUser) {
     throw new AppError(
-      "Authentication is required.",
       ERROR_CODES.UNAUTHORIZED,
-      401
+      "ورود به حساب کاربری الزامی است.",
+      { statusCode: 401 }
     );
   }
 }
@@ -33,20 +33,18 @@ function assertAdmin(currentUser) {
   assertAuthenticated(currentUser);
 
   if (currentUser.role !== "ADMIN") {
-    throw new AppError(
-      "Administrator privileges are required.",
-      ERROR_CODES.FORBIDDEN,
-      403
-    );
+    throw new AppError(ERROR_CODES.FORBIDDEN, "دسترسی مدیر سیستم الزامی است.", {
+      statusCode: 403,
+    });
   }
 }
 
 function assertValidObjectId(id, fieldName = "ID") {
   if (!mongoose.isValidObjectId(id)) {
     throw new AppError(
-      `Invalid ${fieldName}.`,
       ERROR_CODES.INVALID_REQUEST,
-      400
+      `شناسه ${fieldName} نامعتبر است.`,
+      { statusCode: 400 }
     );
   }
 }
@@ -64,9 +62,9 @@ function normalizeLimit(limit, defaultLimit = DEFAULT_LIST_LIMIT) {
 function normalizeCategoryName(name) {
   if (typeof name !== "string") {
     throw new AppError(
-      "Invalid category name.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "نام دسته‌بندی نامعتبر است.",
+      { statusCode: 400 }
     );
   }
 
@@ -74,9 +72,9 @@ function normalizeCategoryName(name) {
 
   if (!normalizedName) {
     throw new AppError(
-      "Category name cannot be empty.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "نام دسته‌بندی نمی‌تواند خالی باشد.",
+      { statusCode: 400 }
     );
   }
 
@@ -86,9 +84,9 @@ function normalizeCategoryName(name) {
 function normalizeCategorySlug(slug) {
   if (typeof slug !== "string") {
     throw new AppError(
-      "Invalid category slug.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "شناسه متنی دسته‌بندی نامعتبر است.",
+      { statusCode: 400 }
     );
   }
 
@@ -96,9 +94,9 @@ function normalizeCategorySlug(slug) {
 
   if (!normalizedSlug) {
     throw new AppError(
-      "Category slug cannot be empty.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "شناسه متنی دسته‌بندی نمی‌تواند خالی باشد.",
+      { statusCode: 400 }
     );
   }
 
@@ -120,9 +118,9 @@ async function generateUniqueSlug(name) {
 
   if (!baseSlug) {
     throw new AppError(
-      "A valid category slug could not be generated.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "تولید شناسه متنی معتبر برای دسته‌بندی ممکن نبود.",
+      { statusCode: 400 }
     );
   }
 
@@ -190,9 +188,9 @@ async function assertUniqueCategoryName(name, currentCategoryId = null) {
       existingCategory._id.toString() !== currentCategoryId.toString())
   ) {
     throw new AppError(
-      "A category with this name already exists.",
       ERROR_CODES.CATEGORY_ALREADY_EXISTS,
-      409
+      "دسته‌بندی‌ای با این نام از قبل وجود دارد.",
+      { statusCode: 409 }
     );
   }
 }
@@ -206,9 +204,9 @@ async function assertUniqueCategorySlug(slug, currentCategoryId = null) {
       existingCategory._id.toString() !== currentCategoryId.toString())
   ) {
     throw new AppError(
-      "A category with this slug already exists.",
       ERROR_CODES.CATEGORY_ALREADY_EXISTS,
-      409
+      "دسته‌بندی‌ای با این شناسه متنی از قبل وجود دارد.",
+      { statusCode: 409 }
     );
   }
 }
@@ -219,11 +217,9 @@ export async function getCategoryById(categoryId) {
   const category = await findCategoryById(categoryId);
 
   if (!category) {
-    throw new AppError(
-      "Category not found.",
-      ERROR_CODES.CATEGORY_NOT_FOUND,
-      404
-    );
+    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return category;
@@ -236,9 +232,9 @@ export async function getActiveCategoryById(categoryId) {
 
   if (!category) {
     throw new AppError(
-      "Category not found or inactive.",
       ERROR_CODES.CATEGORY_NOT_FOUND,
-      404
+      "دسته‌بندی پیدا نشد یا فعال نیست.",
+      { statusCode: 404 }
     );
   }
 
@@ -251,11 +247,9 @@ export async function getCategoryBySlug(slug) {
   const category = await findCategoryBySlug(normalizedSlug);
 
   if (!category) {
-    throw new AppError(
-      "Category not found.",
-      ERROR_CODES.CATEGORY_NOT_FOUND,
-      404
-    );
+    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return category;
@@ -307,20 +301,18 @@ export async function updateCategory(currentUser, categoryId, updates) {
   const category = await findCategoryById(categoryId);
 
   if (!category) {
-    throw new AppError(
-      "Category not found.",
-      ERROR_CODES.CATEGORY_NOT_FOUND,
-      404
-    );
+    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   const sanitizedUpdates = sanitizeCategoryUpdates(updates);
 
   if (Object.keys(sanitizedUpdates).length === 0) {
     throw new AppError(
-      "No valid category fields were provided.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "هیچ فیلد معتبری برای دسته‌بندی ارائه نشده است.",
+      { statusCode: 400 }
     );
   }
 
@@ -346,11 +338,9 @@ export async function updateCategory(currentUser, categoryId, updates) {
   );
 
   if (!updatedCategory) {
-    throw new AppError(
-      "Category not found.",
-      ERROR_CODES.CATEGORY_NOT_FOUND,
-      404
-    );
+    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return updatedCategory;
@@ -363,26 +353,24 @@ export async function deactivateCategory(currentUser, categoryId) {
   const category = await findCategoryById(categoryId);
 
   if (!category) {
-    throw new AppError(
-      "Category not found.",
-      ERROR_CODES.CATEGORY_NOT_FOUND,
-      404
-    );
+    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   if (!category.isActive) {
     throw new AppError(
-      "Category is already inactive.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "دسته‌بندی از قبل غیرفعال است.",
+      { statusCode: 400 }
     );
   }
 
   if ((category.stats?.recipeCount ?? 0) > 0) {
     throw new AppError(
-      "A category containing recipes cannot be deactivated.",
       ERROR_CODES.CATEGORY_HAS_RECIPES,
-      409
+      "دسته‌بندی دارای دستور پخت را نمی‌توان غیرفعال کرد.",
+      { statusCode: 409 }
     );
   }
 
@@ -390,9 +378,9 @@ export async function deactivateCategory(currentUser, categoryId) {
 
   if (!updatedCategory) {
     throw new AppError(
-      "Category could not be deactivated.",
       ERROR_CODES.CATEGORY_NOT_FOUND,
-      404
+      "غیرفعال‌سازی دسته‌بندی انجام نشد.",
+      { statusCode: 404 }
     );
   }
 
@@ -406,18 +394,16 @@ export async function activateCategory(currentUser, categoryId) {
   const category = await findCategoryById(categoryId);
 
   if (!category) {
-    throw new AppError(
-      "Category not found.",
-      ERROR_CODES.CATEGORY_NOT_FOUND,
-      404
-    );
+    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   if (category.isActive) {
     throw new AppError(
-      "Category is already active.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "دسته‌بندی از قبل فعال است.",
+      { statusCode: 400 }
     );
   }
 
@@ -425,9 +411,9 @@ export async function activateCategory(currentUser, categoryId) {
 
   if (!updatedCategory) {
     throw new AppError(
-      "Category could not be activated.",
       ERROR_CODES.CATEGORY_NOT_FOUND,
-      404
+      "فعال‌سازی دسته‌بندی انجام نشد.",
+      { statusCode: 404 }
     );
   }
 
@@ -439,9 +425,9 @@ export async function incrementRecipeCount(categoryId, amount = 1, session) {
 
   if (!Number.isInteger(amount) || amount === 0) {
     throw new AppError(
-      "Invalid recipe count change.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "تغییر تعداد دستورهای پخت نامعتبر است.",
+      { statusCode: 400 }
     );
   }
 

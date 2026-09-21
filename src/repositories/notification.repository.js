@@ -1,4 +1,4 @@
-import Notification from "@/db/models/Notification";
+import Notification from "@/models/Notification";
 
 /**
  * Apply MongoDB session only when provided.

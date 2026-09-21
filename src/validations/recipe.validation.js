@@ -1,3 +1,4 @@
+import { INGREDIENT_UNITS } from "@/constants/enums";
 import { z } from "zod";
 
 /**
@@ -59,11 +60,13 @@ const ingredientSchema = z
 
     quantity: z
       .number()
-      .min(0, "مقدار ماده اولیه نمی‌تواند منفی باشد.")
+      .positive({
+        message: "مقدار باید بزرگ‌تر از صفر باشد.",
+      })
       .nullable()
       .optional(),
 
-    unit: z.string().trim().min(1, "واحد ماده اولیه الزامی است."),
+    unit: z.enum(INGREDIENT_UNITS).trim().min(1, "واحد ماده اولیه الزامی است."),
   })
   .strict()
   .superRefine((data, ctx) => {

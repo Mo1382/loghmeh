@@ -1,4 +1,12 @@
-import Recipe from "@/db/models/Recipe";
+import mongoose from "mongoose";
+
+import Recipe from "@/models/Recipe";
+import User from "@/models/User";
+import Category from "@/models/Category";
+
+/* -------------------------------------------------------------------------- */
+/* Sorting                                                                    */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Supported recipe sorting modes.
@@ -13,13 +21,22 @@ export const RECIPE_SORTS = {
   HIGHEST_RATED: "HIGHEST_RATED",
 };
 
-/** * Allowed recipe statistic fields. */
+/* -------------------------------------------------------------------------- */
+/* Statistics                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Allowed recipe statistic fields.
+ */
 export const RECIPE_STATS = {
   VIEW_COUNT: "stats.viewCount",
   RATING_COUNT: "stats.ratingCount",
   COMMENT_COUNT: "stats.commentCount",
-  BOOKMARK_COUNT: "stats.bookmarkCount",
 };
+
+/* -------------------------------------------------------------------------- */
+/* Query Helpers                                                              */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Apply MongoDB session only when a session is provided.
@@ -31,14 +48,7 @@ function applySession(query, session) {
 /**
  * Build the cursor condition for the selected sort.
  *
- * Cursor format:
- *
- * {
- *   value: <sort field value>,
- *   id: <recipe ObjectId string>
- * }
- *
- * The `_id` is used as a stable tie-breaker when multiple
+ * The Recipe _id is used as a stable tie-breaker when multiple
  * recipes have the same sort value.
  */
 function buildCursorFilter(sort, cursor) {
@@ -123,20 +133,97 @@ function buildCursorFilter(sort, cursor) {
 }
 
 /**
+ * Build MongoDB lookup stages required to determine whether
+ * a Recipe is publicly accessible.
+ *
+ * A Recipe is accessible only when:
+ * - the Recipe is not deleted
+ * - its author exists
+ * - its author is ACTIVE
+ * - its author is not deleted
+ * - its category exists
+ * - its category is active
+ *
+ * These stages are intended to run BEFORE pagination.
+ */
+function buildAccessibilityStages() {
+  return [
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: "authorId",
+        foreignField: "_id",
+        pipeline: [
+          {
+            $match: {
+              accountStatus: "ACTIVE",
+              deletedAt: null,
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+            },
+          },
+        ],
+        as: "accessibleAuthor",
+      },
+    },
+
+    {
+      $lookup: {
+        from: Category.collection.name,
+        localField: "categoryId",
+        foreignField: "_id",
+        pipeline: [
+          {
+            $match: {
+              isActive: true,
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+            },
+          },
+        ],
+        as: "accessibleCategory",
+      },
+    },
+
+    {
+      $match: {
+        "accessibleAuthor.0": {
+          $exists: true,
+        },
+        "accessibleCategory.0": {
+          $exists: true,
+        },
+      },
+    },
+
+    {
+      $project: {
+        accessibleAuthor: 0,
+        accessibleCategory: 0,
+      },
+    },
+  ];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Find Recipes                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
  * Find recipes with cursor-based infinite loading.
  *
- * `filter` contains the base query, for example:
+ * Accessibility filtering is performed BEFORE sorting and pagination:
  *
- * {
- *   categoryId,
- *   deletedAt: null
- * }
- *
- * `sort` determines the ordering.
- *
- * `cursor` is the last item from the previous batch.
- *
- * `limit` controls the number of recipes returned.
+ * Recipe.deletedAt === null
+ * AND Author.accountStatus === "ACTIVE"
+ * AND Author.deletedAt === null
+ * AND Category.isActive === true
  */
 export function findRecipes({
   filter = {},
@@ -151,10 +238,6 @@ export function findRecipes({
   };
 
   const cursorFilter = buildCursorFilter(sort, cursor);
-
-  if (cursorFilter) {
-    queryFilter.$and = [...(queryFilter.$and || []), cursorFilter];
-  }
 
   let sortOption;
 
@@ -191,15 +274,66 @@ export function findRecipes({
       throw new Error(`Unsupported recipe sort: ${sort}`);
   }
 
-  const query = Recipe.find(queryFilter).sort(sortOption).limit(limit);
+  const pipeline = [
+    /*
+     * Base Recipe filters.
+     *
+     * deletedAt is enforced here so deleted Recipes never
+     * participate in the result set.
+     */
+    {
+      $match: queryFilter,
+    },
+  ];
+
+  /*
+   * Cursor filtering is applied before the cross-document
+   * accessibility checks.
+   */
+  if (cursorFilter) {
+    pipeline.push({
+      $match: cursorFilter,
+    });
+  }
+
+  /*
+   * Author and Category accessibility must be determined
+   * BEFORE limit/hasMore pagination.
+   */
+  pipeline.push(...buildAccessibilityStages());
+
+  /*
+   * Sort only after inaccessible Recipes have been removed.
+   */
+  pipeline.push({
+    $sort: sortOption,
+  });
+
+  /*
+   * Apply limit after accessibility filtering so that the
+   * returned page actually contains the requested number
+   * of accessible Recipes.
+   */
+  pipeline.push({
+    $limit: limit,
+  });
+
+  const query = Recipe.aggregate(pipeline);
 
   return applySession(query, session);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Find Single Recipe                                                         */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Find a recipe by ID.
+ * Find a Recipe by ID.
  *
- * Soft-deleted recipes are excluded.
+ * Soft-deleted Recipes are excluded.
+ *
+ * Author and Category accessibility are intentionally checked
+ * by the Service layer for single-Recipe operations.
  */
 export function findRecipeById(recipeId, session) {
   const query = Recipe.findOne({
@@ -210,19 +344,24 @@ export function findRecipeById(recipeId, session) {
   return applySession(query, session);
 }
 
+/**
+ * Find a deleted Recipe by ID.
+ */
 export function findDeletedRecipeById(recipeId, session) {
   const query = Recipe.findOne({
     _id: recipeId,
-    deletedAt: { $ne: null },
+    deletedAt: {
+      $ne: null,
+    },
   });
 
   return applySession(query, session);
 }
 
 /**
- * Find a recipe by slug.
+ * Find a Recipe by slug.
  *
- * Soft-deleted recipes are excluded.
+ * Soft-deleted Recipes are excluded.
  */
 export function findRecipeBySlug(slug, session) {
   const query = Recipe.findOne({
@@ -233,22 +372,12 @@ export function findRecipeBySlug(slug, session) {
   return applySession(query, session);
 }
 
-/**
- * Find a recipe by slug regardless of deletion status.
- *
- * Used when checking slug uniqueness.
- * Soft-deleted recipes also reserve their slugs.
- */
-export function findRecipeBySlugAny(slug, session) {
-  const query = Recipe.findOne({
-    slug,
-  });
-
-  return applySession(query, session);
-}
+/* -------------------------------------------------------------------------- */
+/* Create                                                                     */
+/* -------------------------------------------------------------------------- */
 
 /**
- * Create a recipe.
+ * Create a Recipe.
  *
  * authorId is determined by the Service layer.
  * slug is generated by the Service layer.
@@ -262,17 +391,27 @@ export function createRecipe(recipeData, session) {
           ...recipeData,
         },
       ],
-      { session }
+      {
+        session,
+      }
     ).then(([recipe]) => recipe);
   }
 
   return Recipe.create(recipeData);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Update                                                                     */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Update a recipe by ID.
+ * Update a Recipe by ID.
  *
  * Only explicitly provided fields are updated.
+ * The Recipe itself must not be soft-deleted.
+ *
+ * Authorization and Author/Category accessibility are handled
+ * by the Service layer.
  */
 export function updateRecipeById(recipeId, updates, session) {
   const query = Recipe.findOneAndUpdate(
@@ -292,12 +431,16 @@ export function updateRecipeById(recipeId, updates, session) {
   return applySession(query, session);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Soft Delete / Restore                                                      */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Soft-delete a recipe.
+ * Soft-delete a Recipe.
  *
  * Soft deletion only changes deletedAt.
- * Any additional account/business state is handled
- * by the Service layer.
+ * Related Bookmarks, Ratings, Comments, Reactions and
+ * other relationships are preserved.
  */
 export function softDeleteRecipe(recipeId, deletedAt = new Date(), session) {
   const query = Recipe.findOneAndUpdate(
@@ -320,7 +463,7 @@ export function softDeleteRecipe(recipeId, deletedAt = new Date(), session) {
 }
 
 /**
- * Restore a soft-deleted recipe.
+ * Restore a soft-deleted Recipe.
  */
 export function restoreRecipe(recipeId, session) {
   const query = Recipe.findOneAndUpdate(
@@ -344,10 +487,19 @@ export function restoreRecipe(recipeId, session) {
   return applySession(query, session);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Find Multiple Recipes                                                      */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Find multiple recipes by their IDs.
+ * Find multiple Recipes by their IDs.
  *
- * Deleted recipes are excluded.
+ * Deleted Recipes are excluded.
+ *
+ * This function intentionally does not perform Author/Category
+ * accessibility filtering because callers may use it for internal
+ * relationship checks. Public multi-Recipe loading should use
+ * findRecipes().
  */
 export function findRecipesByIds(recipeIds, session) {
   const query = Recipe.find({
@@ -360,10 +512,22 @@ export function findRecipesByIds(recipeIds, session) {
   return applySession(query, session);
 }
 
-/** *
- * Increment or decrement a recipe statistic.
- * */
+/* -------------------------------------------------------------------------- */
+/* Statistics                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Increment or decrement a Recipe statistic.
+ */
 export function incrementStatCount(recipeId, stat, amount = 1, session) {
+  if (!Object.values(RECIPE_STATS).includes(stat)) {
+    throw new Error("Invalid recipe stat.");
+  }
+
+  if (!Number.isInteger(amount) || amount === 0) {
+    throw new Error("Recipe stat amount must be a non-zero integer.");
+  }
+
   const query = Recipe.findOneAndUpdate(
     {
       _id: recipeId,
@@ -384,14 +548,14 @@ export function incrementStatCount(recipeId, stat, amount = 1, session) {
 }
 
 /**
- * Increment recipe view count.
+ * Increment Recipe view count.
  */
 export function incrementViewCount(recipeId, amount = 1, session) {
   return incrementStatCount(recipeId, RECIPE_STATS.VIEW_COUNT, amount, session);
 }
 
 /**
- * Increment recipe rating count.
+ * Increment Recipe rating count.
  */
 export function incrementRatingCount(recipeId, amount = 1, session) {
   return incrementStatCount(
@@ -403,7 +567,7 @@ export function incrementRatingCount(recipeId, amount = 1, session) {
 }
 
 /**
- * Increment recipe comment count.
+ * Increment Recipe comment count.
  */
 export function incrementCommentCount(recipeId, amount = 1, session) {
   return incrementStatCount(
@@ -415,19 +579,7 @@ export function incrementCommentCount(recipeId, amount = 1, session) {
 }
 
 /**
- * Increment recipe bookmark count.
- */
-export function incrementBookmarkCount(recipeId, amount = 1, session) {
-  return incrementStatCount(
-    recipeId,
-    RECIPE_STATS.BOOKMARK_COUNT,
-    amount,
-    session
-  );
-}
-
-/**
- * Update recipe average rating.
+ * Update Recipe average rating.
  */
 export function updateAverageRating(recipeId, averageRating, session) {
   const query = Recipe.findOneAndUpdate(

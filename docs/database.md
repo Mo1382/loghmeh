@@ -1,26 +1,27 @@
 # Loghmeh — Database Schema Reference
 
-> Single MongoDB database, modeled with Mongoose. Reorganized version of the full database documentation — same technical content, restructured collection-by-collection for easier reference. Prose/philosophy sections were trimmed; fields, embedded objects, virtuals, relationships, indexes, validation rules, business rules, and example documents are kept in full for every collection.
+> Single MongoDB database, modeled with Mongoose. This document describes the schemas currently present under `src/models`; fields mentioned as planned are not part of the current persistence contract.
 
 ---
 
 ## 1. Stack & Core Principles
 
-| Tech | Role |
-|---|---|
-| MongoDB (Atlas in prod) | Primary database |
-| Mongoose | ODM — schemas, validation, population |
-| Auth.js | Authentication & sessions |
-| Zod | Server-side validation |
-| Cloudinary (or equivalent) | Image storage |
-| Redis (optional) | Caching |
+| Tech                    | Role                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| MongoDB (Atlas in prod) | Primary database                                                                           |
+| Mongoose                | ODM — schemas, validation, population                                                      |
+| Auth.js                 | Authentication & sessions                                                                  |
+| Zod                     | Validation schemas currently defined in `src/validations`; not yet wired to routes/actions |
+| UploadThing             | Configured upload dependency; upload integration is not currently implemented              |
+| Redis (optional)        | Caching                                                                                    |
 
 **Databases:** production `loqmeh`, development `loqmeh_dev`.
 
 **Design principles**
+
 - Each piece of information has exactly one authoritative location (no duplication across collections — e.g. `recipe.authorName` is never stored, only `recipe.authorId`).
 - **Reference** (ObjectId) independent entities with their own lifecycle: User, Recipe, Category, Comment, Rating.
-- **Embed** tightly-coupled sub-objects that never exist independently: ingredients, cooking steps, nutrition, comment replies, user settings/stats/social links.
+- **Embed** tightly-coupled sub-objects that never exist independently: ingredients, cooking steps, recipe stats, comment replies, and user social links/stats.
 - Frequently-read derived values (average ratings, follower/recipe counts) are **stored and kept in sync by application logic**, not recalculated per request.
 - Every document has exactly one clear **owner**, used for authorization.
 - Write operations are atomic — no partial updates that could leave inconsistent state.
@@ -32,27 +33,27 @@
 
 ## 2. Collections at a Glance
 
-| Collection | Domain | Purpose | Owner |
-|---|---|---|---|
-| **User** | User | Accounts, profile, auth data, social links, stats | — |
-| **Recipe** | Recipe | Published recipes: ingredients, steps, nutrition, stats | User |
-| **Category** | Recipe | Recipe classification/filtering (admin-managed) | — |
-| **Rating** | Recipe | One user's rating of one recipe (1–5) | User |
-| **Bookmark** | Recipe | Saved recipes (many-to-many User↔Recipe) | User |
-| **Comment** | Community | Comments + embedded replies on recipes | User |
-| **Follow** | Community | Follower/following relationship between users | User (follower) |
-| **Notification** | Community | System-generated notifications | User |
-| **SupportTicket** | Support | User → platform support requests | User |
-| **VerificationCode** | Auth | Short-lived email/password-reset codes | — |
-| **Session** *(Auth.js)* | Auth | Fully managed by Auth.js | User |
+| Collection              | Domain    | Purpose                                           | Owner           |
+| ----------------------- | --------- | ------------------------------------------------- | --------------- |
+| **User**                | User      | Accounts, profile, auth data, social links, stats | —               |
+| **Recipe**              | Recipe    | Recipes: ingredients, steps, calories, stats      | User            |
+| **Category**            | Recipe    | Recipe classification/filtering (admin-managed)   | —               |
+| **Rating**              | Recipe    | One user's rating of one recipe (1–5)             | User            |
+| **Bookmark**            | Recipe    | Saved recipes (many-to-many User↔Recipe)          | User            |
+| **Comment**             | Community | Comments + embedded replies on recipes            | User            |
+| **Follow**              | Community | Follower/following relationship between users     | User (follower) |
+| **Notification**        | Community | System-generated notifications                    | User            |
+| **SupportTicket**       | Support   | User → platform support requests                  | User            |
+| **VerificationCode**    | Auth      | Short-lived email/password-reset codes            | —               |
+| **Session** _(Auth.js)_ | Auth      | Fully managed by Auth.js                          | User            |
 
 ### Relationship Types Used
 
-| Type | Implementation | Examples |
-|---|---|---|
-| One-to-One | Embedded (not a separate collection) | User→settings/socialLinks/stats, Recipe→nutrition/stats |
-| One-to-Many | Reference (`<entity>Id` field) | User→Recipe, Category→Recipe, Recipe→Comment, User→Notification |
-| Many-to-Many | Dedicated junction collection | User↔Recipe via Bookmark, User↔Recipe via Rating, User↔User via Follow |
+| Type         | Implementation                       | Examples                                                               |
+| ------------ | ------------------------------------ | ---------------------------------------------------------------------- |
+| One-to-One   | Embedded (not a separate collection) | User→socialLinks/stats, Recipe→stats                                   |
+| One-to-Many  | Reference (`<entity>Id` field)       | User→Recipe, Category→Recipe, Recipe→Comment, User→Notification        |
+| Many-to-Many | Dedicated junction collection        | User↔Recipe via Bookmark, User↔Recipe via Rating, User↔User via Follow |
 
 ### High-Level Diagram
 
@@ -81,71 +82,73 @@ User (1) ──── Follow ──── User (1)     [followerId / followingId
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `firstName` | String | ✅ | — | 2–50 chars | First name |
-| `lastName` | String | ✅ | — | 2–50 chars | Last name |
-| `username` | String | ✅ | — | unique, lowercase, 3–30 chars, `[a-z0-9_]` | Public username |
-| `email` | String | ✅ | — | unique, lowercase, valid email | Login email |
-| `password` | String | ✅* | — | hashed | *not required for OAuth accounts |
-| `avatar` | String | ❌ | default avatar | valid HTTPS image URL | Profile image |
-| `bio` | String | ❌ | "" | max 300 chars | Biography |
-| `title` | Enum | ✅ | `USER` | see User Titles | Public title (display only, no permission impact) |
-| `role` | Enum | ✅ | `USER` | see User Roles | Permission role |
-| `socialLinks` | Object | ❌ | {} | valid URLs | See Embedded Objects |
-| `stats` | Object | ✅ | auto | system managed | See Embedded Objects |
-| `settings` | Object | ✅ | auto | system managed | See Embedded Objects |
-| `emailVerified` | Boolean | ✅ | false | — | Email verification status |
-| `isActive` | Boolean | ✅ | true | — | Account active flag |
-| `createdAt` / `updatedAt` | Date | ✅ | auto | ISO Date | |
+| Field                     | Type     | Req. | Default        | Validation                                 | Description                                       |
+| ------------------------- | -------- | ---- | -------------- | ------------------------------------------ | ------------------------------------------------- |
+| `_id`                     | ObjectId | ✅   | auto           | MongoDB ObjectId                           | Primary key                                       |
+| `firstName`               | String   | ✅   | —              | 2–50 chars                                 | First name                                        |
+| `lastName`                | String   | ✅   | —              | 2–50 chars                                 | Last name                                         |
+| `username`                | String   | ✅   | —              | unique, lowercase, 3–30 chars, `[a-z0-9_]` | Public username                                   |
+| `email`                   | String   | ✅   | —              | unique, lowercase, valid email             | Login email                                       |
+| `password`                | String   | ✅*  | —              | hashed                                     | *not required for OAuth accounts                  |
+| `avatar`                  | String   | ❌   | default avatar | valid HTTPS image URL                      | Profile image                                     |
+| `bio`                     | String   | ❌   | ""             | max 300 chars                              | Biography                                         |
+| `title`                   | Enum     | ✅   | `USER`         | see User Titles                            | Public title (display only, no permission impact) |
+| `role`                    | Enum     | ✅   | `USER`         | see User Roles                             | Permission role                                   |
+| `socialLinks`             | Object   | ❌   | {}             | valid URLs                                 | See Embedded Objects                              |
+| `stats`                   | Object   | ✅   | auto           | system managed                             | See Embedded Objects                              |
+| `settings`                | Object   | ✅   | auto           | system managed                             | See Embedded Objects                              |
+| `emailVerified`           | Boolean  | ✅   | false          | —                                          | Email verification status                         |
+| `isActive`                | Boolean  | ✅   | true           | —                                          | Account active flag                               |
+| `createdAt` / `updatedAt` | Date     | ✅   | auto           | ISO Date                                   |                                                   |
 
 **Embedded Objects**
 
-*socialLinks*
+_socialLinks_
 
-| Field | Type | Required | Validation |
-|---|---|---|---|
-| `instagram` | String | ❌ (null) | valid Instagram URL |
-| `telegram` | String | ❌ (null) | valid Telegram URL |
-| `x` | String | ❌ (null) | valid X (Twitter) URL |
+| Field       | Type   | Required  | Validation            |
+| ----------- | ------ | --------- | --------------------- |
+| `instagram` | String | ❌ (null) | valid Instagram URL   |
+| `telegram`  | String | ❌ (null) | valid Telegram URL    |
+| `x`         | String | ❌ (null) | valid X (Twitter) URL |
 
-*stats* (system-managed, never manually edited)
+_stats_ (system-managed, never manually edited)
 
-| Field | Type | Default |
-|---|---|---|
-| `recipeCount` | Number | 0 |
-| `followerCount` | Number | 0 |
-| `followingCount` | Number | 0 |
-| `averageRating` | Number | 0 |
+| Field            | Type   | Default |
+| ---------------- | ------ | ------- |
+| `recipeCount`    | Number | 0       |
+| `followerCount`  | Number | 0       |
+| `followingCount` | Number | 0       |
+| `averageRating`  | Number | 0       |
 
-*settings*
+_settings_
 
-| Field | Type | Default |
-|---|---|---|
-| `profileVisibility` | Enum | `PUBLIC` |
-| `allowSearchEngines` | Boolean | true |
+| Field                | Type    | Default  |
+| -------------------- | ------- | -------- |
+| `profileVisibility`  | Enum    | `PUBLIC` |
+| `allowSearchEngines` | Boolean | true     |
 
 **Virtual Fields** (computed, not stored): `fullName` (= firstName + " " + lastName), `recipeUrl`, `profileUrl`, `initials`.
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| Recipe | 1→N | One User → Many Recipes |
-| Comment | 1→N | One User → Many Comments |
-| Rating | 1→N | One User → Many Ratings |
-| Bookmark | 1→N | One User → Many Bookmarks |
-| Follow | 1→N (×2) | One User → Many Follow docs (as follower and as following) |
-| Notification | 1→N | One User → Many Notifications |
-| SupportTicket | 1→N | One User → Many Support Tickets |
+| Related Collection | Type     | Description                                                |
+| ------------------ | -------- | ---------------------------------------------------------- |
+| Recipe             | 1→N      | One User → Many Recipes                                    |
+| Comment            | 1→N      | One User → Many Comments                                   |
+| Rating             | 1→N      | One User → Many Ratings                                    |
+| Bookmark           | 1→N      | One User → Many Bookmarks                                  |
+| Follow             | 1→N (×2) | One User → Many Follow docs (as follower and as following) |
+| Notification       | 1→N      | One User → Many Notifications                              |
+| SupportTicket      | 1→N      | One User → Many Support Tickets                            |
 
 **Indexes**
+
 - Primary: `_id`
 - Unique: `username`, `email`
 - Performance: `username`, `stats.averageRating`, `stats.recipeCount`, `createdAt`
 
 **Validation Rules**
+
 - `firstName` / `lastName`: required, trimmed, 2–50 chars.
 - `username`: required, unique, lowercase only, 3–30 chars, letters/numbers/underscore only, no spaces.
 - `email`: required, unique, lowercase, valid format.
@@ -155,6 +158,7 @@ User (1) ──── Follow ──── User (1)     [followerId / followingId
 - `socialLinks`: if provided, must be valid URLs matching the corresponding platform.
 
 **Business Rules**
+
 - Every registered user owns exactly one User document.
 - Usernames and emails are unique.
 - Email verification is required before the account becomes fully active.
@@ -209,108 +213,98 @@ User (1) ──── Follow ──── User (1)     [followerId / followingId
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `authorId` | ObjectId | ✅ | — | existing User | Recipe owner |
-| `categoryId` | ObjectId | ✅ | — | existing Category | Recipe category |
-| `title` | String | ✅ | — | 5–120 chars | Recipe title |
-| `slug` | String | ✅ | auto | unique | SEO-friendly URL |
-| `description` | String | ✅ | — | 30–500 chars | Short description |
-| `origin` | String | ❌ | null | max 60 chars | Country/region of origin |
-| `difficulty` | Enum | ✅ | `EASY` | see Difficulty Enum | Cooking difficulty |
-| `preparationTime` | Number | ✅ | — | ≥1 | Prep time (minutes) |
-| `cookingTime` | Number | ❌ | 0 | ≥0 | Cooking time (minutes) |
-| `servings` | Number | ✅ | 1 | 1–100 | Number of servings |
-| `coverImage` | String | ✅ | — | valid HTTPS image URL | Main image |
-| `gallery` | Array\<String\> | ❌ | [] | valid image URLs | Additional images |
-| `ingredients` | Array\<Object\> | ✅ | — | min 1 item | See Embedded Objects |
-| `steps` | Array\<Object\> | ✅ | — | min 1 item | See Embedded Objects |
-| `nutrition` | Object | ❌ | {} | system schema | See Embedded Objects |
-| `stats` | Object | ✅ | auto | system managed | See Embedded Objects |
-| `isPublished` | Boolean | ✅ | true | — | Publication status |
-| `createdAt` / `updatedAt` | Date | ✅ | auto | ISO Date | |
+| Field                     | Type            | Req. | Default | Validation              | Description              |
+| ------------------------- | --------------- | ---- | ------- | ----------------------- | ------------------------ |
+| `_id`                     | ObjectId        | ✅   | auto    | MongoDB ObjectId        | Primary key              |
+| `authorId`                | ObjectId        | ✅   | —       | existing User           | Recipe owner             |
+| `categoryId`              | ObjectId        | ✅   | —       | existing Category       | Recipe category          |
+| `title`                   | String          | ✅   | —       | 5–120 chars             | Recipe title             |
+| `slug`                    | String          | ✅   | auto    | unique                  | SEO-friendly URL         |
+| `description`             | String          | ✅   | —       | 30–500 chars            | Short description        |
+| `origin`                  | String          | ❌   | null    | max 60 chars            | Country/region of origin |
+| `difficulty`              | Enum            | ✅   | `آسان`  | `آسان`, `متوسط`, `سخت`  | Cooking difficulty       |
+| `preparationTime`         | Number          | ✅   | —       | ≥1                      | Prep time (minutes)      |
+| `defaultServings`         | Number          | ✅   | 1       | positive number         | Default serving count    |
+| `image`                   | String          | ❌   | null    | image URL when provided | Main recipe image        |
+| `ingredients`             | Array\<Object\> | ✅   | —       | min 1 item              | See Embedded Objects     |
+| `steps`                   | Array\<Object\> | ✅   | —       | min 1 item              | See Embedded Objects     |
+| `calories`                | Number          | ❌   | 0       | non-negative            | Calories                 |
+| `stats`                   | Object          | ✅   | auto    | system managed          | See Embedded Objects     |
+| `createdAt` / `updatedAt` | Date            | ✅   | auto    | ISO Date                |                          |
 
 **Embedded Objects**
 
-*ingredients* (array item)
+_ingredients_ (array item)
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `name` | String | ✅ | Ingredient name |
-| `quantity` | Number | ✅ | Amount |
-| `unit` | String | ✅ | Unit of measurement |
+| Field      | Type   | Required | Description         |
+| ---------- | ------ | -------- | ------------------- |
+| `name`     | String | ✅       | Ingredient name     |
+| `quantity` | Number | ✅       | Amount              |
+| `unit`     | String | ✅       | Unit of measurement |
 
-*steps* (array item)
+_steps_ (array item)
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `order` | Number | ✅ | Step number |
-| `title` | String | ❌ | Optional heading |
-| `description` | String | ✅ | Instructions |
-| `image` | String | ❌ | Optional step image |
+| Field         | Type   | Required | Description         |
+| ------------- | ------ | -------- | ------------------- |
+| `order`       | Number | ✅       | Step number         |
+| `title`       | String | ❌       | Optional heading    |
+| `description` | String | ✅       | Instructions        |
+| `image`       | String | ❌       | Optional step image |
 
-*nutrition*
+_stats_ (system-managed)
 
-| Field | Type | Default |
-|---|---|---|
-| `calories` | Number | 0 |
-| `protein` | Number | 0 |
-| `carbohydrates` | Number | 0 |
-| `fat` | Number | 0 |
+| Field           | Type   | Default |
+| --------------- | ------ | ------- |
+| `averageRating` | Number | 0       |
+| `ratingCount`   | Number | 0       |
+| `commentCount`  | Number | 0       |
+| `bookmarkCount` | Number | 0       |
+| `viewCount`     | Number | 0       |
 
-*stats* (system-managed)
+**Virtual Fields:** none documented in the current model.
 
-| Field | Type | Default |
-|---|---|---|
-| `averageRating` | Number | 0 |
-| `ratingCount` | Number | 0 |
-| `commentCount` | Number | 0 |
-| `bookmarkCount` | Number | 0 |
-| `viewCount` | Number | 0 |
-
-**Virtual Fields:** `totalTime` (= preparationTime + cookingTime), `recipeUrl`, `estimatedReadingTime`.
-
-**Difficulty Enum:** `EASY`, `MEDIUM`, `HARD`.
+**Difficulty Enum:** `آسان`, `متوسط`, `سخت`.
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| User | N→1 | Many Recipes → One User |
-| Category | N→1 | Many Recipes → One Category |
-| Comment | 1→N | One Recipe → Many Comments |
-| Rating | 1→N | One Recipe → Many Ratings |
-| Bookmark | 1→N | One Recipe → Many Bookmarks |
+| Related Collection | Type | Description                 |
+| ------------------ | ---- | --------------------------- |
+| User               | N→1  | Many Recipes → One User     |
+| Category           | N→1  | Many Recipes → One Category |
+| Comment            | 1→N  | One Recipe → Many Comments  |
+| Rating             | 1→N  | One Recipe → Many Ratings   |
+| Bookmark           | 1→N  | One Recipe → Many Bookmarks |
 
 **Indexes**
+
 - Primary: `_id`
 - Unique: `slug`
 - Performance: `authorId`, `categoryId`, `difficulty`, `origin`, `stats.averageRating`, `stats.viewCount`, `createdAt`
 - Compound: `categoryId + createdAt`, `categoryId + stats.averageRating`, `authorId + createdAt`
 
 **Validation Rules**
+
 - `title`: required, 5–120 chars, trimmed.
 - `slug`: unique, lowercase, hyphen-separated, auto-generated from title (e.g. `classic-margherita-pizza`).
 - `description`: required, 30–500 chars.
 - `origin`: optional, max 60 chars.
 - `difficulty`: must be one of the enum values.
-- `preparationTime`: required, min 1 minute. `cookingTime`: min 0.
-- `servings`: 1–100.
-- `coverImage`: HTTPS, valid image format, uploaded via the app's image service.
-- `gallery`: max 10 images, each a valid HTTPS image URL.
+- `preparationTime`: required, min 1 minute.
+- `defaultServings`: positive number.
+- `image`: optional image URL.
 - `ingredients`: at least 1 required; names non-empty; quantity > 0.
 - `steps`: at least 1 required; order sequential; descriptions non-empty.
 
 **Business Rules**
+
 - Every recipe belongs to exactly one user and exactly one category.
 - Recipes may receive unlimited comments and ratings; a user may rate a recipe only once.
 - Bookmarks are stored separately, not embedded.
 - Statistics are managed exclusively by the system.
 - Slugs are unique.
-- Recipes are publicly visible only when `isPublished` is `true`.
+- The current model has no `status` or `isPublished` field. The current service treats a created, non-deleted recipe as available to its public queries; draft/publish is planned, not implemented.
 - Only the recipe owner may edit or delete the recipe.
-- Deleting a recipe should cascade (remove/archive) related ratings, bookmarks, and comments per the defined cascade strategy.
+- Deleting a recipe soft-deletes the Recipe document. Related ratings, bookmarks, and comments are preserved; public recipe queries exclude the deleted recipe.
 
 **Example Document**
 
@@ -323,26 +317,36 @@ User (1) ──── Follow ──── User (1)     [followerId / followingId
   "slug": "classic-margherita-pizza",
   "description": "A traditional Italian pizza made with fresh mozzarella, tomatoes, and basil.",
   "origin": "Italy",
-  "difficulty": "MEDIUM",
+  "difficulty": "متوسط",
   "preparationTime": 20,
-  "cookingTime": 15,
-  "servings": 4,
-  "coverImage": "https://cdn.loghmeh.com/recipes/pizza-cover.jpg",
-  "gallery": [
-    "https://cdn.loghmeh.com/recipes/pizza-1.jpg",
-    "https://cdn.loghmeh.com/recipes/pizza-2.jpg"
-  ],
+  "defaultServings": 4,
+  "image": "https://cdn.loghmeh.com/recipes/pizza.jpg",
   "ingredients": [
     { "name": "Pizza Dough", "quantity": 1, "unit": "piece" },
     { "name": "Mozzarella", "quantity": 200, "unit": "g" }
   ],
   "steps": [
-    { "order": 1, "title": "Prepare the Dough", "description": "Roll out the pizza dough.", "image": null },
-    { "order": 2, "title": "Bake", "description": "Bake for 15 minutes at 250°C.", "image": null }
+    {
+      "order": 1,
+      "title": "Prepare the Dough",
+      "description": "Roll out the pizza dough.",
+      "image": null
+    },
+    {
+      "order": 2,
+      "title": "Bake",
+      "description": "Bake for 15 minutes at 250°C.",
+      "image": null
+    }
   ],
-  "nutrition": { "calories": 320, "protein": 14, "carbohydrates": 35, "fat": 12 },
-  "stats": { "averageRating": 4.8, "ratingCount": 153, "commentCount": 42, "bookmarkCount": 281, "viewCount": 12437 },
-  "isPublished": true,
+  "calories": 320,
+  "stats": {
+    "averageRating": 4.8,
+    "ratingCount": 153,
+    "commentCount": 42,
+    "bookmarkCount": 281,
+    "viewCount": 12437
+  },
   "createdAt": "2026-07-15T10:30:00Z",
   "updatedAt": "2026-07-28T18:45:00Z"
 }
@@ -356,47 +360,50 @@ User (1) ──── Follow ──── User (1)     [followerId / followingId
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `name` | String | ✅ | — | unique, 2–50 chars | Category name |
-| `slug` | String | ✅ | auto | unique | URL slug |
-| `description` | String | ❌ | "" | max 250 chars | Description |
-| `image` | String | ❌ | null | HTTPS image URL | Category image |
-| `icon` | String | ❌ | null | icon identifier | Category icon |
-| `order` | Number | ✅ | 0 | ≥0 | Display order |
-| `stats` | Object | ✅ | auto | system managed | See Embedded Objects |
-| `isActive` | Boolean | ✅ | true | — | Visibility status |
-| `createdAt` / `updatedAt` | Date | ✅ | auto | ISO Date | |
+| Field                     | Type     | Req. | Default | Validation         | Description          |
+| ------------------------- | -------- | ---- | ------- | ------------------ | -------------------- |
+| `_id`                     | ObjectId | ✅   | auto    | MongoDB ObjectId   | Primary key          |
+| `name`                    | String   | ✅   | —       | unique, 2–50 chars | Category name        |
+| `slug`                    | String   | ✅   | auto    | unique             | URL slug             |
+| `description`             | String   | ❌   | ""      | max 250 chars      | Description          |
+| `image`                   | String   | ❌   | null    | HTTPS image URL    | Category image       |
+| `icon`                    | String   | ❌   | null    | icon identifier    | Category icon        |
+| `order`                   | Number   | ✅   | 0       | ≥0                 | Display order        |
+| `stats`                   | Object   | ✅   | auto    | system managed     | See Embedded Objects |
+| `isActive`                | Boolean  | ✅   | true    | —                  | Visibility status    |
+| `createdAt` / `updatedAt` | Date     | ✅   | auto    | ISO Date           |                      |
 
 **Embedded Objects**
 
-*stats* (managed automatically)
+_stats_ (managed automatically)
 
-| Field | Type | Default |
-|---|---|---|
-| `recipeCount` | Number | 0 |
-| `averageRating` | Number | 0 |
+| Field           | Type   | Default |
+| --------------- | ------ | ------- |
+| `recipeCount`   | Number | 0       |
+| `averageRating` | Number | 0       |
 
 **Virtual Fields:** none documented.
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| Recipe | 1→N | One Category → Many Recipes |
+| Related Collection | Type | Description                 |
+| ------------------ | ---- | --------------------------- |
+| Recipe             | 1→N  | One Category → Many Recipes |
 
 **Indexes**
+
 - Primary: `_id`
 - Unique: `name`, `slug`
 - Performance: `order`, `stats.recipeCount`, `isActive`
 
 **Validation Rules**
+
 - `name`: required, unique, 2–50 chars.
 - `slug`: unique, auto-generated, lowercase, hyphen-separated.
 - `image`: must be a valid HTTPS image URL.
 
 **Business Rules**
+
 - Every recipe belongs to exactly one category.
 - Category names are unique.
 - Categories can be disabled (`isActive=false`) without deleting them.
@@ -429,34 +436,37 @@ User (1) ──── Follow ──── User (1)     [followerId / followingId
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `userId` | ObjectId | ✅ | — | existing User | User who rated |
-| `recipeId` | ObjectId | ✅ | — | existing Recipe | Rated recipe |
-| `value` | Number | ✅ | — | integer 1–5 | Rating value |
-| `createdAt` / `updatedAt` | Date | ✅ | auto | ISO Date | |
+| Field                     | Type     | Req. | Default | Validation       | Description    |
+| ------------------------- | -------- | ---- | ------- | ---------------- | -------------- |
+| `_id`                     | ObjectId | ✅   | auto    | MongoDB ObjectId | Primary key    |
+| `userId`                  | ObjectId | ✅   | —       | existing User    | User who rated |
+| `recipeId`                | ObjectId | ✅   | —       | existing Recipe  | Rated recipe   |
+| `value`                   | Number   | ✅   | —       | integer 1–5      | Rating value   |
+| `createdAt` / `updatedAt` | Date     | ✅   | auto    | ISO Date         |                |
 
 **Embedded Objects / Virtual Fields:** none.
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| User | N→1 | Many Ratings → One User |
-| Recipe | N→1 | Many Ratings → One Recipe |
+| Related Collection | Type | Description               |
+| ------------------ | ---- | ------------------------- |
+| User               | N→1  | Many Ratings → One User   |
+| Recipe             | N→1  | Many Ratings → One Recipe |
 
 **Indexes**
+
 - Primary: `_id`
 - Compound unique: `userId + recipeId` (guarantees one rating per user per recipe)
 - Performance: `recipeId`, `userId`, `value`
 
 **Validation Rules**
+
 - `value`: integer only, one of 1–5.
 - `userId`: required, must reference an existing User.
 - `recipeId`: required, must reference an existing Recipe.
 
 **Business Rules**
+
 - Only authenticated users may rate recipes; guests cannot.
 - Users cannot rate their own recipes.
 - Each user may rate a recipe only once; users may update their rating.
@@ -484,32 +494,35 @@ User (1) ──── Follow ──── User (1)     [followerId / followingId
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `userId` | ObjectId | ✅ | — | existing User | Bookmark owner |
-| `recipeId` | ObjectId | ✅ | — | existing Recipe | Saved recipe |
-| `createdAt` | Date | ✅ | auto | ISO Date | Bookmark date |
+| Field       | Type     | Req. | Default | Validation       | Description    |
+| ----------- | -------- | ---- | ------- | ---------------- | -------------- |
+| `_id`       | ObjectId | ✅   | auto    | MongoDB ObjectId | Primary key    |
+| `userId`    | ObjectId | ✅   | —       | existing User    | Bookmark owner |
+| `recipeId`  | ObjectId | ✅   | —       | existing Recipe  | Saved recipe   |
+| `createdAt` | Date     | ✅   | auto    | ISO Date         | Bookmark date  |
 
 **Embedded Objects / Virtual Fields:** none.
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| User | N→1 | Many Bookmarks → One User |
-| Recipe | N→1 | Many Bookmarks → One Recipe |
+| Related Collection | Type | Description                 |
+| ------------------ | ---- | --------------------------- |
+| User               | N→1  | Many Bookmarks → One User   |
+| Recipe             | N→1  | Many Bookmarks → One Recipe |
 
 **Indexes**
+
 - Primary: `_id`
 - Compound unique: `userId + recipeId`
 - Performance: `userId`, `recipeId`, `createdAt`
 
 **Validation Rules**
+
 - User must exist; Recipe must exist.
 - Duplicate bookmarks are not allowed.
 
 **Business Rules**
+
 - Users must be authenticated.
 - A bookmark is unique per user+recipe pair.
 - Users may remove bookmarks at any time.
@@ -530,46 +543,44 @@ User (1) ──── Follow ──── User (1)     [followerId / followingId
 
 ### 3.6 Comment
 
-**Overview.** Stores comments posted on recipes. Unlike a typical design, **replies are embedded inside the parent comment** rather than stored as separate top-level documents, because only the recipe owner or an admin may reply, and reply chains are intentionally limited to one level.
+**Overview.** Stores comments posted on recipes. Replies are embedded inside the parent comment rather than stored as separate top-level documents.
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `recipeId` | ObjectId | ✅ | — | existing Recipe | Related recipe |
-| `authorId` | ObjectId | ✅ | — | existing User | Comment author |
-| `content` | String | ✅ | — | 1–1000 chars | Comment content |
-| `reactions` | Object | ✅ | auto | system managed | See Embedded Objects |
-| `replies` | Array\<Reply\> | ✅ | [] | embedded, one level only | Replies to the comment |
-| `isEdited` | Boolean | ✅ | false | — | Whether edited |
-| `editedAt` | Date | ❌ | null | ISO Date | Edit timestamp |
-| `isDeleted` | Boolean | ✅ | false | — | Soft delete flag |
-| `createdAt` / `updatedAt` | Date | ✅ | auto | ISO Date | |
+| Field                     | Type           | Req. | Default | Validation       | Description            |
+| ------------------------- | -------------- | ---- | ------- | ---------------- | ---------------------- |
+| `_id`                     | ObjectId       | ✅   | auto    | MongoDB ObjectId | Primary key            |
+| `recipeId`                | ObjectId       | ✅   | —       | existing Recipe  | Related recipe         |
+| `authorId`                | ObjectId       | ✅   | —       | existing User    | Comment author         |
+| `text`                    | String         | ✅   | —       | 1–1000 chars     | Comment text           |
+| `likeCount`               | Number         | ✅   | 0       | non-negative     | Aggregate likes        |
+| `dislikeCount`            | Number         | ✅   | 0       | non-negative     | Aggregate dislikes     |
+| `replies`                 | Array\<Reply\> | ✅   | []      | embedded         | Replies to the comment |
+| `deletedAt`               | Date           | ❌   | null    | ISO Date         | Soft-delete timestamp  |
+| `createdAt` / `updatedAt` | Date           | ✅   | auto    | ISO Date         |                        |
 
 **Embedded Objects**
 
-*reactions* (aggregated counts)
+_Reaction counters_ (stored directly on the comment and reply)
 
-| Field | Type | Default |
-|---|---|---|
-| `likeCount` | Number | 0 |
-| `dislikeCount` | Number | 0 |
+| Field          | Type   | Default |
+| -------------- | ------ | ------- |
+| `likeCount`    | Number | 0       |
+| `dislikeCount` | Number | 0       |
 
-> Individual per-user like/dislike should be enforced via a separate mechanism (e.g. a `CommentReaction` collection) — `reactions` here stores only aggregate counts.
+> The current model stores aggregate `likeCount` and `dislikeCount` fields directly; there is no `reactions` object on Comment.
 
-*Reply* (embedded array item — same shape as a comment, one level deep only)
+_Reply_ (embedded array item)
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `_id` | ObjectId | ✅ | Reply identifier |
-| `authorId` | ObjectId | ✅ | Reply author |
-| `content` | String | ✅ | Reply text |
-| `reactions` | Object | ✅ | Like/dislike counts |
-| `isEdited` | Boolean | ✅ | Edit flag |
-| `editedAt` | Date | ❌ | Edit timestamp |
-| `isDeleted` | Boolean | ✅ | Soft delete flag |
-| `createdAt` / `updatedAt` | Date | ✅ | Timestamps |
+| Field                     | Type     | Required | Description      |
+| ------------------------- | -------- | -------- | ---------------- |
+| `_id`                     | ObjectId | ✅       | Reply identifier |
+| `authorId`                | ObjectId | ✅       | Reply author     |
+| `text`                    | String   | ✅       | Reply text       |
+| `likeCount`               | Number   | ✅       | 0                | Like count            |
+| `dislikeCount`            | Number   | ✅       | 0                | Dislike count         |
+| `deletedAt`               | Date     | ❌       | null             | Soft-delete timestamp |
+| `createdAt` / `updatedAt` | Date     | ✅       | Timestamps       |
 
 Replies do **not** contain a nested `replies` array — only one reply level is supported.
 
@@ -577,25 +588,28 @@ Replies do **not** contain a nested `replies` array — only one reply level is 
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| Recipe | N→1 | Many Comments → One Recipe |
-| User | N→1 | Many Comments → One User (author) |
+| Related Collection | Type | Description                       |
+| ------------------ | ---- | --------------------------------- |
+| Recipe             | N→1  | Many Comments → One Recipe        |
+| User               | N→1  | Many Comments → One User (author) |
 
 Replies are embedded and therefore create no additional collection-level relationships.
 
 **Indexes**
+
 - Primary: `_id`
 - Performance: `recipeId`, `authorId`, `createdAt`
-- Compound: `recipeId + createdAt`, `recipeId + isDeleted`
+- Compound: `recipeId + createdAt`
 
 **Validation Rules**
-- `content`: required, trimmed, 1–1000 chars.
+
+- `text`: required, trimmed, 1–1000 chars.
 - `recipeId`: required, must reference an existing Recipe.
 - `authorId`: required, must reference an existing User.
-- `replies`: unlimited count (business rule); only one nesting level; every reply follows the Reply schema.
+- `replies`: embedded replies; the current service does not enforce a one-reply limit.
 
 **Business Rules**
+
 - Only authenticated users may create comments; guests may read.
 - Every comment belongs to exactly one recipe and one user.
 - Recipe owners and administrators may reply; ordinary users cannot.
@@ -611,24 +625,22 @@ Replies are embedded and therefore create no additional collection-level relatio
   "_id": "ObjectId",
   "recipeId": "ObjectId",
   "authorId": "ObjectId",
-  "content": "This recipe turned out amazing!",
-  "reactions": { "likeCount": 12, "dislikeCount": 1 },
+  "text": "This recipe turned out amazing!",
+  "likeCount": 12,
+  "dislikeCount": 1,
   "replies": [
     {
       "_id": "ObjectId",
       "authorId": "ObjectId",
-      "content": "Thank you! I'm glad you enjoyed it.",
-      "reactions": { "likeCount": 5, "dislikeCount": 0 },
-      "isEdited": false,
-      "editedAt": null,
-      "isDeleted": false,
+      "text": "Thank you! I'm glad you enjoyed it.",
+      "likeCount": 5,
+      "dislikeCount": 0,
+      "deletedAt": null,
       "createdAt": "2026-07-29T10:30:00Z",
       "updatedAt": "2026-07-29T10:30:00Z"
     }
   ],
-  "isEdited": false,
-  "editedAt": null,
-  "isDeleted": false,
+  "deletedAt": null,
   "createdAt": "2026-07-29T09:45:00Z",
   "updatedAt": "2026-07-29T09:45:00Z"
 }
@@ -642,33 +654,36 @@ Replies are embedded and therefore create no additional collection-level relatio
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `followerId` | ObjectId | ✅ | — | existing User | User who follows |
-| `followingId` | ObjectId | ✅ | — | existing User | User being followed |
-| `createdAt` | Date | ✅ | auto | ISO Date | Follow date |
+| Field         | Type     | Req. | Default | Validation       | Description         |
+| ------------- | -------- | ---- | ------- | ---------------- | ------------------- |
+| `_id`         | ObjectId | ✅   | auto    | MongoDB ObjectId | Primary key         |
+| `followerId`  | ObjectId | ✅   | —       | existing User    | User who follows    |
+| `followingId` | ObjectId | ✅   | —       | existing User    | User being followed |
+| `createdAt`   | Date     | ✅   | auto    | ISO Date         | Follow date         |
 
 **Embedded Objects / Virtual Fields:** none.
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| User | N→1 | Many Follow docs → One User (as `followerId`) |
-| User | N→1 | Many Follow docs → One User (as `followingId`) |
+| Related Collection | Type | Description                                    |
+| ------------------ | ---- | ---------------------------------------------- |
+| User               | N→1  | Many Follow docs → One User (as `followerId`)  |
+| User               | N→1  | Many Follow docs → One User (as `followingId`) |
 
 **Indexes**
+
 - Primary: `_id`
 - Compound unique: `followerId + followingId`
 - Performance: `followerId`, `followingId`, `createdAt`
 
 **Validation Rules**
+
 - Both referenced users must exist.
 - A user cannot follow themselves.
 - Duplicate follow relationships are not allowed.
 
 **Business Rules**
+
 - Only authenticated users may follow others.
 - Users cannot follow themselves; may unfollow at any time.
 - Follower/following counts are updated automatically.
@@ -693,44 +708,47 @@ Replies are embedded and therefore create no additional collection-level relatio
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `userId` | ObjectId | ✅ | — | existing User | Recipient |
-| `type` | Enum | ✅ | — | Notification Types | Notification type |
-| `title` | String | ✅ | — | max 100 chars | Title |
-| `message` | String | ✅ | — | max 500 chars | Message body |
-| `actorId` | ObjectId | ❌ | null | existing User | User who triggered it |
-| `recipeId` | ObjectId | ❌ | null | existing Recipe | Related recipe |
-| `commentId` | ObjectId | ❌ | null | existing Comment | Related comment |
-| `supportTicketId` | ObjectId | ❌ | null | existing SupportTicket | Related ticket |
-| `isRead` | Boolean | ✅ | false | — | Read status |
-| `readAt` | Date | ❌ | null | ISO Date | Read timestamp |
-| `createdAt` | Date | ✅ | auto | ISO Date | Creation date |
+| Field             | Type     | Req. | Default | Validation             | Description           |
+| ----------------- | -------- | ---- | ------- | ---------------------- | --------------------- |
+| `_id`             | ObjectId | ✅   | auto    | MongoDB ObjectId       | Primary key           |
+| `userId`          | ObjectId | ✅   | —       | existing User          | Recipient             |
+| `type`            | Enum     | ✅   | —       | Notification Types     | Notification type     |
+| `title`           | String   | ✅   | —       | max 100 chars          | Title                 |
+| `message`         | String   | ✅   | —       | max 500 chars          | Message body          |
+| `actorId`         | ObjectId | ❌   | null    | existing User          | User who triggered it |
+| `recipeId`        | ObjectId | ❌   | null    | existing Recipe        | Related recipe        |
+| `commentId`       | ObjectId | ❌   | null    | existing Comment       | Related comment       |
+| `supportTicketId` | ObjectId | ❌   | null    | existing SupportTicket | Related ticket        |
+| `isRead`          | Boolean  | ✅   | false   | —                      | Read status           |
+| `readAt`          | Date     | ❌   | null    | ISO Date               | Read timestamp        |
+| `createdAt`       | Date     | ✅   | auto    | ISO Date               | Creation date         |
 
 **Embedded Objects / Virtual Fields:** none.
 
-**Notification Types:** `RECIPE_RATED`, `RECIPE_COMMENTED`, `COMMENT_REPLIED`, `COMMENT_LIKED`, `COMMENT_DISLIKED`, `SYSTEM_ANNOUNCEMENT`, `SUPPORT_TICKET_UPDATED`. New types can be added without changing the schema.
+**Notification Types:** `RECIPE_RATED`, `RECIPE_COMMENTED`, `COMMENT_REPLIED`, `COMMENT_LIKED`, `COMMENT_DISLIKED`, `ANNOUNCEMENT`, `SUPPORT_REPLY`.
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| User | N→1 | Many Notifications → One User |
-| Recipe | Optional ref | via `recipeId` |
-| Comment | Optional ref | via `commentId` |
-| SupportTicket | Optional ref | via `supportTicketId` |
+| Related Collection | Type         | Description                   |
+| ------------------ | ------------ | ----------------------------- |
+| User               | N→1          | Many Notifications → One User |
+| Recipe             | Optional ref | via `recipeId`                |
+| Comment            | Optional ref | via `commentId`               |
+| SupportTicket      | Optional ref | via `supportTicketId`         |
 
 **Indexes**
+
 - Primary: `_id`
 - Performance: `userId`, `isRead`, `type`, `createdAt`
 - Compound: `userId + isRead`, `userId + createdAt`
 
 **Validation Rules**
+
 - `title`: required, max 100 chars. `message`: required, max 500 chars.
 - `type`: must be one of the predefined notification types.
 
 **Business Rules**
+
 - Notifications are generated automatically; users cannot create them manually.
 - Each notification belongs to exactly one user.
 - Opening a notification marks it as read.
@@ -764,35 +782,34 @@ Replies are embedded and therefore create no additional collection-level relatio
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `userId` | ObjectId | ✅ | — | existing User | Ticket owner |
-| `subject` | String | ✅ | — | 5–100 chars | Subject |
-| `message` | String | ✅ | — | 20–3000 chars | Initial message |
-| `status` | Enum | ✅ | `OPEN` | Ticket Status | Current status |
-| `adminReply` | String | ❌ | null | max 3000 chars | Latest admin reply |
-| `repliedAt` | Date | ❌ | null | ISO Date | Reply timestamp |
-| `closedAt` | Date | ❌ | null | ISO Date | Close timestamp |
-| `createdAt` / `updatedAt` | Date | ✅ | auto | ISO Date | |
+| Field                     | Type           | Req. | Default | Validation       | Description     |
+| ------------------------- | -------------- | ---- | ------- | ---------------- | --------------- |
+| `_id`                     | ObjectId       | ✅   | auto    | MongoDB ObjectId | Primary key     |
+| `userId`                  | ObjectId       | ✅   | —       | existing User    | Ticket owner    |
+| `message`                 | String         | ✅   | —       | 20–3000 chars    | Initial message |
+| `status`                  | Enum           | ✅   | `OPEN`  | Ticket Status    | Current status  |
+| `replies`                 | Array\<Reply\> | ✅   | []      | embedded         | Ticket replies  |
+| `closedAt`                | Date           | ❌   | null    | ISO Date         | Close timestamp |
+| `createdAt` / `updatedAt` | Date           | ✅   | auto    | ISO Date         |                 |
 
-**Embedded Objects / Virtual Fields:** none.
+**Embedded Objects / Virtual Fields:** replies are embedded; there is no separate `subject`, `adminReply`, or `repliedAt` field in the current model.
 
 **Ticket Status:** `OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`.
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| User | N→1 | Many Support Tickets → One User |
+| Related Collection | Type | Description                     |
+| ------------------ | ---- | ------------------------------- |
+| User               | N→1  | Many Support Tickets → One User |
 
 **Indexes:** `userId`, `status`, `createdAt`.
 
 **Validation Rules**
-- `subject`: required, 5–100 chars.
+
 - `message`: required, 20–3000 chars.
 
 **Business Rules**
+
 - Only authenticated users may submit tickets.
 - Every ticket belongs to exactly one user.
 - Users cannot edit tickets after submission.
@@ -806,11 +823,9 @@ Replies are embedded and therefore create no additional collection-level relatio
 {
   "_id": "ObjectId",
   "userId": "ObjectId",
-  "subject": "Problem uploading recipe images",
   "message": "I'm unable to upload images larger than 3 MB.",
   "status": "IN_PROGRESS",
-  "adminReply": "We're currently investigating the issue.",
-  "repliedAt": "2026-07-30T09:10:00Z",
+  "replies": [],
   "closedAt": null,
   "createdAt": "2026-07-29T16:00:00Z",
   "updatedAt": "2026-07-30T09:10:00Z"
@@ -825,15 +840,14 @@ Replies are embedded and therefore create no additional collection-level relatio
 
 **Fields**
 
-| Field | Type | Req. | Default | Validation | Description |
-|---|---|---|---|---|---|
-| `_id` | ObjectId | ✅ | auto | MongoDB ObjectId | Primary key |
-| `email` | String | ✅ | — | valid email | Target email |
-| `code` | String | ✅ | — | 6-digit numeric | Verification code |
-| `purpose` | Enum | ✅ | — | Verification Purposes | Code purpose |
-| `expiresAt` | Date | ✅ | — | — | Expiration date |
-| `verifiedAt` | Date | ❌ | null | ISO Date | Verification timestamp |
-| `createdAt` | Date | ✅ | auto | ISO Date | Creation date |
+| Field       | Type     | Req. | Default | Validation            | Description              |
+| ----------- | -------- | ---- | ------- | --------------------- | ------------------------ |
+| `_id`       | ObjectId | ✅   | auto    | MongoDB ObjectId      | Primary key              |
+| `email`     | String   | ✅   | —       | valid email           | Target email             |
+| `codeHash`  | String   | ✅   | —       | hashed code           | Hashed verification code |
+| `purpose`   | Enum     | ✅   | —       | Verification Purposes | Code purpose             |
+| `expiresAt` | Date     | ✅   | —       | —                     | Expiration date          |
+| `createdAt` | Date     | ✅   | auto    | ISO Date              | Creation date            |
 
 **Verification Purposes:** `EMAIL_VERIFICATION`, `PASSWORD_RESET`.
 
@@ -844,11 +858,13 @@ Replies are embedded and therefore create no additional collection-level relatio
 **Indexes:** `email`, `expiresAt`, `purpose`.
 
 **Validation Rules**
+
 - Codes consist of exactly 6 digits.
 - Codes expire after a predefined period (recommended: 10 minutes); expired codes are invalid.
 - Each new request replaces any previous active code for the same email + purpose.
 
 **Business Rules**
+
 - Codes are generated only by the system.
 - Codes may be used only once.
 - Expired codes cannot be reused.
@@ -860,37 +876,37 @@ Replies are embedded and therefore create no additional collection-level relatio
 {
   "_id": "ObjectId",
   "email": "john@example.com",
-  "code": "482913",
+  "codeHash": "<hashed-code>",
   "purpose": "EMAIL_VERIFICATION",
   "expiresAt": "2026-07-29T15:10:00Z",
-  "verifiedAt": null,
   "createdAt": "2026-07-29T15:00:00Z"
 }
 ```
 
 ---
 
-### 3.11 Session *(Auth.js — fully managed, do not modify directly)*
+### 3.11 Session _(Auth.js — fully managed, do not modify directly)_
 
 **Overview.** Stores authenticated user sessions; entirely owned and maintained by Auth.js. Application code should treat this collection as read-only.
 
 **Main Fields**
 
-| Field | Type | Description |
-|---|---|---|
-| `sessionToken` | String | Unique session identifier |
-| `userId` | ObjectId | Associated user |
-| `expires` | Date | Session expiration |
+| Field          | Type     | Description               |
+| -------------- | -------- | ------------------------- |
+| `sessionToken` | String   | Unique session identifier |
+| `userId`       | ObjectId | Associated user           |
+| `expires`      | Date     | Session expiration        |
 
 Additional fields may be added automatically depending on the configured Auth.js session strategy.
 
 **Relationships**
 
-| Related Collection | Type | Description |
-|---|---|---|
-| User | N→1 | Many Sessions → One User |
+| Related Collection | Type | Description              |
+| ------------------ | ---- | ------------------------ |
+| User               | N→1  | Many Sessions → One User |
 
 **Business Rules**
+
 - Sessions are created automatically after successful authentication.
 - Sessions expire automatically; logging out removes the active session.
 - Application code should not directly modify session documents (Auth.js only).
@@ -899,14 +915,14 @@ Additional fields may be added automatically depending on the configured Auth.js
 
 ## 4. Population Strategy (Mongoose `populate()`)
 
-| Collection | Populate |
-|---|---|
-| Recipe | `authorId`, `categoryId` |
-| Comment | `authorId` |
-| Bookmark | `recipeId` |
-| Rating | none (usually aggregated) |
-| Notification | `actorId`, `recipeId` |
-| SupportTicket | none |
+| Collection    | Populate                  |
+| ------------- | ------------------------- |
+| Recipe        | `authorId`, `categoryId`  |
+| Comment       | `authorId`                |
+| Bookmark      | `recipeId`                |
+| Rating        | none (usually aggregated) |
+| Notification  | `actorId`, `recipeId`     |
+| SupportTicket | none                      |
 
 Avoid deep population chains to reduce query complexity.
 
@@ -916,20 +932,21 @@ Avoid deep population chains to reduce query complexity.
 
 **Statistics fields** are grouped under a `stats` object and are system-managed only: `recipeCount`, `averageRating`, `followerCount`, `followingCount`, `commentCount`, `bookmarkCount`, `ratingCount`, `viewCount`.
 
-**Common defaults:** `isActive=true`, `isVerified=false`, `isDeleted=false`, `isEdited=false`, `isRead=false`; all counters `=0`.
+**Common defaults:** `isActive=true`, `isRead=false`, and `deletedAt=null` where soft-delete is supported; all counters `=0`.
 
-**Recommended field limits:** username 3–30 · first/last name 2–50 · recipe title 5–120 · recipe description 20–2000 · ingredient name 1–100 · cooking step 1–1000 · comment/reply 1–1000 · support subject 5–100 · support message 20–3000 · notification title 100 · notification message 500.
+**Current field limits:** username 3–30 · recipe title 5–120 · recipe description 30–500 · ingredient name 1–100 · cooking step 1–1000 · comment/reply 1–1000 · support message 20–3000 · notification title 100 · notification message 500.
 
 **Enums**
+
 - User Roles: `USER`, `ADMIN`
 - User Titles: `USER`, `COOK`, `HEAD_CHEF`, `BARISTA`, `FOOD_BLOGGER`
-- Recipe Difficulty: `EASY`, `MEDIUM`, `HARD`
+- Recipe Difficulty: `آسان`, `متوسط`, `سخت`
 - Ticket Status: `OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`
-- Notification Types: `RECIPE_RATED`, `RECIPE_COMMENTED`, `COMMENT_REPLIED`, `COMMENT_LIKED`, `COMMENT_DISLIKED`, `SYSTEM_ANNOUNCEMENT`, `SUPPORT_TICKET_UPDATED`
+- Notification Types: `RECIPE_RATED`, `RECIPE_COMMENTED`, `COMMENT_REPLIED`, `COMMENT_LIKED`, `COMMENT_DISLIKED`, `ANNOUNCEMENT`, `SUPPORT_REPLY`
 
 **Reserved / system-only fields** (never client-writable): `User.stats/createdAt/updatedAt` · `Recipe.stats/createdAt/updatedAt` · `Notification.isRead/readAt`.
 
-**Recommended Mongoose models:** `User.ts`, `Recipe.ts`, `Category.ts`, `Comment.ts`, `Rating.ts`, `Bookmark.ts`, `Follow.ts`, `Notification.ts`, `SupportTicket.ts`, `VerificationCode.ts`.
+**Current Mongoose model files:** `User.js`, `Recipe.js`, `Category.js`, `Comment.js`, `Rating.js`, `Bookmark.js`, `Follow.js`, `Notification.js`, `Ticket.js`, `VerificationCode.js`.
 
 **Recommended Zod schemas:** `user.schema.ts`, `recipe.schema.ts`, `category.schema.ts`, `comment.schema.ts`, `rating.schema.ts`, `bookmark.schema.ts`, `follow.schema.ts`, `notification.schema.ts`, `support-ticket.schema.ts`.
 
@@ -937,4 +954,4 @@ Avoid deep population chains to reduce query complexity.
 
 ---
 
-*Reorganized from the full Loghmeh database documentation — Document Version 1.0, MongoDB + Mongoose, Status: Production Ready, Last Updated July 2026.*
+_Reorganized from the full Loghmeh database documentation. This reference describes the current Mongoose models; the application is still under development._

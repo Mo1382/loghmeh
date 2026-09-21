@@ -1,4 +1,4 @@
-import Reaction from "@/db/models/Reaction";
+import Reaction from "@/models/Reaction";
 
 /**
  * Apply MongoDB session only when provided.

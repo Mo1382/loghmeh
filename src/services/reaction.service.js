@@ -47,9 +47,9 @@ export const REACTION_TYPES = {
 function assertAuthenticated(currentUser) {
   if (!currentUser) {
     throw new AppError(
-      "Authentication is required.",
       ERROR_CODES.UNAUTHORIZED,
-      401
+      "ورود به حساب کاربری الزامی است.",
+      { statusCode: 401 }
     );
   }
 }
@@ -60,9 +60,9 @@ function assertAuthenticated(currentUser) {
 function assertValidObjectId(id, fieldName = "ID") {
   if (!mongoose.isValidObjectId(id)) {
     throw new AppError(
-      `Invalid ${fieldName}.`,
       ERROR_CODES.INVALID_REQUEST,
-      400
+      `شناسه ${fieldName} نامعتبر است.`,
+      { statusCode: 400 }
     );
   }
 }
@@ -72,11 +72,9 @@ function assertValidObjectId(id, fieldName = "ID") {
  */
 function assertValidReactionType(type) {
   if (!Object.values(REACTION_TYPES).includes(type)) {
-    throw new AppError(
-      "Invalid reaction type.",
-      ERROR_CODES.INVALID_REQUEST,
-      400
-    );
+    throw new AppError(ERROR_CODES.INVALID_REQUEST, "نوع واکنش نامعتبر است.", {
+      statusCode: 400,
+    });
   }
 }
 
@@ -102,17 +100,17 @@ async function getActiveCommentContext(commentId, session) {
   const comment = await findCommentById(commentId, session);
 
   if (!comment) {
-    throw new AppError(
-      "Comment not found.",
-      ERROR_CODES.COMMENT_NOT_FOUND,
-      404
-    );
+    throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "نظر پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   const recipe = await findRecipeById(comment.recipeId, session);
 
   if (!recipe) {
-    throw new AppError("Recipe not found.", ERROR_CODES.RECIPE_NOT_FOUND, 404);
+    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return {
@@ -150,9 +148,9 @@ async function refreshCommentReactionStats(commentId, session) {
 
   if (!updatedComment) {
     throw new AppError(
-      "Comment reaction counts could not be updated.",
       ERROR_CODES.COMMENT_NOT_FOUND,
-      404
+      "شمارنده‌های واکنش نظر به‌روزرسانی نشد.",
+      { statusCode: 404 }
     );
   }
 
@@ -219,9 +217,9 @@ export async function createReaction(currentUser, commentId, type) {
 
     if (existingReaction) {
       throw new AppError(
-        "You have already reacted to this comment.",
         ERROR_CODES.REACTION_ALREADY_EXISTS,
-        409
+        "شما قبلاً به این نظر واکنش نشان داده‌اید.",
+        { statusCode: 409 }
       );
     }
 
@@ -243,9 +241,9 @@ export async function createReaction(currentUser, commentId, type) {
        */
       if (error?.code === 11000) {
         throw new AppError(
-          "You have already reacted to this comment.",
           ERROR_CODES.REACTION_ALREADY_EXISTS,
-          409
+          "شما قبلاً به این نظر واکنش نشان داده‌اید.",
+          { statusCode: 409 }
         );
       }
 
@@ -313,11 +311,9 @@ export async function updateReaction(currentUser, commentId, type) {
     );
 
     if (!existingReaction) {
-      throw new AppError(
-        "Reaction not found.",
-        ERROR_CODES.REACTION_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.REACTION_NOT_FOUND, "واکنش پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**
@@ -337,9 +333,9 @@ export async function updateReaction(currentUser, commentId, type) {
 
     if (!updatedReaction) {
       throw new AppError(
-        "Reaction could not be updated.",
         ERROR_CODES.REACTION_NOT_FOUND,
-        404
+        "واکنش به‌روزرسانی نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -400,11 +396,9 @@ export async function deleteReaction(currentUser, commentId) {
     );
 
     if (!existingReaction) {
-      throw new AppError(
-        "Reaction not found.",
-        ERROR_CODES.REACTION_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.REACTION_NOT_FOUND, "واکنش پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     const deletedReaction = await deleteReactionByUserAndComment(
@@ -414,11 +408,9 @@ export async function deleteReaction(currentUser, commentId) {
     );
 
     if (!deletedReaction) {
-      throw new AppError(
-        "Reaction could not be deleted.",
-        ERROR_CODES.REACTION_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.REACTION_NOT_FOUND, "واکنش حذف نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**

@@ -41,9 +41,9 @@ const CURSOR_VERSION = 1;
 function assertAuthenticated(currentUser) {
   if (!currentUser) {
     throw new AppError(
-      "Authentication is required.",
       ERROR_CODES.UNAUTHORIZED,
-      401
+      "ورود به حساب کاربری الزامی است.",
+      { statusCode: 401 }
     );
   }
 }
@@ -54,9 +54,9 @@ function assertAuthenticated(currentUser) {
 function assertValidObjectId(id, fieldName = "ID") {
   if (!mongoose.isValidObjectId(id)) {
     throw new AppError(
-      `Invalid ${fieldName}.`,
       ERROR_CODES.INVALID_REQUEST,
-      400
+      `شناسه ${fieldName} نامعتبر است.`,
+      { statusCode: 400 }
     );
   }
 }
@@ -87,7 +87,7 @@ function getCursorSecret() {
   const secret = process.env.CURSOR_SECRET;
 
   if (!secret) {
-    throw new Error("CURSOR_SECRET is not configured.");
+    throw new Error("متغیر CURSOR_SECRET تنظیم نشده است.");
   }
 
   return secret;
@@ -133,7 +133,11 @@ function decodeCursor(cursor) {
   const parts = cursor.split(".");
 
   if (parts.length !== 2) {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   const [payloadBase64, signatureBase64] = parts;
@@ -149,14 +153,22 @@ function decodeCursor(cursor) {
 
     providedSignature = Buffer.from(signatureBase64, "base64url");
   } catch {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   if (
     providedSignature.length !== expectedSignature.length ||
     !crypto.timingSafeEqual(providedSignature, expectedSignature)
   ) {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   let payload;
@@ -166,7 +178,11 @@ function decodeCursor(cursor) {
 
     payload = JSON.parse(json);
   } catch {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   if (
@@ -175,7 +191,11 @@ function decodeCursor(cursor) {
     !payload.createdAt ||
     !payload.id
   ) {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   assertValidObjectId(payload.id, "cursor ID");
@@ -184,9 +204,9 @@ function decodeCursor(cursor) {
 
   if (Number.isNaN(createdAt.getTime())) {
     throw new AppError(
-      "Invalid cursor date.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
     );
   }
 
@@ -239,11 +259,9 @@ export async function createBookmark(currentUser, recipeId) {
     const recipe = await findRecipeById(recipeId, session);
 
     if (!recipe) {
-      throw new AppError(
-        "Recipe not found.",
-        ERROR_CODES.RECIPE_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**
@@ -257,9 +275,9 @@ export async function createBookmark(currentUser, recipeId) {
 
     if (existingBookmark) {
       throw new AppError(
-        "You have already bookmarked this recipe.",
         ERROR_CODES.BOOKMARK_ALREADY_EXISTS,
-        409
+        "شما قبلاً این دستور پخت را ذخیره کرده‌اید.",
+        { statusCode: 409 }
       );
     }
 
@@ -281,9 +299,9 @@ export async function createBookmark(currentUser, recipeId) {
        */
       if (error?.code === 11000) {
         throw new AppError(
-          "You have already bookmarked this recipe.",
           ERROR_CODES.BOOKMARK_ALREADY_EXISTS,
-          409
+          "شما قبلاً این دستور پخت را ذخیره کرده‌اید.",
+          { statusCode: 409 }
         );
       }
 
@@ -323,11 +341,9 @@ export async function deleteBookmark(currentUser, recipeId) {
     const recipe = await findRecipeById(recipeId, session);
 
     if (!recipe) {
-      throw new AppError(
-        "Recipe not found.",
-        ERROR_CODES.RECIPE_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     const existingBookmark = await findBookmarkByUserAndRecipe(
@@ -338,9 +354,9 @@ export async function deleteBookmark(currentUser, recipeId) {
 
     if (!existingBookmark) {
       throw new AppError(
-        "Bookmark not found.",
         ERROR_CODES.BOOKMARK_NOT_FOUND,
-        404
+        "ذخیره دستور پخت پیدا نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -352,9 +368,9 @@ export async function deleteBookmark(currentUser, recipeId) {
 
     if (!deletedBookmark) {
       throw new AppError(
-        "Bookmark could not be deleted.",
         ERROR_CODES.BOOKMARK_NOT_FOUND,
-        404
+        "ذخیره دستور پخت حذف نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -387,7 +403,9 @@ export async function getUserBookmark(currentUser, recipeId) {
   const recipe = await findRecipeById(recipeId);
 
   if (!recipe) {
-    throw new AppError("Recipe not found.", ERROR_CODES.RECIPE_NOT_FOUND, 404);
+    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return findBookmarkByUserAndRecipe(currentUser._id, recipeId);

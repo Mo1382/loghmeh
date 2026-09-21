@@ -1,4 +1,4 @@
-import VerificationCode from "@/db/models/VerificationCode";
+import VerificationCode from "@/models/VerificationCode";
 
 /**
  * Apply MongoDB session only when provided.

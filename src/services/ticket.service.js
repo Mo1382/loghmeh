@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import AppError from "@/lib/errors/AppError";
+import { ERROR_CODES } from "@/constants/error-codes";
 
 import {
   createTicket as createTicketRepository,
@@ -36,7 +37,7 @@ const CURSOR_VERSION = 1;
 const CURSOR_SECRET = process.env.CURSOR_SECRET;
 
 if (!CURSOR_SECRET) {
-  throw new Error("CURSOR_SECRET is not configured.");
+  throw new Error("متغیر CURSOR_SECRET تنظیم نشده است.");
 }
 
 /* -------------------------------------------------------------------------- */
@@ -46,9 +47,9 @@ if (!CURSOR_SECRET) {
 function assertAuthenticated(currentUser) {
   if (!currentUser?._id) {
     throw new AppError(
-      "Authentication is required.",
-      "AUTHENTICATION_REQUIRED",
-      401
+      ERROR_CODES.AUTHENTICATION_REQUIRED,
+      "ورود به حساب کاربری الزامی است.",
+      { statusCode: 401 }
     );
   }
 }
@@ -58,9 +59,9 @@ function assertAdmin(currentUser) {
 
   if (currentUser.role !== "ADMIN") {
     throw new AppError(
-      "Administrator privileges are required.",
-      "ADMIN_ACCESS_REQUIRED",
-      403
+      ERROR_CODES.ADMIN_ACCESS_REQUIRED,
+      "دسترسی مدیر سیستم الزامی است.",
+      { statusCode: 403 }
     );
   }
 }
@@ -71,16 +72,22 @@ function assertAdmin(currentUser) {
 
 function assertValidObjectId(value, fieldName = "ID") {
   if (!mongoose.isValidObjectId(value)) {
-    throw new AppError(`Invalid ${fieldName}.`, "INVALID_OBJECT_ID", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_OBJECT_ID,
+      `شناسه ${fieldName} نامعتبر است.`,
+      {
+        statusCode: 400,
+      }
+    );
   }
 }
 
 function assertValidTicketStatus(status) {
   if (!VALID_TICKET_STATUSES.has(status)) {
     throw new AppError(
-      "Invalid support ticket status.",
-      "INVALID_TICKET_STATUS",
-      400
+      ERROR_CODES.INVALID_TICKET_STATUS,
+      "وضعیت تیکت پشتیبانی نامعتبر است.",
+      { statusCode: 400 }
     );
   }
 }
@@ -88,9 +95,9 @@ function assertValidTicketStatus(status) {
 function assertNonClosedTicketStatus(status) {
   if (!NON_CLOSED_TICKET_STATUSES.has(status)) {
     throw new AppError(
-      "The CLOSED status must be handled by the close or reopen operation.",
-      "INVALID_TICKET_STATUS_TRANSITION",
-      400
+      ERROR_CODES.INVALID_TICKET_STATUS_TRANSITION,
+      "وضعیت بسته فقط باید از طریق عملیات بستن یا بازگشایی مدیریت شود.",
+      { statusCode: 400 }
     );
   }
 }
@@ -104,9 +111,9 @@ function normalizeLimit(limit) {
 
   if (!Number.isInteger(normalizedLimit) || normalizedLimit < 1) {
     throw new AppError(
-      "Ticket limit must be a positive integer.",
-      "INVALID_LIMIT",
-      400
+      ERROR_CODES.INVALID_LIMIT,
+      "تعداد تیکت‌ها باید یک عدد صحیح مثبت باشد.",
+      { statusCode: 400 }
     );
   }
 
@@ -115,32 +122,38 @@ function normalizeLimit(limit) {
 
 function normalizeMessage(message) {
   if (typeof message !== "string") {
-    throw new AppError("Message is required.", "INVALID_TICKET_MESSAGE", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_TICKET_MESSAGE,
+      "متن پیام الزامی است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   const normalizedMessage = message.trim();
 
   if (!normalizedMessage) {
     throw new AppError(
-      "Message cannot be empty.",
-      "INVALID_TICKET_MESSAGE",
-      400
+      ERROR_CODES.INVALID_TICKET_MESSAGE,
+      "متن پیام نمی‌تواند خالی باشد.",
+      { statusCode: 400 }
     );
   }
 
   if (normalizedMessage.length < 20) {
     throw new AppError(
-      "Message must contain at least 20 characters.",
-      "INVALID_TICKET_MESSAGE",
-      400
+      ERROR_CODES.INVALID_TICKET_MESSAGE,
+      "متن پیام باید حداقل ۲۰ کاراکتر داشته باشد.",
+      { statusCode: 400 }
     );
   }
 
   if (normalizedMessage.length > 3000) {
     throw new AppError(
-      "Message cannot exceed 3000 characters.",
-      "INVALID_TICKET_MESSAGE",
-      400
+      ERROR_CODES.INVALID_TICKET_MESSAGE,
+      "متن پیام نمی‌تواند بیشتر از ۳۰۰۰ کاراکتر باشد.",
+      { statusCode: 400 }
     );
   }
 
@@ -174,13 +187,25 @@ function encodeCursor({ userId, createdAt, id }) {
 
 function decodeCursor(cursor, userId) {
   if (typeof cursor !== "string" || !cursor.trim()) {
-    throw new AppError("Invalid support ticket cursor.", "INVALID_CURSOR", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر تیکت پشتیبانی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   const parts = cursor.split(".");
 
   if (parts.length !== 2) {
-    throw new AppError("Invalid support ticket cursor.", "INVALID_CURSOR", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر تیکت پشتیبانی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   const [payload, signature] = parts;
@@ -195,7 +220,13 @@ function decodeCursor(cursor, userId) {
     actualBuffer.length !== expectedBuffer.length ||
     !timingSafeEqual(actualBuffer, expectedBuffer)
   ) {
-    throw new AppError("Invalid support ticket cursor.", "INVALID_CURSOR", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر تیکت پشتیبانی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   let parsedPayload;
@@ -205,14 +236,20 @@ function decodeCursor(cursor, userId) {
       Buffer.from(payload, "base64url").toString("utf8")
     );
   } catch {
-    throw new AppError("Invalid support ticket cursor.", "INVALID_CURSOR", 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر تیکت پشتیبانی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   if (parsedPayload.v !== CURSOR_VERSION) {
     throw new AppError(
-      "Unsupported support ticket cursor version.",
-      "INVALID_CURSOR",
-      400
+      ERROR_CODES.INVALID_CURSOR,
+      "نسخه نشانگر تیکت پشتیبانی پشتیبانی نمی‌شود.",
+      { statusCode: 400 }
     );
   }
 
@@ -222,9 +259,9 @@ function decodeCursor(cursor, userId) {
 
   if (parsedPayload.userId !== userId.toString()) {
     throw new AppError(
-      "Support ticket cursor does not belong to this user.",
-      "INVALID_CURSOR",
-      400
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر تیکت پشتیبانی متعلق به این کاربر نیست.",
+      { statusCode: 400 }
     );
   }
 
@@ -232,9 +269,9 @@ function decodeCursor(cursor, userId) {
 
   if (Number.isNaN(createdAt.getTime())) {
     throw new AppError(
-      "Invalid support ticket cursor date.",
-      "INVALID_CURSOR",
-      400
+      ERROR_CODES.INVALID_CURSOR,
+      "تاریخ نشانگر تیکت پشتیبانی نامعتبر است.",
+      { statusCode: 400 }
     );
   }
 
@@ -267,7 +304,13 @@ export async function getTicketById(currentUser, ticketId) {
   const ticket = await findTicketByIdAndUser(ticketId, currentUser._id);
 
   if (!ticket) {
-    throw new AppError("Support ticket not found.", "TICKET_NOT_FOUND", 404);
+    throw new AppError(
+      ERROR_CODES.TICKET_NOT_FOUND,
+      "تیکت پشتیبانی پیدا نشد.",
+      {
+        statusCode: 404,
+      }
+    );
   }
 
   return ticket;
@@ -280,7 +323,13 @@ export async function getTicketByIdForAdmin(currentUser, ticketId) {
   const ticket = await findTicketById(ticketId);
 
   if (!ticket) {
-    throw new AppError("Support ticket not found.", "TICKET_NOT_FOUND", 404);
+    throw new AppError(
+      ERROR_CODES.TICKET_NOT_FOUND,
+      "تیکت پشتیبانی پیدا نشد.",
+      {
+        statusCode: 404,
+      }
+    );
   }
 
   return ticket;

@@ -1,5 +1,5 @@
-import Follow from "@/db/models/Follow";
-import User from "@/db/models/User";
+import Follow from "@/models/Follow";
+import User from "@/models/User";
 
 /**
  * --------------------------------------------------------------------------
@@ -360,19 +360,9 @@ export function findFollowersByUser({
 }
 
 /**
- * --------------------------------------------------------------------------
- * Counts
- * --------------------------------------------------------------------------
- */
-
-/**
- * Count how many active users a user is following.
+ * Count active/non-deleted users followed by a user.
  *
- * Only Follow relationships whose target user is:
- * - ACTIVE
- * - not soft-deleted
- *
- * are included in the count.
+ * followerId = current user's ID
  */
 export function countFollowingByUser(followerId, session) {
   const pipeline = [
@@ -381,7 +371,6 @@ export function countFollowingByUser(followerId, session) {
         followerId,
       },
     },
-
     {
       $lookup: {
         from: User.collection.name,
@@ -403,7 +392,6 @@ export function countFollowingByUser(followerId, session) {
         as: "followingUser",
       },
     },
-
     {
       $match: {
         "followingUser.0": {
@@ -411,7 +399,6 @@ export function countFollowingByUser(followerId, session) {
         },
       },
     },
-
     {
       $count: "count",
     },
@@ -423,13 +410,9 @@ export function countFollowingByUser(followerId, session) {
 }
 
 /**
- * Count how many active users follow a user.
+ * Count active/non-deleted users who follow a user.
  *
- * Only Follow relationships whose follower user is:
- * - ACTIVE
- * - not soft-deleted
- *
- * are included in the count.
+ * followingId = target user's ID
  */
 export function countFollowersByUser(followingId, session) {
   const pipeline = [
@@ -438,7 +421,6 @@ export function countFollowersByUser(followingId, session) {
         followingId,
       },
     },
-
     {
       $lookup: {
         from: User.collection.name,
@@ -460,7 +442,6 @@ export function countFollowersByUser(followingId, session) {
         as: "followerUser",
       },
     },
-
     {
       $match: {
         "followerUser.0": {
@@ -468,7 +449,6 @@ export function countFollowersByUser(followingId, session) {
         },
       },
     },
-
     {
       $count: "count",
     },

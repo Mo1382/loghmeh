@@ -1,5 +1,7 @@
 # Business Rules
 
+> **Implementation status:** This document contains product rules and planned behavior. Rules marked as not enforced below must not be treated as available behavior in the current codebase. The current implementation is limited to the service, repository, model, and validation modules; feature routes and Server Actions are not implemented.
+
 This document defines all business rules for the Loghmeh application.
 
 Rules are organized by domain and include validation constraints, access control, and system behavior.
@@ -40,16 +42,16 @@ Rules are organized by domain and include validation constraints, access control
 
 ## 1.1 Registration Rules
 
-| Rule ID  | Rule                                                                 | Priority |
-| -------- | -------------------------------------------------------------------- | -------- |
-| AUTH-001 | Every email address must be unique                                   | Critical |
-| AUTH-002 | Every username must be unique                                        | Critical |
-| AUTH-003 | Usernames may only contain English letters, numbers, and underscores | High     |
-| AUTH-004 | Username length must be between 3-30 characters                      | High     |
-| AUTH-005 | Passwords must contain at least 8 characters                         | Critical |
-| AUTH-006 | Passwords must be stored as hashed values                            | Critical |
-| AUTH-007 | Users cannot sign in until email is verified                         | Critical |
-| AUTH-008 | Users are automatically signed in after successful registration      | Medium   |
+| Rule ID  | Rule                                                                                                | Priority |
+| -------- | --------------------------------------------------------------------------------------------------- | -------- |
+| AUTH-001 | Every email address must be unique                                                                  | Critical |
+| AUTH-002 | Every username must be unique                                                                       | Critical |
+| AUTH-003 | Usernames may only contain English letters, numbers, and underscores                                | High     |
+| AUTH-004 | Username length must be between 3-30 characters                                                     | High     |
+| AUTH-005 | Passwords must contain at least 8 characters                                                        | Critical |
+| AUTH-006 | Passwords must be stored as hashed values                                                           | Critical |
+| AUTH-007 | Users cannot sign in until email is verified _(not enforced by current `loginUser` implementation)_ | Critical |
+| AUTH-008 | Users are automatically signed in after successful registration                                     | Medium   |
 
 ## 1.2 Sign In Rules
 
@@ -61,24 +63,24 @@ Rules are organized by domain and include validation constraints, access control
 
 ## 1.3 Verification Code Rules
 
-| Rule ID  | Rule                                                                              | Priority |
-| -------- | --------------------------------------------------------------------------------- | -------- |
-| AUTH-012 | Verification codes expire after 10 minutes                                        | High     |
-| AUTH-013 | Verification codes can only be used once                                          | Critical |
-| AUTH-014 | A new verification code invalidates any previous unused code for the same purpose | High     |
-| AUTH-015 | Verification attempts are rate-limited to prevent abuse                           | Critical |
-| AUTH-016 | Failed verification attempts are limited                                          | High     |
-| AUTH-017 | Verification codes are sent only to the associated email address                  | Critical |
+| Rule ID  | Rule                                                                                  | Priority |
+| -------- | ------------------------------------------------------------------------------------- | -------- |
+| AUTH-012 | Verification codes expire after 10 minutes                                            | High     |
+| AUTH-013 | Verification codes can only be used once                                              | Critical |
+| AUTH-014 | A new verification code invalidates any previous unused code for the same purpose     | High     |
+| AUTH-015 | Verification attempts are rate-limited to prevent abuse _(not currently implemented)_ | Critical |
+| AUTH-016 | Failed verification attempts are limited _(not currently implemented)_                | High     |
+| AUTH-017 | Verification codes are sent only to the associated email address                      | Critical |
 
 ## 1.4 Password Management Rules
 
-| Rule ID  | Rule                                                                     | Priority |
-| -------- | ------------------------------------------------------------------------ | -------- |
-| AUTH-018 | Only the account owner can change their password                         | Critical |
-| AUTH-019 | New password must be different from the current password                 | High     |
-| AUTH-020 | Password reset requires successful email verification                    | Critical |
-| AUTH-021 | Password change requires verification of current password and email code | Critical |
-| AUTH-022 | All sessions are invalidated after password change                       | High     |
+| Rule ID  | Rule                                                                                        | Priority |
+| -------- | ------------------------------------------------------------------------------------------- | -------- |
+| AUTH-018 | Only the account owner can change their password                                            | Critical |
+| AUTH-019 | New password must be different from the current password                                    | High     |
+| AUTH-020 | Password reset requires successful email verification                                       | Critical |
+| AUTH-021 | Password change currently requires the current password; email-code verification is planned | Critical |
+| AUTH-022 | All sessions are invalidated after password change _(not currently implemented)_            | High     |
 
 ---
 
@@ -98,7 +100,7 @@ Rules are organized by domain and include validation constraints, access control
 | Rule ID  | Rule                                                    | Priority |
 | -------- | ------------------------------------------------------- | -------- |
 | PROF-005 | Profile picture is optional                             | Low      |
-| PROF-006 | Biography is optional with maximum 500 characters       | Medium   |
+| PROF-006 | Biography is optional with maximum 300 characters       | Medium   |
 | PROF-007 | Users may provide one account per social media platform | Medium   |
 | PROF-008 | Social media links are publicly visible                 | Medium   |
 
@@ -117,15 +119,15 @@ Rules are organized by domain and include validation constraints, access control
 
 ## 3.1 Recipe Creation Rules
 
-| Rule ID | Rule                                              | Priority |
-| ------- | ------------------------------------------------- | -------- |
-| REC-001 | Only authenticated users can create recipes       | Critical |
-| REC-002 | Every recipe must belong to exactly one category  | Critical |
-| REC-003 | Every recipe must have a title                    | Critical |
-| REC-004 | Recipe title cannot be empty                      | Critical |
-| REC-005 | Every published recipe must have a unique slug    | Critical |
-| REC-006 | Cover image is required for all recipes           | High     |
-| REC-007 | Images must be valid image files (JPG, PNG, WebP) | High     |
+| Rule ID | Rule                                                                                        | Priority |
+| ------- | ------------------------------------------------------------------------------------------- | -------- |
+| REC-001 | Only authenticated users can create recipes                                                 | Critical |
+| REC-002 | Every recipe must belong to exactly one category                                            | Critical |
+| REC-003 | Every recipe must have a title                                                              | Critical |
+| REC-004 | Recipe title cannot be empty                                                                | Critical |
+| REC-005 | Every published recipe must have a unique slug                                              | Critical |
+| REC-006 | `image` is optional in the current Recipe model; a required cover image is planned          | High     |
+| REC-007 | Image file validation/upload is planned and is not enforced by the current service boundary | High     |
 
 ## 3.2 Recipe Content Rules
 
@@ -139,29 +141,29 @@ Rules are organized by domain and include validation constraints, access control
 
 ## 3.3 Recipe Ownership Rules
 
-| Rule ID | Rule                                                             | Priority |
-| ------- | ---------------------------------------------------------------- | -------- |
-| REC-014 | Only the recipe owner can edit a recipe                          | Critical |
-| REC-015 | Only the recipe owner can delete a recipe                        | Critical |
-| REC-016 | Only the recipe owner can publish a draft recipe                 | Critical |
-| REC-017 | The updatedAt timestamp must be updated after every modification | High     |
+| Rule ID | Rule                                                                            | Priority |
+| ------- | ------------------------------------------------------------------------------- | -------- |
+| REC-014 | Only the recipe owner can edit a recipe                                         | Critical |
+| REC-015 | Only the recipe owner can delete a recipe                                       | Critical |
+| REC-016 | Draft/publish workflow is planned; the current Recipe model has no draft status | Critical |
+| REC-017 | The updatedAt timestamp must be updated after every modification                | High     |
 
 ## 3.4 Recipe Deletion Rules
 
-| Rule ID | Rule                                                                            | Priority |
-| ------- | ------------------------------------------------------------------------------- | -------- |
-| REC-018 | Soft delete must be used when deleting recipes                                  | High     |
-| REC-019 | Deleting a recipe removes it from all public views immediately                  | High     |
-| REC-020 | Deleting a recipe must properly handle related bookmarks, ratings, and comments | High     |
+| Rule ID | Rule                                                                                   | Priority |
+| ------- | -------------------------------------------------------------------------------------- | -------- |
+| REC-018 | Soft delete must be used when deleting recipes                                         | High     |
+| REC-019 | Deleting a recipe removes it from all public views immediately                         | High     |
+| REC-020 | Related bookmarks, ratings, and comments are preserved when the Recipe is soft-deleted | High     |
 
 ## 3.5 Recipe Publishing Rules
 
-| Rule ID | Rule                                                      | Priority |
-| ------- | --------------------------------------------------------- | -------- |
-| REC-021 | Only valid recipes can be published                       | Critical |
-| REC-022 | Published recipes are publicly accessible                 | High     |
-| REC-023 | Recipes appear on author's profile only after publication | High     |
-| REC-024 | Draft recipes are visible only to their author            | Critical |
+| Rule ID | Rule                                                                                           | Priority |
+| ------- | ---------------------------------------------------------------------------------------------- | -------- |
+| REC-021 | Draft/publish validation is planned; there is no publish operation in the current Recipe model | Critical |
+| REC-022 | Non-deleted recipes are returned by current public recipe queries                              | High     |
+| REC-023 | Publication-gated profile visibility is planned                                                | High     |
+| REC-024 | Draft visibility is planned; drafts are not represented in the current model                   | Critical |
 
 ---
 
@@ -169,21 +171,21 @@ Rules are organized by domain and include validation constraints, access control
 
 ## 4.1 Category Management Rules
 
-| Rule ID | Rule                                               | Priority |
-| ------- | -------------------------------------------------- | -------- |
-| CAT-001 | Category names must be unique                      | Critical |
-| CAT-002 | Every category must have a cover image             | High     |
-| CAT-003 | Categories are displayed alphabetically by default | Medium   |
+| Rule ID | Rule                                                                   | Priority |
+| ------- | ---------------------------------------------------------------------- | -------- |
+| CAT-001 | Category names must be unique                                          | Critical |
+| CAT-002 | Categories currently require an `icon`; cover-image support is planned | High     |
+| CAT-003 | Categories are displayed alphabetically by default                     | Medium   |
 
 ## 4.2 Category Assignment Rules
 
-| Rule ID | Rule                                                        | Priority |
-| ------- | ----------------------------------------------------------- | -------- |
-| CAT-004 | Every recipe must belong to exactly one category            | Critical |
-| CAT-005 | A recipe cannot exist without a category                    | Critical |
-| CAT-006 | One category can contain multiple recipes                   | Medium   |
-| CAT-007 | Recipe count is updated automatically                       | High     |
-| CAT-008 | Categories without Featured Order do not appear on homepage | Medium   |
+| Rule ID | Rule                                                                                                                               | Priority |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| CAT-004 | Every recipe must belong to exactly one category                                                                                   | Critical |
+| CAT-005 | A recipe cannot exist without a category                                                                                           | Critical |
+| CAT-006 | One category can contain multiple recipes                                                                                          | Medium   |
+| CAT-007 | Recipe count is updated automatically                                                                                              | High     |
+| CAT-008 | Homepage featured-order filtering is planned; the current Category model stores `order` and does not use a separate Featured Order | Medium   |
 
 ---
 

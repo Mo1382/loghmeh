@@ -4,6 +4,8 @@ This document defines all user roles, permissions, and access control for the Lo
 
 Roles determine what actions users can perform and what resources they can access.
 
+> **Current implementation status:** The persisted User role enum currently contains only `USER` and `ADMIN`. `Guest`, `Recipe Owner`, and `Comment Author` are logical request contexts, not stored role values. The Admin Dashboard is a separate application, and the permissions described here are not connected to active routes or middleware in this repository.
+
 ---
 
 ## Document Structure

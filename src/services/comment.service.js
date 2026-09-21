@@ -50,9 +50,9 @@ const MAX_COMMENT_LENGTH = 1000;
 function assertAuthenticated(currentUser) {
   if (!currentUser) {
     throw new AppError(
-      "Authentication is required.",
       ERROR_CODES.UNAUTHORIZED,
-      401
+      "ورود به حساب کاربری الزامی است.",
+      { statusCode: 401 }
     );
   }
 }
@@ -64,11 +64,9 @@ function assertAdmin(currentUser) {
   assertAuthenticated(currentUser);
 
   if (currentUser.role !== "ADMIN") {
-    throw new AppError(
-      "Administrator privileges are required.",
-      ERROR_CODES.FORBIDDEN,
-      403
-    );
+    throw new AppError(ERROR_CODES.FORBIDDEN, "دسترسی مدیر سیستم الزامی است.", {
+      statusCode: 403,
+    });
   }
 }
 
@@ -78,9 +76,9 @@ function assertAdmin(currentUser) {
 function assertValidObjectId(id, fieldName = "ID") {
   if (!mongoose.isValidObjectId(id)) {
     throw new AppError(
-      `Invalid ${fieldName}.`,
       ERROR_CODES.INVALID_REQUEST,
-      400
+      `شناسه ${fieldName} نامعتبر است.`,
+      { statusCode: 400 }
     );
   }
 }
@@ -98,9 +96,9 @@ function assertCommentOwnerOrAdmin(currentUser, comment) {
 
   if (!isOwner && !isAdmin) {
     throw new AppError(
-      "You are not allowed to modify this comment.",
       ERROR_CODES.FORBIDDEN,
-      403
+      "شما اجازه ویرایش این نظر را ندارید.",
+      { statusCode: 403 }
     );
   }
 }
@@ -118,9 +116,9 @@ function assertReplyOwnerOrAdmin(currentUser, reply) {
 
   if (!isOwner && !isAdmin) {
     throw new AppError(
-      "You are not allowed to delete this reply.",
       ERROR_CODES.FORBIDDEN,
-      403
+      "شما اجازه حذف این پاسخ را ندارید.",
+      { statusCode: 403 }
     );
   }
 }
@@ -141,9 +139,9 @@ function assertCanReplyToComment(currentUser, recipe) {
 
   if (!isRecipeOwner && !isAdmin) {
     throw new AppError(
-      "Only the recipe owner or an administrator can reply to a comment.",
       ERROR_CODES.FORBIDDEN,
-      403
+      "فقط صاحب دستور پخت یا مدیر سیستم می‌تواند به نظر پاسخ دهد.",
+      { statusCode: 403 }
     );
   }
 }
@@ -162,28 +160,26 @@ function assertCanReplyToComment(currentUser, recipe) {
  */
 function normalizeCommentText(text) {
   if (typeof text !== "string") {
-    throw new AppError(
-      "Invalid comment text.",
-      ERROR_CODES.INVALID_REQUEST,
-      400
-    );
+    throw new AppError(ERROR_CODES.INVALID_REQUEST, "متن نظر نامعتبر است.", {
+      statusCode: 400,
+    });
   }
 
   const normalizedText = text.trim();
 
   if (!normalizedText) {
     throw new AppError(
-      "Comment cannot be empty.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "نظر نمی‌تواند خالی باشد.",
+      { statusCode: 400 }
     );
   }
 
   if (normalizedText.length > MAX_COMMENT_LENGTH) {
     throw new AppError(
-      "Comment exceeds the maximum allowed length.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "نظر از حداکثر طول مجاز بیشتر است.",
+      { statusCode: 400 }
     );
   }
 
@@ -216,7 +212,7 @@ function getCursorSecret() {
   const secret = process.env.CURSOR_SECRET;
 
   if (!secret) {
-    throw new Error("CURSOR_SECRET is not configured.");
+    throw new Error("متغیر CURSOR_SECRET تنظیم نشده است.");
   }
 
   return secret;
@@ -263,7 +259,11 @@ function decodeCursor(cursor) {
   const parts = cursor.split(".");
 
   if (parts.length !== 2) {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   const [payloadBase64, signatureBase64] = parts;
@@ -279,14 +279,22 @@ function decodeCursor(cursor) {
 
     providedSignature = Buffer.from(signatureBase64, "base64url");
   } catch {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   if (
     providedSignature.length !== expectedSignature.length ||
     !crypto.timingSafeEqual(providedSignature, expectedSignature)
   ) {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   let payload;
@@ -296,7 +304,11 @@ function decodeCursor(cursor) {
 
     payload = JSON.parse(json);
   } catch {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   if (
@@ -305,7 +317,11 @@ function decodeCursor(cursor) {
     !payload.createdAt ||
     !payload.id
   ) {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   assertValidObjectId(payload.id, "cursor ID");
@@ -314,9 +330,9 @@ function decodeCursor(cursor) {
 
   if (Number.isNaN(createdAt.getTime())) {
     throw new AppError(
-      "Invalid cursor date.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
     );
   }
 
@@ -365,17 +381,17 @@ export async function getCommentById(commentId) {
   const comment = await findCommentById(commentId);
 
   if (!comment) {
-    throw new AppError(
-      "Comment not found.",
-      ERROR_CODES.COMMENT_NOT_FOUND,
-      404
-    );
+    throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "نظر پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   const recipe = await findRecipeById(comment.recipeId);
 
   if (!recipe) {
-    throw new AppError("Recipe not found.", ERROR_CODES.RECIPE_NOT_FOUND, 404);
+    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return comment;
@@ -395,7 +411,9 @@ export async function getCommentsByRecipe({
   const recipe = await findRecipeById(recipeId);
 
   if (!recipe) {
-    throw new AppError("Recipe not found.", ERROR_CODES.RECIPE_NOT_FOUND, 404);
+    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   const normalizedLimit = normalizeLimit(limit);
@@ -444,11 +462,9 @@ export async function createComment(currentUser, recipeId, text) {
     const recipe = await findRecipeById(recipeId, session);
 
     if (!recipe) {
-      throw new AppError(
-        "Recipe not found.",
-        ERROR_CODES.RECIPE_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     const comment = await createCommentRepository(
@@ -468,9 +484,9 @@ export async function createComment(currentUser, recipeId, text) {
 
     if (!updatedRecipe) {
       throw new AppError(
-        "Recipe comment count could not be updated.",
         ERROR_CODES.RECIPE_NOT_FOUND,
-        404
+        "شمارنده نظرهای دستور پخت به‌روزرسانی نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -515,21 +531,17 @@ export async function createCommentReply(currentUser, commentId, text) {
     const comment = await findCommentById(commentId, session);
 
     if (!comment) {
-      throw new AppError(
-        "Comment not found.",
-        ERROR_CODES.COMMENT_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "نظر پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     const recipe = await findRecipeById(comment.recipeId, session);
 
     if (!recipe) {
-      throw new AppError(
-        "Recipe not found.",
-        ERROR_CODES.RECIPE_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     assertCanReplyToComment(currentUser, recipe);
@@ -545,9 +557,9 @@ export async function createCommentReply(currentUser, commentId, text) {
 
     if (!updatedComment) {
       throw new AppError(
-        "Comment reply could not be added.",
         ERROR_CODES.COMMENT_NOT_FOUND,
-        404
+        "پاسخ به نظر اضافه نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -591,11 +603,9 @@ export async function deleteComment(currentUser, commentId) {
     const comment = await findCommentById(commentId, session);
 
     if (!comment) {
-      throw new AppError(
-        "Comment not found.",
-        ERROR_CODES.COMMENT_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "نظر پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     assertCommentOwnerOrAdmin(currentUser, comment);
@@ -603,11 +613,9 @@ export async function deleteComment(currentUser, commentId) {
     const recipe = await findRecipeById(comment.recipeId, session);
 
     if (!recipe) {
-      throw new AppError(
-        "Recipe not found.",
-        ERROR_CODES.RECIPE_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     const deletedComment = await softDeleteComment(
@@ -617,11 +625,9 @@ export async function deleteComment(currentUser, commentId) {
     );
 
     if (!deletedComment) {
-      throw new AppError(
-        "Comment could not be deleted.",
-        ERROR_CODES.COMMENT_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "نظر حذف نشد.", {
+        statusCode: 404,
+      });
     }
 
     const updatedRecipe = await incrementCommentCount(
@@ -632,9 +638,9 @@ export async function deleteComment(currentUser, commentId) {
 
     if (!updatedRecipe) {
       throw new AppError(
-        "Recipe comment count could not be updated.",
         ERROR_CODES.RECIPE_NOT_FOUND,
-        404
+        "شمارنده نظرهای دستور پخت به‌روزرسانی نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -669,9 +675,9 @@ export async function restoreComment(currentUser, commentId) {
 
     if (!comment) {
       throw new AppError(
-        "Deleted comment not found.",
         ERROR_CODES.COMMENT_NOT_FOUND,
-        404
+        "نظر حذف‌شده پیدا نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -683,9 +689,9 @@ export async function restoreComment(currentUser, commentId) {
 
     if (!recipe) {
       throw new AppError(
-        "Recipe not found or is inactive.",
         ERROR_CODES.RECIPE_NOT_FOUND,
-        404
+        "دستور پخت پیدا نشد یا غیرفعال است.",
+        { statusCode: 404 }
       );
     }
 
@@ -693,9 +699,9 @@ export async function restoreComment(currentUser, commentId) {
 
     if (!restoredComment) {
       throw new AppError(
-        "Comment could not be restored.",
         ERROR_CODES.COMMENT_NOT_FOUND,
-        404
+        "بازیابی نظر ممکن نبود.",
+        { statusCode: 404 }
       );
     }
 
@@ -711,9 +717,9 @@ export async function restoreComment(currentUser, commentId) {
 
     if (!updatedRecipe) {
       throw new AppError(
-        "Recipe comment count could not be updated.",
         ERROR_CODES.RECIPE_NOT_FOUND,
-        404
+        "شمارنده نظرهای دستور پخت به‌روزرسانی نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -749,11 +755,9 @@ export async function deleteCommentReply(currentUser, replyId) {
     const comment = await findCommentByReplyId(replyId, session);
 
     if (!comment) {
-      throw new AppError(
-        "Reply not found.",
-        ERROR_CODES.COMMENT_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "پاسخ پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**
@@ -765,11 +769,9 @@ export async function deleteCommentReply(currentUser, replyId) {
     );
 
     if (!reply) {
-      throw new AppError(
-        "Reply not found.",
-        ERROR_CODES.COMMENT_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "پاسخ پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**
@@ -784,11 +786,9 @@ export async function deleteCommentReply(currentUser, replyId) {
     const updatedComment = await deleteCommentReplyById(replyId, session);
 
     if (!updatedComment) {
-      throw new AppError(
-        "Reply could not be deleted.",
-        ERROR_CODES.COMMENT_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "پاسخ حذف نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**

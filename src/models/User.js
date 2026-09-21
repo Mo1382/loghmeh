@@ -1,5 +1,12 @@
+import mongoose from "mongoose";
+
 const userSchema = new mongoose.Schema(
   {
+    sessionVersion: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     username: {
       type: String,
       required: true,
@@ -72,18 +79,6 @@ const userSchema = new mongoose.Schema(
 
     stats: {
       recipeCount: {
-        type: Number,
-        default: 0,
-        min: 0,
-      },
-
-      followerCount: {
-        type: Number,
-        default: 0,
-        min: 0,
-      },
-
-      followingCount: {
         type: Number,
         default: 0,
         min: 0,

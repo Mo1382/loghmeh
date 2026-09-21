@@ -1,4 +1,4 @@
-import Bookmark from "@/db/models/Bookmark";
+import Bookmark from "@/models/Bookmark";
 
 /**
  * Apply MongoDB session only when provided.

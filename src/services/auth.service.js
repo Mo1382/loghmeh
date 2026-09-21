@@ -8,6 +8,7 @@ import {
   createUser,
   updateUserPassword,
   markEmailAsVerified,
+  findUserById,
 } from "@/repositories/user.repository";
 
 import {
@@ -66,7 +67,7 @@ function toSafeUser(user) {
 function passwordResetRequestResponse() {
   return {
     message:
-      "If an account exists for this email, a password reset code has been sent.",
+      "اگر حسابی با این ایمیل وجود داشته باشد، کد بازنشانی رمز عبور ارسال شده است.",
   };
 }
 
@@ -77,7 +78,7 @@ function getAuthSecret() {
   const secret = process.env.AUTH_SECRET;
 
   if (!secret) {
-    throw new Error("AUTH_SECRET is not configured.");
+    throw new Error("متغیر AUTH_SECRET تنظیم نشده است.");
   }
 
   return secret;
@@ -115,7 +116,7 @@ function verifyPasswordResetToken(token) {
   if (!token || typeof token !== "string") {
     throw new AppError(
       ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "Invalid password reset token.",
+      "توکن بازنشانی رمز عبور نامعتبر است.",
       { statusCode: 400 }
     );
   }
@@ -125,7 +126,7 @@ function verifyPasswordResetToken(token) {
   if (!encodedPayload || !signature) {
     throw new AppError(
       ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "Invalid password reset token.",
+      "توکن بازنشانی رمز عبور نامعتبر است.",
       { statusCode: 400 }
     );
   }
@@ -145,7 +146,7 @@ function verifyPasswordResetToken(token) {
   ) {
     throw new AppError(
       ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "Invalid password reset token.",
+      "توکن بازنشانی رمز عبور نامعتبر است.",
       { statusCode: 400 }
     );
   }
@@ -159,7 +160,7 @@ function verifyPasswordResetToken(token) {
   } catch {
     throw new AppError(
       ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "Invalid password reset token.",
+      "توکن بازنشانی رمز عبور نامعتبر است.",
       { statusCode: 400 }
     );
   }
@@ -172,7 +173,7 @@ function verifyPasswordResetToken(token) {
   ) {
     throw new AppError(
       ERROR_CODES.PASSWORD_RESET_CODE_EXPIRED,
-      "Password reset token has expired.",
+      "توکن بازنشانی رمز عبور منقضی شده است.",
       { statusCode: 400 }
     );
   }
@@ -199,7 +200,7 @@ export async function registerUser({ username, email, password }) {
   if (existingEmail) {
     throw new AppError(
       ERROR_CODES.EMAIL_ALREADY_EXISTS,
-      "An account with this email already exists.",
+      "حسابی با این ایمیل از قبل وجود دارد.",
       { statusCode: 409 }
     );
   }
@@ -209,7 +210,7 @@ export async function registerUser({ username, email, password }) {
   if (existingUsername) {
     throw new AppError(
       ERROR_CODES.USERNAME_ALREADY_EXISTS,
-      "This username is already in use.",
+      "این نام کاربری قبلاً استفاده شده است.",
       { statusCode: 409 }
     );
   }
@@ -266,7 +267,7 @@ export async function loginUser({ identifier, password }) {
   if (!user) {
     throw new AppError(
       ERROR_CODES.INVALID_CREDENTIALS,
-      "Invalid email, username, or password.",
+      "ایمیل، نام کاربری یا رمز عبور نامعتبر است.",
       { statusCode: 401 }
     );
   }
@@ -274,7 +275,7 @@ export async function loginUser({ identifier, password }) {
   if (user.deletedAt) {
     throw new AppError(
       ERROR_CODES.INVALID_CREDENTIALS,
-      "Invalid email, username, or password.",
+      "ایمیل، نام کاربری یا رمز عبور نامعتبر است.",
       { statusCode: 401 }
     );
   }
@@ -282,7 +283,7 @@ export async function loginUser({ identifier, password }) {
   if (user.accountStatus === "SUSPENDED") {
     throw new AppError(
       ERROR_CODES.USER_SUSPENDED,
-      "This account is suspended.",
+      "این حساب کاربری معلق شده است.",
       { statusCode: 403 }
     );
   }
@@ -290,7 +291,15 @@ export async function loginUser({ identifier, password }) {
   if (user.accountStatus === "DEACTIVATED") {
     throw new AppError(
       ERROR_CODES.USER_DEACTIVATED,
-      "This account is deactivated.",
+      "این حساب کاربری غیرفعال شده است.",
+      { statusCode: 403 }
+    );
+  }
+
+  if (!user.emailVerified) {
+    throw new AppError(
+      ERROR_CODES.EMAIL_NOT_VERIFIED,
+      "ایمیل حساب کاربری تأیید نشده است.",
       { statusCode: 403 }
     );
   }
@@ -300,7 +309,7 @@ export async function loginUser({ identifier, password }) {
   if (!passwordMatches) {
     throw new AppError(
       ERROR_CODES.INVALID_CREDENTIALS,
-      "Invalid email, username, or password.",
+      "ایمیل، نام کاربری یا رمز عبور نامعتبر است.",
       { statusCode: 401 }
     );
   }
@@ -315,7 +324,7 @@ export async function verifyEmail({ email, code }) {
   const user = await findUserByEmail(email);
 
   if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -323,7 +332,7 @@ export async function verifyEmail({ email, code }) {
   if (user.emailVerified) {
     throw new AppError(
       ERROR_CODES.EMAIL_ALREADY_VERIFIED,
-      "Email is already verified.",
+      "ایمیل قبلاً تأیید شده است.",
       { statusCode: 409 }
     );
   }
@@ -336,7 +345,7 @@ export async function verifyEmail({ email, code }) {
   if (!verificationCode) {
     throw new AppError(
       ERROR_CODES.VERIFICATION_CODE_NOT_FOUND,
-      "Verification code is invalid or expired.",
+      "کد تأیید نامعتبر یا منقضی شده است.",
       { statusCode: 400 }
     );
   }
@@ -346,7 +355,7 @@ export async function verifyEmail({ email, code }) {
   if (!codeMatches) {
     throw new AppError(
       ERROR_CODES.INVALID_VERIFICATION_CODE,
-      "Invalid verification code.",
+      "کد تأیید نامعتبر است.",
       { statusCode: 400 }
     );
   }
@@ -413,7 +422,7 @@ export async function verifyPasswordResetCode({ email, code }) {
   if (!verificationCode) {
     throw new AppError(
       ERROR_CODES.PASSWORD_RESET_CODE_EXPIRED,
-      "Password reset code is invalid or expired.",
+      "کد بازنشانی رمز عبور نامعتبر یا منقضی شده است.",
       { statusCode: 400 }
     );
   }
@@ -423,7 +432,7 @@ export async function verifyPasswordResetCode({ email, code }) {
   if (!codeMatches) {
     throw new AppError(
       ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "Invalid password reset code.",
+      "کد بازنشانی رمز عبور نامعتبر است.",
       { statusCode: 400 }
     );
   }
@@ -450,7 +459,7 @@ export async function resetPassword({ resetToken, password }) {
   const user = await findUserByIdentifier(payload.email);
 
   if (!user || user.deletedAt) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -458,7 +467,7 @@ export async function resetPassword({ resetToken, password }) {
   if (user.accountStatus !== "ACTIVE") {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
-      "This account cannot reset its password.",
+      "این حساب کاربری نمی‌تواند رمز عبور خود را بازنشانی کند.",
       { statusCode: 403 }
     );
   }
@@ -474,7 +483,7 @@ export async function resetPassword({ resetToken, password }) {
   ) {
     throw new AppError(
       ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "Invalid password reset token.",
+      "توکن بازنشانی رمز عبور نامعتبر است.",
       { statusCode: 400 }
     );
   }
@@ -484,7 +493,7 @@ export async function resetPassword({ resetToken, password }) {
   if (sameAsCurrent) {
     throw new AppError(
       ERROR_CODES.PASSWORD_SAME_AS_CURRENT,
-      "New password must be different from the current password.",
+      "رمز عبور جدید باید با رمز عبور فعلی متفاوت باشد.",
       { statusCode: 400 }
     );
   }
@@ -508,11 +517,11 @@ export async function resetPassword({ resetToken, password }) {
  * The caller must provide the authenticated user's email.
  * Authorization is performed before calling this service.
  */
-export async function changePassword({ email, currentPassword, newPassword }) {
-  const user = await findUserByIdentifier(email);
+export async function changePassword({ userId, currentPassword, newPassword }) {
+  const user = await findUserByIdWithPassword(userId);
 
   if (!user || user.deletedAt) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -525,7 +534,7 @@ export async function changePassword({ email, currentPassword, newPassword }) {
   if (!currentPasswordMatches) {
     throw new AppError(
       ERROR_CODES.CURRENT_PASSWORD_INCORRECT,
-      "Current password is incorrect.",
+      "رمز عبور فعلی نادرست است.",
       { statusCode: 400 }
     );
   }
@@ -535,7 +544,7 @@ export async function changePassword({ email, currentPassword, newPassword }) {
   if (sameAsCurrent) {
     throw new AppError(
       ERROR_CODES.PASSWORD_SAME_AS_CURRENT,
-      "New password must be different from the current password.",
+      "رمز عبور جدید باید با رمز عبور فعلی متفاوت باشد.",
       { statusCode: 400 }
     );
   }

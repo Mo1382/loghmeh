@@ -1,4 +1,4 @@
-import User from "@/db/models/User";
+import User from "@/models/User";
 
 /**
  * Apply MongoDB session only when provided.
@@ -12,8 +12,6 @@ function applySession(query, session) {
  */
 export const USER_STATS = {
   RECIPE_COUNT: "recipeCount",
-  FOLLOWER_COUNT: "followerCount",
-  FOLLOWING_COUNT: "followingCount",
   TOTAL_RECIPE_VIEWS: "totalRecipeViews",
 };
 
@@ -128,6 +126,18 @@ export function findUserById(userId, session) {
 }
 
 /**
+ * Find a user by ID.
+ */
+export function findUserByIdWithPassword(userId, session) {
+  const query = User.findOne({
+    _id: userId,
+    deletedAt: null,
+  }).select("+password");
+
+  return applySession(query, session);
+}
+
+/**
  * Find active, non-deleted users by their IDs.
  *
  * Used for public/user-facing lists where
@@ -226,6 +236,9 @@ export function updateUserPassword(userId, passwordHash, session) {
       $set: {
         password: passwordHash,
       },
+      $inc: {
+        sessionVersion: 1,
+      },
     },
     {
       new: true,
@@ -289,8 +302,11 @@ export function updateAccountStatus(userId, accountStatus, session) {
  * belongs to the Service layer.
  */
 export function softDeleteUser(userId, deletedAt = new Date(), session) {
-  const query = User.findByIdAndUpdate(
-    userId,
+  const query = User.findOneAndUpdate(
+    {
+      _id: userId,
+      deletedAt: null,
+    },
     {
       $set: {
         deletedAt,
@@ -425,8 +441,11 @@ export function incrementUserStat(userId, stat, amount = 1, session) {
     throw new Error("Invalid user stat.");
   }
 
-  const query = User.findByIdAndUpdate(
-    userId,
+  const query = User.findOneAndUpdate(
+    {
+      _id: userId,
+      deletedAt: null,
+    },
     {
       $inc: {
         [`stats.${stat}`]: amount,
@@ -446,20 +465,6 @@ export function incrementUserStat(userId, stat, amount = 1, session) {
  */
 export function incrementRecipeCount(userId, amount = 1, session) {
   return incrementUserStat(userId, USER_STATS.RECIPE_COUNT, amount, session);
-}
-
-/**
- * Increment a user's follower count.
- */
-export function incrementFollowerCount(userId, amount = 1, session) {
-  return incrementUserStat(userId, USER_STATS.FOLLOWER_COUNT, amount, session);
-}
-
-/**
- * Increment a user's following count.
- */
-export function incrementFollowingCount(userId, amount = 1, session) {
-  return incrementUserStat(userId, USER_STATS.FOLLOWING_COUNT, amount, session);
 }
 
 /**

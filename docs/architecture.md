@@ -1,6 +1,8 @@
 # Loqmeh — System Architecture
 
-This document describes the technical architecture of Loqmeh (لقمه). It is the single reference for how the system is structured, how its layers communicate, and why key decisions were made.
+This document describes the intended technical architecture of Loqmeh (لقمه) and its current implementation status.
+
+> **Current status (2026-09-20):** The repository currently has only the root App Router shell (`src/app/page.js`, `src/app/layout.js`, and `src/app/globals.css`). No Server Action, API handler, middleware, feature route, or feature page is implemented yet. The active domain code is located under `src/services`, `src/repositories`, `src/models`, and `src/validations`; the route and action architecture below remains the target architecture until those files exist.
 
 > Scope note: this document covers only the **public-facing web application**. Administration, moderation, and category management live in a separate **Admin Dashboard** project and are out of scope here, though integration points are noted where relevant.
 
@@ -51,20 +53,20 @@ This document describes the technical architecture of Loqmeh (لقمه). It is t
 
 ## 1. Architectural Overview
 
-Loqmeh is a **monolithic, server-centric web application** built on **Next.js App Router**. A single Next.js deployment serves both the UI (React Server/Client Components) and the backend logic (Server Actions), talking directly to a single **MongoDB** database via **Mongoose**. There is no separate REST/GraphQL API service for the MVP — Server Actions act as the application's internal API boundary.
+Loqmeh is intended to be a **monolithic, server-centric web application** built on **Next.js App Router**. The current repository does not yet contain the planned Server Actions or feature routes. The implemented domain code talks to MongoDB through Mongoose repositories, but it is not connected to an active request boundary yet.
 
 **Key architectural characteristics**
 
-| Characteristic   | Description                                                              |
-| ---------------- | ------------------------------------------------------------------------ |
-| Style            | Monolithic full-stack Next.js app (single deployable unit)               |
-| Rendering        | Server-Side Rendering (SSR) by default, with SSG/ISR for cacheable pages |
-| API boundary     | Next.js Server Actions (no separate REST API for MVP)                    |
-| Data store       | Single MongoDB database, accessed only from the server                   |
-| Client state     | Minimal — React Context API for cross-cutting UI state only              |
-| Auth             | Session-based, managed by Auth.js                                        |
-| Deployment       | Vercel (serverless/edge functions + static assets)                       |
-| Companion system | Separate Admin Dashboard application, sharing the same database          |
+| Characteristic   | Description                                                                |
+| ---------------- | -------------------------------------------------------------------------- |
+| Style            | Monolithic full-stack Next.js app (single deployable unit)                 |
+| Rendering        | Server-Side Rendering (SSR) by default, with SSG/ISR for cacheable pages   |
+| API boundary     | Planned: Next.js Server Actions; not implemented in the current repository |
+| Data store       | Single MongoDB database, accessed only from the server                     |
+| Client state     | Minimal — React Context API for cross-cutting UI state only                |
+| Auth             | Session-based, managed by Auth.js                                          |
+| Deployment       | Vercel (serverless/edge functions + static assets)                         |
+| Companion system | Separate Admin Dashboard application, sharing the same database            |
 
 This shape is deliberate: the project principles favor **simplicity and maintainability over premature complexity** (GEN-001, GEN-007, ARCH-002), so the architecture avoids a dedicated API layer, microservices, or client-heavy state management until the product actually needs them (see [§21](#21-future-architecture-roadmap)).
 
@@ -183,8 +185,8 @@ Per ARCH-004/ARCH-007 (separate UI, business logic, and data access), the app is
 | Layer                            | Responsibility                                              | Lives in                                                        |
 | -------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------- |
 | **Presentation**                 | Server/Client Components, layouts, pages                    | `app/`, `components/`                                           |
-| **Application / Business Logic** | Orchestrates validation, authorization, and data operations | `lib/actions/*`, `lib/services/*`                               |
-| **Data Access**                  | Mongoose models, queries, population                        | `lib/models/*`, `lib/db/*`                                      |
+| **Application / Business Logic** | Orchestrates validation, authorization, and data operations | `src/services/*`                                                |
+| **Data Access**                  | Mongoose models and database queries                        | `src/repositories/*`, `src/models/*`                            |
 | **Cross-Cutting**                | Auth, validation schemas, email, uploads, utilities         | `lib/auth/*`, `lib/validation/*`, `lib/email/*`, `lib/upload/*` |
 
 **Component strategy (ARCH-002/003)**
@@ -252,7 +254,7 @@ This mirrors ARCH-005 (feature-based organization): each feature's Server Action
 
 ## 6. Routing Architecture
 
-24 routes total, grouped into 8 categories (Authentication, Recipes, Categories, Search, Profile, Community, System, Error). Full detail lives in `routes.md`; the architecturally relevant points:
+The target route plan contains 24 routes grouped into 8 categories. The current implementation has only the root route `/`. Full target detail lives in `routes.md`; each target route must be treated as planned until its `src/app` page exists:
 
 ### 6.1 Access tiers
 
@@ -264,7 +266,7 @@ This mirrors ARCH-005 (feature-based organization): each feature's Server Action
 
 ### 6.2 Route protection via middleware
 
-A single `middleware.ts` intercepts all non-static, non-API requests and redirects based on session presence:
+The target architecture uses a single `middleware.ts` to intercept protected requests. No middleware file exists in the current repository, so route protection is not active yet:
 
 - Authenticated users hitting auth-only pages (`/login`, `/register`, ...) → redirected to `/`.
 - Unauthenticated users hitting protected routes → redirected to `/login?redirect=<original path>`.
@@ -432,7 +434,7 @@ This mapping is the practical expression of ARCH-005 (feature-based organization
 
 ## 10. Server Actions & API Layer
 
-There is no standalone REST/GraphQL API for the MVP. **Next.js Server Actions are the entire write API surface**, and Server Components perform reads directly against Mongoose.
+There is no standalone REST/GraphQL API in the current repository. **Next.js Server Actions are the planned write boundary**, but no Server Action exists yet; the current service and repository modules are not wired to a route boundary.
 
 **Standard Server Action shape:**
 
@@ -459,7 +461,7 @@ export async function createRecipe(input) {
 }
 ```
 
-Rationale for this pattern over a REST layer (DATA-008/009, DEV-012): it removes an entire network hop and serialization boundary for a monolithic app with one frontend consumer, at the cost of coupling the write API to Next.js. If the Admin Dashboard or a future native mobile app (v7.0) needs programmatic access, a versioned REST/GraphQL layer can be introduced later without redesigning the data layer — Server Actions would simply become thin wrappers around the same `lib/services` functions.
+Rationale for this pattern over a REST layer (DATA-008/009, DEV-012): it removes an entire network hop and serialization boundary for a monolithic app with one frontend consumer, at the cost of coupling the write API to Next.js. If the Admin Dashboard or a future native mobile app (v7.0) needs programmatic access, a versioned REST/GraphQL layer can be introduced later without redesigning the data layer — Server Actions would simply become thin wrappers around the same `src/services` functions.
 
 ---
 

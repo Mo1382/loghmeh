@@ -1,3 +1,4 @@
+import { INGREDIENT_UNITS } from "@/constants/enums";
 import mongoose from "mongoose";
 
 const ingredientSchema = new mongoose.Schema(
@@ -11,28 +12,16 @@ const ingredientSchema = new mongoose.Schema(
     quantity: {
       type: Number,
       default: null,
-      min: 0,
+      // min: 0,
+      validate: {
+        validator: (value) => value === null || value > 0,
+        message: "Quantity must be greater than 0",
+      },
     },
 
     unit: {
       type: String,
-      enum: [
-        "به مقدار کافی",
-        "عدد",
-        "گرم",
-        "کیلوگرم",
-        "میلی‌گرم",
-        "میلی‌لیتر",
-        "لیتر",
-        "قاشق غذاخوری",
-        "قاشق چای‌خوری",
-        "پیمانه",
-        "لیوان",
-        "فنجان",
-        "حبه",
-        "پر",
-        "برش",
-      ],
+      enum: INGREDIENT_UNITS,
       required: true,
     },
   },
@@ -78,12 +67,6 @@ const recipeStatsSchema = new mongoose.Schema(
     },
 
     commentCount: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
-    bookmarkCount: {
       type: Number,
       default: 0,
       min: 0,
@@ -182,8 +165,10 @@ const recipeSchema = new mongoose.Schema(
       type: [stepSchema],
       required: true,
       validate: {
-        validator: (items) => items.length >= 1,
-        message: "A recipe must contain at least one cooking step.",
+        validator: (items) =>
+          items.length >= 1 &&
+          items.every((step, index) => step.order === index + 1),
+        message: "Cooking steps must start at 1 and be sequential.",
       },
     },
 
@@ -217,6 +202,8 @@ recipeSchema.index({
   categoryId: 1,
   "stats.viewCount": -1,
 });
+
+recipeSchema.index({ slug: 1 }, { unique: true });
 
 recipeSchema.index({ "stats.averageRating": -1 });
 

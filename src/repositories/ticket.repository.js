@@ -1,4 +1,4 @@
-import SupportTicket from "@/db/models/SupportTicket";
+import SupportTicket from "@/models/SupportTicket";
 
 /**
  * Apply MongoDB session only when provided.

@@ -1,6 +1,8 @@
 # Routes Documentation
 
-> **Loghmeh Application** - Complete Routes & Pages Reference
+> **Loghmeh Application** - Target Routes & Pages Reference
+
+> **Current implementation:** Only `/` is currently implemented through `src/app/page.js`. The routes in this document are the planned route contract, not a list of pages that currently exist.
 
 ---
 
@@ -27,26 +29,26 @@ This document defines all application routes, pages, their paths, access levels,
 
 ### 1.2 Technology Stack
 
-| Technology  | Purpose                         |
-| ----------- | ------------------------------- |
-| Next.js 14+ | App Router (file-based routing) |
-| Auth.js     | Authentication & session mgmt   |
-| TypeScript  | Type-safe routing constants     |
-| React       | Page components & UI            |
+| Technology   | Purpose                         |
+| ------------ | ------------------------------- |
+| Next.js 16.3 | App Router (file-based routing) |
+| Auth.js      | Authentication & session mgmt   |
+| JavaScript   | Current application language    |
+| React        | Page components & UI            |
 
 ### 1.3 Route Categories
 
-| Category       | Route Count | Description                        |
-| -------------- | ----------- | ---------------------------------- |
-| Authentication | 7           | Sign in, register, password mgmt   |
-| Recipes        | 5           | Browse, create, edit, view recipes |
-| Categories     | 2           | Category listing and filtering     |
-| Search         | 1           | Recipe search functionality        |
-| Profile        | 4           | User profiles and social features  |
-| Community      | 1           | Browse all users                   |
-| System         | 3           | Bookmarks, notifications, support  |
-| Error          | 1           | 404 error handling                 |
-| **Total**      | **24**      | All application routes             |
+| Category         | Route Count | Description                                           |
+| ---------------- | ----------- | ----------------------------------------------------- |
+| Authentication   | 7           | Sign in, register, password mgmt                      |
+| Recipes          | 5           | Browse, create, edit, view recipes                    |
+| Categories       | 2           | Category listing and filtering                        |
+| Search           | 1           | Recipe search functionality                           |
+| Profile          | 4           | User profiles and social features                     |
+| Community        | 1           | Browse all users                                      |
+| System           | 3           | Bookmarks, notifications, support                     |
+| Error            | 1           | 404 error handling                                    |
+| **Target total** | **24**      | Planned application routes; currently only `/` exists |
 
 ---
 
@@ -54,32 +56,32 @@ This document defines all application routes, pages, their paths, access levels,
 
 ### 2.1 All Routes Summary
 
-| #   | Route Name      | Path                             | Auth | Role Access | Feature   | Method |
-| --- | --------------- | -------------------------------- | :--: | ----------- | --------- | :----: |
-| 1   | Home            | `/`                              |  No  | Guest, User | Home Feed |  GET   |
-| 2   | All Recipes     | `/recipes`                       |  No  | Guest, User | Recipes   |  GET   |
-| 3   | Recipe Detail   | `/recipes/[slug]`                |  No  | Guest, User | Recipes   |  GET   |
-| 4   | New Recipe      | `/recipes/new`                   | Yes  | User        | Recipes   |  GET   |
-| 5   | Edit Recipe     | `/recipes/[slug]/edit`           | Yes  | Owner       | Recipes   |  GET   |
-| 6   | All Categories  | `/categories`                    |  No  | Guest, User | Categories|  GET   |
-| 7   | Category Detail | `/categories/[slug]`             |  No  | Guest, User | Categories|  GET   |
-| 8   | Search          | `/search`                        |  No  | Guest, User | Search    |  GET   |
-| 9   | Login           | `/login`                         |  No  | Guest       | Auth      |  GET   |
-| 10  | Register        | `/register`                      |  No  | Guest       | Auth      |  GET   |
-| 11  | Verify Email    | `/verify-email`                  |  No  | Guest       | Auth      |  GET   |
-| 12  | Forgot Password | `/forgot-password`               |  No  | Guest       | Auth      |  GET   |
-| 13  | Verify Reset    | `/verify-reset-code`             |  No  | Guest       | Auth      |  GET   |
-| 14  | Reset Password  | `/reset-password`                |  No  | Guest       | Auth      |  GET   |
-| 15  | Change Password | `/change-password`               | Yes  | User        | Auth      |  GET   |
-| 16  | My Profile      | `/profile`                       | Yes  | User        | Profile   |  GET   |
-| 17  | User Profile    | `/profile/[username]`            |  No  | Guest, User | Profile   |  GET   |
-| 18  | Followers       | `/profile/[username]/followers`  | Yes  | Owner       | Social    |  GET   |
-| 19  | Followings      | `/profile/[username]/followings` | Yes  | Owner       | Social    |  GET   |
-| 20  | Community       | `/community`                     |  No  | Guest, User | Community |  GET   |
-| 21  | Bookmarks       | `/bookmarks`                     | Yes  | User        | System    |  GET   |
-| 22  | Notifications   | `/notifications`                 | Yes  | User        | System    |  GET   |
-| 23  | Support         | `/support`                       | No\* | User        | System    |  GET   |
-| 24  | Not Found       | `*`                              |  No  | All         | Error     |  GET   |
+| #   | Route Name      | Path                             | Auth | Role Access | Feature    | Method |
+| --- | --------------- | -------------------------------- | :--: | ----------- | ---------- | :----: |
+| 1   | Home            | `/`                              |  No  | Guest, User | Home Feed  |  GET   |
+| 2   | All Recipes     | `/recipes`                       |  No  | Guest, User | Recipes    |  GET   |
+| 3   | Recipe Detail   | `/recipes/[slug]`                |  No  | Guest, User | Recipes    |  GET   |
+| 4   | New Recipe      | `/recipes/new`                   | Yes  | User        | Recipes    |  GET   |
+| 5   | Edit Recipe     | `/recipes/[slug]/edit`           | Yes  | Owner       | Recipes    |  GET   |
+| 6   | All Categories  | `/categories`                    |  No  | Guest, User | Categories |  GET   |
+| 7   | Category Detail | `/categories/[slug]`             |  No  | Guest, User | Categories |  GET   |
+| 8   | Search          | `/search`                        |  No  | Guest, User | Search     |  GET   |
+| 9   | Login           | `/login`                         |  No  | Guest       | Auth       |  GET   |
+| 10  | Register        | `/register`                      |  No  | Guest       | Auth       |  GET   |
+| 11  | Verify Email    | `/verify-email`                  |  No  | Guest       | Auth       |  GET   |
+| 12  | Forgot Password | `/forgot-password`               |  No  | Guest       | Auth       |  GET   |
+| 13  | Verify Reset    | `/verify-reset-code`             |  No  | Guest       | Auth       |  GET   |
+| 14  | Reset Password  | `/reset-password`                |  No  | Guest       | Auth       |  GET   |
+| 15  | Change Password | `/change-password`               | Yes  | User        | Auth       |  GET   |
+| 16  | My Profile      | `/profile`                       | Yes  | User        | Profile    |  GET   |
+| 17  | User Profile    | `/profile/[username]`            |  No  | Guest, User | Profile    |  GET   |
+| 18  | Followers       | `/profile/[username]/followers`  | Yes  | Owner       | Social     |  GET   |
+| 19  | Followings      | `/profile/[username]/followings` | Yes  | Owner       | Social     |  GET   |
+| 20  | Community       | `/community`                     |  No  | Guest, User | Community  |  GET   |
+| 21  | Bookmarks       | `/bookmarks`                     | Yes  | User        | System     |  GET   |
+| 22  | Notifications   | `/notifications`                 | Yes  | User        | System     |  GET   |
+| 23  | Support         | `/support`                       | No\* | User        | System     |  GET   |
+| 24  | Not Found       | `*`                              |  No  | All         | Error      |  GET   |
 
 \* Support page viewable by guests but submission requires authentication.
 
@@ -137,32 +139,32 @@ This document defines all application routes, pages, their paths, access levels,
 
 ### 3.1 By Route and Role
 
-| Route                             | Guest | User | Recipe Owner | Admin\* |
-| --------------------------------- | :---: | :--: | :----------: | :-----: |
-| `/`                               |  ✅   |  ✅  |      ✅      |   ✅    |
-| `/recipes`                        |  ✅   |  ✅  |      ✅      |   ✅    |
-| `/recipes/[slug]`                 |  ✅   |  ✅  |      ✅      |   ✅    |
-| `/recipes/new`                    |  ❌   |  ✅  |      ✅      |   ✅    |
-| `/recipes/[slug]/edit`            |  ❌   |  ❌  |      ✅      |   ✅    |
-| `/categories`                     |  ✅   |  ✅  |      ✅      |   ✅    |
-| `/categories/[slug]`              |  ✅   |  ✅  |      ✅      |   ✅    |
-| `/search`                         |  ✅   |  ✅  |      ✅      |   ✅    |
-| `/community`                      |  ✅   |  ✅  |      ✅      |   ✅    |
-| `/login`                          |  ✅   | ❌†  |     ❌†      |   ❌†   |
-| `/register`                       |  ✅   | ❌†  |     ❌†      |   ❌†   |
-| `/verify-email`                   |  ✅   | ❌†  |     ❌†      |   ❌†   |
-| `/forgot-password`                |  ✅   | ❌†  |     ❌†      |   ❌†   |
-| `/verify-reset-code`              |  ✅   | ❌†  |     ❌†      |   ❌†   |
-| `/reset-password`                 |  ✅   | ❌†  |     ❌†      |   ❌†   |
-| `/change-password`                |  ❌   |  ✅  |      ✅      |   ✅    |
-| `/profile`                        |  ❌   |  ✅  |      ✅      |   ✅    |
-| `/profile/[username]`             |  ✅   |  ✅  |      ✅      |   ✅    |
-| `/profile/[username]/followers`   |  ❌   | ✅‡  |     ✅‡      |   ✅    |
-| `/profile/[username]/followings`  |  ❌   | ✅‡  |     ✅‡      |   ✅    |
-| `/bookmarks`                      |  ❌   |  ✅  |      ✅      |   ✅    |
-| `/notifications`                  |  ❌   |  ✅  |      ✅      |   ✅    |
-| `/support`                        |  ✅§  |  ✅  |      ✅      |   ✅    |
-| `404`                             |  ✅   |  ✅  |      ✅      |   ✅    |
+| Route                            | Guest | User | Recipe Owner | Admin\* |
+| -------------------------------- | :---: | :--: | :----------: | :-----: |
+| `/`                              |  ✅   |  ✅  |      ✅      |   ✅    |
+| `/recipes`                       |  ✅   |  ✅  |      ✅      |   ✅    |
+| `/recipes/[slug]`                |  ✅   |  ✅  |      ✅      |   ✅    |
+| `/recipes/new`                   |  ❌   |  ✅  |      ✅      |   ✅    |
+| `/recipes/[slug]/edit`           |  ❌   |  ❌  |      ✅      |   ✅    |
+| `/categories`                    |  ✅   |  ✅  |      ✅      |   ✅    |
+| `/categories/[slug]`             |  ✅   |  ✅  |      ✅      |   ✅    |
+| `/search`                        |  ✅   |  ✅  |      ✅      |   ✅    |
+| `/community`                     |  ✅   |  ✅  |      ✅      |   ✅    |
+| `/login`                         |  ✅   | ❌†  |     ❌†      |   ❌†   |
+| `/register`                      |  ✅   | ❌†  |     ❌†      |   ❌†   |
+| `/verify-email`                  |  ✅   | ❌†  |     ❌†      |   ❌†   |
+| `/forgot-password`               |  ✅   | ❌†  |     ❌†      |   ❌†   |
+| `/verify-reset-code`             |  ✅   | ❌†  |     ❌†      |   ❌†   |
+| `/reset-password`                |  ✅   | ❌†  |     ❌†      |   ❌†   |
+| `/change-password`               |  ❌   |  ✅  |      ✅      |   ✅    |
+| `/profile`                       |  ❌   |  ✅  |      ✅      |   ✅    |
+| `/profile/[username]`            |  ✅   |  ✅  |      ✅      |   ✅    |
+| `/profile/[username]/followers`  |  ❌   | ✅‡  |     ✅‡      |   ✅    |
+| `/profile/[username]/followings` |  ❌   | ✅‡  |     ✅‡      |   ✅    |
+| `/bookmarks`                     |  ❌   |  ✅  |      ✅      |   ✅    |
+| `/notifications`                 |  ❌   |  ✅  |      ✅      |   ✅    |
+| `/support`                       |  ✅§  |  ✅  |      ✅      |   ✅    |
+| `404`                            |  ✅   |  ✅  |      ✅      |   ✅    |
 
 \* Admin access managed in separate application  
 † Redirects to home if authenticated  
@@ -502,23 +504,23 @@ Filter and sort values are persisted in the URL so links are shareable and brows
 
 **Example:** `/recipes?category=desserts&difficulty=EASY&ingredient=flour&prepTime=30&cuisine=iranian&sort=newest`
 
-| Query Param  | Type   | Multiple | Description                          |
-| ------------ | ------ | :------: | ------------------------------------ |
-| `category`   | String |   Yes    | Category slug(s)                     |
-| `ingredient` | String |   Yes    | Main ingredient                      |
-| `difficulty` | Enum   |   Yes    | `EASY`, `MEDIUM`, `HARD`             |
-| `prepTime`   | Number |    No    | Max preparation time (minutes)       |
-| `cuisine`    | String |   Yes    | Cuisine type                         |
-| `sort`       | Enum   |    No    | Sort option (single selection)       |
+| Query Param  | Type   | Multiple | Description                    |
+| ------------ | ------ | :------: | ------------------------------ |
+| `category`   | String |   Yes    | Category slug(s)               |
+| `ingredient` | String |   Yes    | Main ingredient                |
+| `difficulty` | Enum   |   Yes    | `EASY`, `MEDIUM`, `HARD`       |
+| `prepTime`   | Number |    No    | Max preparation time (minutes) |
+| `cuisine`    | String |   Yes    | Cuisine type                   |
+| `sort`       | Enum   |    No    | Sort option (single selection) |
 
 **Available Sorting** (`sort` values):
 
-| Value          | Description                    |
-| -------------- | ------------------------------ |
-| `popular`      | Most Popular (by view count)   |
-| `highestRated` | Highest Rated (avg rating)     |
-| `newest`       | Newest (by creation date)      |
-| `oldest`       | Oldest (by creation date)      |
+| Value          | Description                  |
+| -------------- | ---------------------------- |
+| `popular`      | Most Popular (by view count) |
+| `highestRated` | Highest Rated (avg rating)   |
+| `newest`       | Newest (by creation date)    |
+| `oldest`       | Oldest (by creation date)    |
 
 #### Components
 
@@ -615,16 +617,17 @@ Create and publish new recipe. Can publish immediately or save as draft.
 #### Recipe Form Validation
 
 **Required Fields:**
-| Field | Validation |
-|-------|------------|
-| Title | Required, generates unique slug |
-| Cover Image | Required, image file (JPG/PNG/WebP), max 5MB |
-| Category | Required |
-| Difficulty | Required (EASY, MEDIUM, HARD) |
-| Preparation Time | Required, > 0 minutes |
-| Servings | Required, > 0 |
-| Ingredients | At least 1 required (name, quantity, unit) |
-| Steps | At least 1 required (max 1000 chars per step) |
+
+| Field            | Validation                                    |
+| ---------------- | --------------------------------------------- |
+| Title            | Required, generates unique slug               |
+| Cover Image      | Required, image file (JPG/PNG/WebP), max 5MB  |
+| Category         | Required                                      |
+| Difficulty       | Required (EASY, MEDIUM, HARD)                 |
+| Preparation Time | Required, > 0 minutes                         |
+| Servings         | Required, > 0                                 |
+| Ingredients      | At least 1 required (name, quantity, unit)    |
+| Steps            | At least 1 required (max 1000 chars per step) |
 
 **Optional Fields:**
 
@@ -765,12 +768,12 @@ Filter and sort values are persisted in the URL (same pattern as `/recipes`). Ca
 
 **Available Sorting** (`sort` values):
 
-| Value          | Description                  |
-| -------------- | ---------------------------- |
-| `popular`      | Most Viewed (view count)     |
-| `highestRated` | Highest Rated (avg rating)   |
-| `newest`       | Newest (creation date)       |
-| `oldest`       | Oldest (creation date)       |
+| Value          | Description                |
+| -------------- | -------------------------- |
+| `popular`      | Most Viewed (view count)   |
+| `highestRated` | Highest Rated (avg rating) |
+| `newest`       | Newest (creation date)     |
+| `oldest`       | Oldest (creation date)     |
 
 #### Components
 
@@ -882,15 +885,15 @@ Current user's profile page with inline editing and account settings. Shows pers
 
 #### Profile Sections
 
-| Section      | Content                                              |
-| ------------ | ---------------------------------------------------- |
-| Header       | Avatar, username, full name, title                   |
-| Statistics   | Recipe count, followers, followings, rating          |
-| Bio          | User biography                                       |
-| Social Links | Instagram, Telegram, X (Twitter)                     |
-| Actions      | Edit Profile (inline), Change Password, Logout       |
-| Privacy      | Bio visibility, social links visibility              |
-| Recipes      | Own recipes grid (published + drafts; edit/delete)   |
+| Section      | Content                                            |
+| ------------ | -------------------------------------------------- |
+| Header       | Avatar, username, full name, title                 |
+| Statistics   | Recipe count, followers, followings, rating        |
+| Bio          | User biography                                     |
+| Social Links | Instagram, Telegram, X (Twitter)                   |
+| Actions      | Edit Profile (inline), Change Password, Logout     |
+| Privacy      | Bio visibility, social links visibility            |
+| Recipes      | Own recipes grid (published + drafts; edit/delete) |
 
 #### Components
 
@@ -955,14 +958,14 @@ Public profile page of another user. Authenticated users can follow/unfollow fro
 
 #### Profile Sections
 
-| Section      | Content                                    |
-| ------------ | ------------------------------------------ |
-| Header       | Avatar, username, full name, title         |
-| Statistics   | Recipe count, followers, followings, rating|
-| Bio          | User biography (if visible)                |
-| Social Links | Instagram, Telegram, X (if visible)        |
-| Actions      | Follow/Unfollow button (auth users only)   |
-| Recipes      | Published recipes grid                     |
+| Section      | Content                                     |
+| ------------ | ------------------------------------------- |
+| Header       | Avatar, username, full name, title          |
+| Statistics   | Recipe count, followers, followings, rating |
+| Bio          | User biography (if visible)                 |
+| Social Links | Instagram, Telegram, X (if visible)         |
+| Actions      | Follow/Unfollow button (auth users only)    |
+| Recipes      | Published recipes grid                      |
 
 #### Components
 
@@ -1301,13 +1304,13 @@ Generic 404 error page for non-existent routes or resources.
 
 Used on `/recipes` and `/categories/[slug]`. Values are stored in the URL so state is shareable and restored on navigation.
 
-| Parameter    | Type   | Multiple | Used In                        | Example Values                         |
-| ------------ | ------ | :------: | ------------------------------ | -------------------------------------- |
-| `category`   | String |   Yes    | `/recipes` only                | `desserts`, `main-course`              |
-| `ingredient` | String |   Yes    | `/recipes`, `/categories/[slug]` | `flour`, `chicken`                   |
-| `difficulty` | Enum   |   Yes    | `/recipes`, `/categories/[slug]` | `EASY`, `MEDIUM`, `HARD`             |
-| `prepTime`   | Number |    No    | `/recipes`, `/categories/[slug]` | `30`, `60`                           |
-| `cuisine`    | String |   Yes    | `/recipes`, `/categories/[slug]` | `iranian`, `italian`                 |
+| Parameter    | Type   | Multiple | Used In                          | Example Values                                |
+| ------------ | ------ | :------: | -------------------------------- | --------------------------------------------- |
+| `category`   | String |   Yes    | `/recipes` only                  | `desserts`, `main-course`                     |
+| `ingredient` | String |   Yes    | `/recipes`, `/categories/[slug]` | `flour`, `chicken`                            |
+| `difficulty` | Enum   |   Yes    | `/recipes`, `/categories/[slug]` | `EASY`, `MEDIUM`, `HARD`                      |
+| `prepTime`   | Number |    No    | `/recipes`, `/categories/[slug]` | `30`, `60`                                    |
+| `cuisine`    | String |   Yes    | `/recipes`, `/categories/[slug]` | `iranian`, `italian`                          |
 | `sort`       | Enum   |    No    | `/recipes`, `/categories/[slug]` | `popular`, `highestRated`, `newest`, `oldest` |
 
 #### Parameter Validation
@@ -1668,7 +1671,7 @@ export const recipeSchema = z.object({
         name: z.string().min(1),
         quantity: z.number().min(0),
         unit: z.string().min(1),
-      }),
+      })
     )
     .min(1),
   steps: z
@@ -1678,7 +1681,7 @@ export const recipeSchema = z.object({
         title: z.string().optional(),
         description: z.string().min(1).max(1000),
         image: z.string().url().optional(),
-      }),
+      })
     )
     .min(1),
   nutrition: z
@@ -1703,7 +1706,7 @@ export const registerSchema = z.object({
     .max(30)
     .regex(
       /^[a-z0-9_]+$/,
-      "Username must be lowercase letters, numbers, or underscores",
+      "Username must be lowercase letters, numbers, or underscores"
     ),
   email: z.string().email(),
   password: z.string().min(8),
@@ -1771,13 +1774,13 @@ export const profileSchema = z.object({
 
 #### Shared Data Components
 
-| Component          | Used In          | Purpose               |
-| ------------------ | ---------------- | --------------------- |
-| `RecipeCard`       | Multiple pages   | Recipe preview card   |
-| `CategoryCard`     | Home, Categories | Category preview card |
+| Component          | Used In               | Purpose               |
+| ------------------ | --------------------- | --------------------- |
+| `RecipeCard`       | Multiple pages        | Recipe preview card   |
+| `CategoryCard`     | Home, Categories      | Category preview card |
 | `UserCard`         | Followings, Community | User preview card     |
-| `CommentCard`      | Recipe detail    | Comment display       |
-| `NotificationItem` | Notifications    | Single notification   |
+| `CommentCard`      | Recipe detail         | Comment display       |
+| `NotificationItem` | Notifications         | Single notification   |
 
 #### Shared UI Components
 
@@ -1828,17 +1831,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 #### Static Metadata by Route
 
-| Route         | Title Pattern                        | Description Pattern |
+| Route | Title Pattern | Description Pattern |
 | ------------- | ------------------------------------ | ------------------- | -------------------- |
-| Home          | `Loghmeh - Discover & Share Recipes` | Main app tagline    |
-| All Recipes   | `Recipes                             | Loghmeh`            | Browse all recipes   |
-| Recipe Detail | `{title}                             | Loghmeh`            | Recipe description   |
-| Category      | `{name} Recipes                      | Loghmeh`            | Category description |
-| Search        | `Search Results for "{query}"        | Loghmeh`            | Search query         |
-| Profile       | `{username}                          | Loghmeh`            | User bio             |
-| Community     | `Community                           | Loghmeh`            | Browse all users     |
-| Login         | `Sign In                             | Loghmeh`            | Authentication page  |
-| Register      | `Create Account                      | Loghmeh`            | Registration page    |
+| Home | `Loghmeh - Discover & Share Recipes` | Main app tagline |
+| All Recipes | `Recipes                             | Loghmeh` | Browse all recipes |
+| Recipe Detail | `{title}                             | Loghmeh` | Recipe description |
+| Category | `{name} Recipes                      | Loghmeh` | Category description |
+| Search | `Search Results for "{query}"        | Loghmeh` | Search query |
+| Profile | `{username}                          | Loghmeh` | User bio |
+| Community | `Community                           | Loghmeh` | Browse all users |
+| Login | `Sign In                             | Loghmeh` | Authentication page |
+| Register | `Create Account                      | Loghmeh` | Registration page |
 
 ---
 
@@ -1858,16 +1861,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 #### Pagination & Loading
 
-| Route               | Pagination      | Initial Load | Load More  |
-| ------------------- | --------------- | ------------ | ---------- |
-| All Recipes         | Infinite scroll | 12 items     | 12 items   |
-| Category Detail     | Infinite scroll | 12 items     | 12 items   |
-| Search Results      | Infinite scroll | 12 items     | 12 items   |
-| Profile Recipes     | Pagination      | 12 items     | Page-based |
-| Community           | Pagination      | 24 items     | Page-based |
-| Bookmarks           | Infinite scroll | 12 items     | 12 items   |
-| Notifications       | Infinite scroll | 20 items     | 20 items   |
-| Followers/Followings| Pagination      | 24 items     | Page-based |
+| Route                | Pagination      | Initial Load | Load More  |
+| -------------------- | --------------- | ------------ | ---------- |
+| All Recipes          | Infinite scroll | 12 items     | 12 items   |
+| Category Detail      | Infinite scroll | 12 items     | 12 items   |
+| Search Results       | Infinite scroll | 12 items     | 12 items   |
+| Profile Recipes      | Pagination      | 12 items     | Page-based |
+| Community            | Pagination      | 24 items     | Page-based |
+| Bookmarks            | Infinite scroll | 12 items     | 12 items   |
+| Notifications        | Infinite scroll | 20 items     | 20 items   |
+| Followers/Followings | Pagination      | 24 items     | Page-based |
 
 ---
 
@@ -1909,19 +1912,19 @@ This improved documentation consolidates and reorganizes the original routes.md 
 
 ### B. Feature-to-Route Mapping
 
-| Feature            | Primary Routes                                                                                                          | Count |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------- | :---: |
-| Authentication     | `/login`, `/register`, `/verify-email`, `/forgot-password`, `/verify-reset-code`, `/reset-password`, `/change-password` |   7   |
-| Recipe Discovery   | `/`, `/recipes`, `/recipes/[slug]`                                                                                      |   3   |
-| Recipe Management  | `/recipes/new`, `/recipes/[slug]/edit` (own recipes managed on `/profile`)                                              |   2   |
-| Categories         | `/categories`, `/categories/[slug]`                                                                                     |   2   |
-| Search             | `/search?q=...`                                                                                                         |   1   |
-| User Profile       | `/profile`, `/profile/[username]`                                                                                       |   2   |
-| Social Features    | `/profile/[username]/followers`, `/profile/[username]/followings`                                                       |   2   |
-| Community          | `/community`                                                                                                            |   1   |
-| User Actions       | `/bookmarks`, `/notifications`                                                                                          |   2   |
-| Support            | `/support`                                                                                                              |   1   |
-| Error Handling     | 404 Not Found                                                                                                           |   1   |
+| Feature           | Primary Routes                                                                                                          | Count |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------- | :---: |
+| Authentication    | `/login`, `/register`, `/verify-email`, `/forgot-password`, `/verify-reset-code`, `/reset-password`, `/change-password` |   7   |
+| Recipe Discovery  | `/`, `/recipes`, `/recipes/[slug]`                                                                                      |   3   |
+| Recipe Management | `/recipes/new`, `/recipes/[slug]/edit` (own recipes managed on `/profile`)                                              |   2   |
+| Categories        | `/categories`, `/categories/[slug]`                                                                                     |   2   |
+| Search            | `/search?q=...`                                                                                                         |   1   |
+| User Profile      | `/profile`, `/profile/[username]`                                                                                       |   2   |
+| Social Features   | `/profile/[username]/followers`, `/profile/[username]/followings`                                                       |   2   |
+| Community         | `/community`                                                                                                            |   1   |
+| User Actions      | `/bookmarks`, `/notifications`                                                                                          |   2   |
+| Support           | `/support`                                                                                                              |   1   |
+| Error Handling    | 404 Not Found                                                                                                           |   1   |
 
 ### C. Route State Transitions
 
@@ -1970,7 +1973,7 @@ Following → [Unfollow] → Not Following
 The following desktop page screenshots correspond to routes:
 
 | Screenshot File                        | Route                                                       | Notes                         |
-| ----------------------------------------| -------------------------------------------------------------| -------------------------------|
+| -------------------------------------- | ----------------------------------------------------------- | ----------------------------- |
 | `desktop-home.png`                     | `/`                                                         | Home feed layout              |
 | `desktop-signin.png`                   | `/login`                                                    | Login page                    |
 | `desktop-signup.png`                   | `/register`                                                 | Registration page             |

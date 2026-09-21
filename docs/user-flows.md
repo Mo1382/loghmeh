@@ -4,6 +4,8 @@ This document describes all user flows for the Loghmeh application.
 
 User flows define the sequences of actions users perform to achieve specific goals.
 
+> **Current implementation status (2026-09-20):** These are target flows. The current repository has no feature pages, Server Actions, API handlers, or middleware; only the root App Router page is implemented. The service methods referenced by a flow are not currently reachable through a UI route.
+
 ---
 
 ## Document Structure

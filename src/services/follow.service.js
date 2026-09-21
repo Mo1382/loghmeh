@@ -50,9 +50,9 @@ const FOLLOW_LIST_TYPES = {
 function assertAuthenticated(currentUser) {
   if (!currentUser) {
     throw new AppError(
-      "Authentication is required.",
       ERROR_CODES.UNAUTHORIZED,
-      401
+      "ورود به حساب کاربری الزامی است.",
+      { statusCode: 401 }
     );
   }
 }
@@ -63,9 +63,9 @@ function assertAuthenticated(currentUser) {
 function assertValidObjectId(id, fieldName = "ID") {
   if (!mongoose.isValidObjectId(id)) {
     throw new AppError(
-      `Invalid ${fieldName}.`,
       ERROR_CODES.INVALID_REQUEST,
-      400
+      `شناسه ${fieldName} نامعتبر است.`,
+      { statusCode: 400 }
     );
   }
 }
@@ -76,9 +76,9 @@ function assertValidObjectId(id, fieldName = "ID") {
  * Soft-deleted, suspended, and deactivated accounts
  * are not considered active.
  */
-function assertActiveUser(user, message = "User account is not active.") {
+function assertActiveUser(user, message = "حساب کاربری فعال نیست.") {
   if (!user || user.accountStatus !== "ACTIVE" || user.deletedAt) {
-    throw new AppError(message, ERROR_CODES.FORBIDDEN, 403);
+    throw new AppError(ERROR_CODES.FORBIDDEN, message, { statusCode: 403 });
   }
 }
 
@@ -88,9 +88,9 @@ function assertActiveUser(user, message = "User account is not active.") {
 function assertNotSelfFollow(currentUser, targetUserId) {
   if (currentUser._id?.toString() === targetUserId.toString()) {
     throw new AppError(
-      "You cannot follow yourself.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "شما نمی‌توانید خودتان را دنبال کنید.",
+      { statusCode: 400 }
     );
   }
 }
@@ -121,7 +121,7 @@ function getCursorSecret() {
   const secret = process.env.CURSOR_SECRET;
 
   if (!secret) {
-    throw new Error("CURSOR_SECRET is not configured.");
+    throw new Error("متغیر CURSOR_SECRET تنظیم نشده است.");
   }
 
   return secret;
@@ -167,7 +167,11 @@ function decodeCursor(cursor, expectedUserId, expectedListType) {
   const parts = cursor.split(".");
 
   if (parts.length !== 2) {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   const [payloadBase64, signatureBase64] = parts;
@@ -183,14 +187,22 @@ function decodeCursor(cursor, expectedUserId, expectedListType) {
 
     providedSignature = Buffer.from(signatureBase64, "base64url");
   } catch {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   if (
     providedSignature.length !== expectedSignature.length ||
     !crypto.timingSafeEqual(providedSignature, expectedSignature)
   ) {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   let payload;
@@ -200,7 +212,11 @@ function decodeCursor(cursor, expectedUserId, expectedListType) {
 
     payload = JSON.parse(json);
   } catch {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   if (
@@ -211,7 +227,11 @@ function decodeCursor(cursor, expectedUserId, expectedListType) {
     !payload.createdAt ||
     !payload.id
   ) {
-    throw new AppError("Invalid cursor.", ERROR_CODES.INVALID_REQUEST, 400);
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   assertValidObjectId(payload.userId, "cursor user ID");
@@ -220,17 +240,17 @@ function decodeCursor(cursor, expectedUserId, expectedListType) {
 
   if (payload.userId.toString() !== expectedUserId.toString()) {
     throw new AppError(
-      "Cursor does not belong to this user.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "نشانگر صفحه‌بندی متعلق به این کاربر نیست.",
+      { statusCode: 400 }
     );
   }
 
   if (payload.listType !== expectedListType) {
     throw new AppError(
-      "Cursor does not match the selected list.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "نشانگر صفحه‌بندی با فهرست انتخاب‌شده مطابقت ندارد.",
+      { statusCode: 400 }
     );
   }
 
@@ -238,9 +258,9 @@ function decodeCursor(cursor, expectedUserId, expectedListType) {
 
   if (Number.isNaN(createdAt.getTime())) {
     throw new AppError(
-      "Invalid cursor date.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
     );
   }
 
@@ -337,26 +357,26 @@ export async function createFollow(currentUser, targetUserId) {
     const currentUser = await findUserById(currentUser._id);
 
     if (!currentUser) {
-      throw new AppError("User not found.", ERROR_CODES.USER_NOT_FOUND, 404);
+      throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     const targetUser = await findUserById(targetUserId);
 
     if (!targetUser) {
-      throw new AppError(
-        "Target user not found.",
-        ERROR_CODES.USER_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر هدف پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**
      * Only active accounts can participate
      * in a new Follow relationship.
      */
-    assertActiveUser(currentUserDocument, "Your account is not active.");
+    assertActiveUser(currentUserDocument, "حساب کاربری شما فعال نیست.");
 
-    assertActiveUser(targetUser, "The target user account is not active.");
+    assertActiveUser(targetUser, "حساب کاربری هدف فعال نیست.");
 
     /**
      * Check whether the relationship already exists.
@@ -369,9 +389,9 @@ export async function createFollow(currentUser, targetUserId) {
 
     if (existingFollow) {
       throw new AppError(
-        "You are already following this user.",
         ERROR_CODES.FOLLOW_ALREADY_EXISTS,
-        409
+        "شما در حال حاضر این کاربر را دنبال می‌کنید.",
+        { statusCode: 409 }
       );
     }
 
@@ -392,9 +412,9 @@ export async function createFollow(currentUser, targetUserId) {
        */
       if (error?.code === 11000) {
         throw new AppError(
-          "You are already following this user.",
           ERROR_CODES.FOLLOW_ALREADY_EXISTS,
-          409
+          "شما در حال حاضر این کاربر را دنبال می‌کنید.",
+          { statusCode: 409 }
         );
       }
 
@@ -441,9 +461,9 @@ export async function deleteFollow(currentUser, targetUserId) {
 
     if (!existingFollow) {
       throw new AppError(
-        "Follow relationship not found.",
         ERROR_CODES.FOLLOW_NOT_FOUND,
-        404
+        "رابطه دنبال‌کردن پیدا نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -455,9 +475,9 @@ export async function deleteFollow(currentUser, targetUserId) {
 
     if (!deletedFollow) {
       throw new AppError(
-        "Follow relationship could not be deleted.",
         ERROR_CODES.FOLLOW_NOT_FOUND,
-        404
+        "رابطه دنبال‌کردن حذف نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -495,11 +515,9 @@ export async function isFollowing(currentUser, targetUserId) {
   const targetUser = await findUserById(targetUserId);
 
   if (!targetUser) {
-    throw new AppError(
-      "Target user not found.",
-      ERROR_CODES.USER_NOT_FOUND,
-      404
-    );
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر هدف پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   const follow = await findFollowByFollowerAndFollowing(
@@ -520,29 +538,28 @@ export async function isFollowing(currentUser, targetUserId) {
  * Get the number of users a specific user follows
  * and the number of their followers.
  */
+
 export async function getFollowCounts(userId) {
   assertValidObjectId(userId, "user ID");
 
-  /**
-   * Make sure the user exists and is not soft-deleted.
-   */
   const user = await findUserById(userId);
 
   if (!user) {
-    throw new AppError("User not found.", ERROR_CODES.USER_NOT_FOUND, 404);
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+      statusCode: 404,
+    });
   }
 
-  const [followingCount, followerCount] = await Promise.all([
+  const [following, followers] = await Promise.all([
     countFollowingByUser(userId),
     countFollowersByUser(userId),
   ]);
 
   return {
-    followingCount,
-    followerCount,
+    followers,
+    following,
   };
 }
-
 /**
  * --------------------------------------------------------------------------
  * Following list
@@ -569,7 +586,9 @@ export async function getFollowing({
   const user = await findUserById(userId);
 
   if (!user) {
-    throw new AppError("User not found.", ERROR_CODES.USER_NOT_FOUND, 404);
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   const normalizedLimit = normalizeLimit(limit);
@@ -637,7 +656,9 @@ export async function getFollowers({
   const user = await findUserById(userId);
 
   if (!user) {
-    throw new AppError("User not found.", ERROR_CODES.USER_NOT_FOUND, 404);
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   const normalizedLimit = normalizeLimit(limit);

@@ -65,17 +65,25 @@ function encodeCursor(cursor) {
  */
 function decodeCursor(cursor) {
   if (typeof cursor !== "string" || !cursor) {
-    throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid cursor.", {
-      statusCode: 400,
-    });
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   const [encodedPayload, signature] = cursor.split(".");
 
   if (!encodedPayload || !signature) {
-    throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid cursor.", {
-      statusCode: 400,
-    });
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   const expectedSignature = crypto
@@ -91,9 +99,13 @@ function decodeCursor(cursor) {
     signatureBuffer.length !== expectedSignatureBuffer.length ||
     !crypto.timingSafeEqual(signatureBuffer, expectedSignatureBuffer)
   ) {
-    throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid cursor.", {
-      statusCode: 400,
-    });
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   let parsedCursor;
@@ -103,9 +115,13 @@ function decodeCursor(cursor) {
       Buffer.from(encodedPayload, "base64url").toString("utf8")
     );
   } catch {
-    throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid cursor.", {
-      statusCode: 400,
-    });
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   return parsedCursor;
@@ -121,7 +137,7 @@ function getCursorSecret() {
   const secret = process.env.AUTH_SECRET;
 
   if (!secret) {
-    throw new Error("AUTH_SECRET is not configured.");
+    throw new Error("متغیر AUTH_SECRET تنظیم نشده است.");
   }
 
   return secret;
@@ -145,9 +161,13 @@ function validateCursor(cursor, sort) {
     !cursor.id ||
     !/^[a-fA-F0-9]{24}$/.test(cursor.id)
   ) {
-    throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid cursor.", {
-      statusCode: 400,
-    });
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   switch (sort) {
@@ -156,9 +176,13 @@ function validateCursor(cursor, sort) {
       const date = new Date(cursor.value);
 
       if (Number.isNaN(date.getTime())) {
-        throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid cursor.", {
-          statusCode: 400,
-        });
+        throw new AppError(
+          ERROR_CODES.INVALID_REQUEST,
+          "نشانگر صفحه‌بندی نامعتبر است.",
+          {
+            statusCode: 400,
+          }
+        );
       }
 
       return {
@@ -172,9 +196,13 @@ function validateCursor(cursor, sort) {
     case USER_SORTS.HIGHEST_RATED:
     case USER_SORTS.MOST_VIEWED: {
       if (typeof cursor.value !== "number" || !Number.isFinite(cursor.value)) {
-        throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid cursor.", {
-          statusCode: 400,
-        });
+        throw new AppError(
+          ERROR_CODES.INVALID_REQUEST,
+          "نشانگر صفحه‌بندی نامعتبر است.",
+          {
+            statusCode: 400,
+          }
+        );
       }
 
       return {
@@ -186,9 +214,13 @@ function validateCursor(cursor, sort) {
     }
 
     default:
-      throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid user sort.", {
-        statusCode: 400,
-      });
+      throw new AppError(
+        ERROR_CODES.INVALID_REQUEST,
+        "مرتب‌سازی کاربران نامعتبر است.",
+        {
+          statusCode: 400,
+        }
+      );
   }
 }
 
@@ -213,9 +245,13 @@ function createNextCursor(user, sort) {
       break;
 
     default:
-      throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid user sort.", {
-        statusCode: 400,
-      });
+      throw new AppError(
+        ERROR_CODES.INVALID_REQUEST,
+        "مرتب‌سازی کاربران نامعتبر است.",
+        {
+          statusCode: 400,
+        }
+      );
   }
 
   return encodeCursor({
@@ -300,7 +336,7 @@ function assertSelfAccess(currentUserId, targetUserId) {
   if (currentUserId.toString() !== targetUserId.toString()) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
-      "You are not allowed to modify this user.",
+      "شما اجازه ویرایش این کاربر را ندارید.",
       { statusCode: 403 }
     );
   }
@@ -313,16 +349,14 @@ function assertAdmin(currentUser) {
   if (!currentUser) {
     throw new AppError(
       ERROR_CODES.UNAUTHORIZED,
-      "Authentication is required.",
+      "ورود به حساب کاربری الزامی است.",
       { statusCode: 401 }
     );
   }
   if (currentUser.role !== "ADMIN") {
-    throw new AppError(
-      ERROR_CODES.FORBIDDEN,
-      "Administrator privileges are required.",
-      { statusCode: 403 }
-    );
+    throw new AppError(ERROR_CODES.FORBIDDEN, "دسترسی مدیر سیستم الزامی است.", {
+      statusCode: 403,
+    });
   }
 }
 
@@ -333,7 +367,7 @@ export async function getUserById(userId) {
   const user = await findUserById(userId);
 
   if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -348,7 +382,7 @@ export async function getUserByUsername(username) {
   const user = await findUserByUsername(username);
 
   if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -372,9 +406,13 @@ export async function getUsers({
   limit = 16,
 }) {
   if (!Object.values(USER_SORTS).includes(sort)) {
-    throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid user sort.", {
-      statusCode: 400,
-    });
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "مرتب‌سازی کاربران نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   let decodedCursor = null;
@@ -423,7 +461,7 @@ export async function updateUserProfile(currentUserId, targetUserId, updates) {
   const user = await findUserById(targetUserId);
 
   if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -431,7 +469,7 @@ export async function updateUserProfile(currentUserId, targetUserId, updates) {
   const updatedUser = await updateUserById(targetUserId, updates);
 
   if (!updatedUser) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -452,9 +490,13 @@ export async function changeAccountStatus(
   assertAdmin(currentUser);
 
   if (!["ACTIVE", "SUSPENDED", "DEACTIVATED"].includes(accountStatus)) {
-    throw new AppError(ERROR_CODES.INVALID_REQUEST, "Invalid account status.", {
-      statusCode: 400,
-    });
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "وضعیت حساب کاربری نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
   }
 
   if (
@@ -463,7 +505,7 @@ export async function changeAccountStatus(
   ) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
-      "You cannot change your own account status.",
+      "شما نمی‌توانید وضعیت حساب خودتان را تغییر دهید.",
       { statusCode: 403 }
     );
   }
@@ -471,7 +513,7 @@ export async function changeAccountStatus(
   const user = await findUserById(targetUserId);
 
   if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -479,7 +521,7 @@ export async function changeAccountStatus(
   const updatedUser = await updateAccountStatus(targetUserId, accountStatus);
 
   if (!updatedUser) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -498,7 +540,7 @@ export async function deleteUser(currentUser, targetUserId) {
   if (currentUser._id.toString() === targetUserId.toString()) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
-      "You cannot delete your own account using this operation.",
+      "شما نمی‌توانید با این عملیات حساب خودتان را حذف کنید.",
       { statusCode: 403 }
     );
   }
@@ -506,7 +548,7 @@ export async function deleteUser(currentUser, targetUserId) {
   const user = await findUserById(targetUserId);
 
   if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -514,7 +556,7 @@ export async function deleteUser(currentUser, targetUserId) {
   const deletedUser = await softDeleteUser(targetUserId);
 
   if (!deletedUser) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -537,7 +579,7 @@ export async function restoreDeletedUser(currentUser, targetUserId) {
   if (!restoredUser) {
     throw new AppError(
       ERROR_CODES.USER_NOT_DELETED,
-      "User is not soft-deleted.",
+      "کاربر به‌صورت نرم حذف نشده است.",
       { statusCode: 400 }
     );
   }

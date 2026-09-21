@@ -1,4 +1,4 @@
-import Rating from "@/db/models/Rating";
+import Rating from "@/models/Rating";
 
 /**
  * Apply MongoDB session only when provided.

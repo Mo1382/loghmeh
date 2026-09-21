@@ -2,6 +2,8 @@
 
 This document describes all functional features of the Loghmeh application.
 
+> **Current implementation status (2026-09-20):** The feature descriptions below are the product target. The current repository has domain services, repositories, models, and validation schemas, but no feature pages, Server Actions, API handlers, or middleware. Unless a section explicitly says otherwise, its UI flow is planned rather than currently available.
+
 Each feature includes its purpose, capabilities, dependencies, business rules, and implementation requirements.
 
 ---
@@ -46,7 +48,7 @@ Each feature includes its purpose, capabilities, dependencies, business rules, a
 
 The Authentication feature allows users to securely create an account, verify their email address, sign in, sign out, and manage their password.
 
-Email verification is required during registration and password reset using a one-time verification code (OTP) sent to the user's email address.
+Email verification is part of the registration and password-reset service design. The current route/UI boundary is not implemented, and `loginUser` does not currently enforce email verification before sign-in.
 
 ### Purpose
 
@@ -153,13 +155,13 @@ Provide a secure authentication system while ensuring that every registered acco
 
 #### VerificationCode
 
-| Field     | Type   | Required | Description                                         |
-| --------- | ------ | -------- | --------------------------------------------------- |
-| email     | String | Yes      | Associated email                                    |
-| code      | String | Yes      | 6-digit verification code                           |
-| purpose   | Enum   | Yes      | EMAIL_VERIFICATION, PASSWORD_RESET, PASSWORD_CHANGE |
-| expiresAt | Date   | Yes      | Code expiration date                                |
-| createdAt | Date   | Yes      | Code creation date                                  |
+| Field     | Type   | Required | Description                        |
+| --------- | ------ | -------- | ---------------------------------- |
+| email     | String | Yes      | Associated email                   |
+| codeHash  | String | Yes      | Hashed verification code           |
+| purpose   | Enum   | Yes      | EMAIL_VERIFICATION, PASSWORD_RESET |
+| expiresAt | Date   | Yes      | Code expiration date               |
+| createdAt | Date   | Yes      | Code creation date                 |
 
 ### Server Actions
 
@@ -258,7 +260,7 @@ Provide a secure authentication system while ensuring that every registered acco
 
 ### Overview
 
-Recipes are the core feature of Loghmeh. Users can create, publish, discover, search, filter, sort, rate, comment, bookmark, and manage cooking recipes through an intuitive and responsive interface.
+Recipes are the core feature of Loghmeh. The current domain layer supports creating, reading, updating, soft-deleting, filtering, sorting, rating, commenting, and bookmarking recipes. Draft/publish workflow and the feature UI are planned, not implemented.
 
 Guests can browse public recipes, while authenticated users can fully interact with the recipe ecosystem.
 
@@ -291,7 +293,7 @@ Provide a modern and enjoyable recipe-sharing experience where users can easily 
 ##### Recipe Management
 
 - Create recipe
-- Publish recipe
+- Publish recipe (planned; no status field exists in the current model)
 - Edit own recipe
 - Delete own recipe
 
@@ -329,23 +331,23 @@ Provide a modern and enjoyable recipe-sharing experience where users can easily 
 
 Each recipe contains:
 
-| Field           | Type     | Required | Description             |
-| --------------- | -------- | -------- | ----------------------- |
-| title           | String   | Yes      | Recipe title            |
-| slug            | String   | Yes      | URL-friendly identifier |
-| description     | String   | No       | Recipe description      |
-| coverImage      | String   | Yes      | Cover image URL         |
-| category        | ObjectId | Yes      | Recipe category         |
-| cuisine         | String   | No       | Cuisine type            |
-| difficulty      | Enum     | Yes      | EASY, MEDIUM, HARD      |
-| preparationTime | Number   | Yes      | Time in minutes         |
-| servings        | Number   | Yes      | Number of servings      |
-| ingredients     | Array    | Yes      | List of ingredients     |
-| steps           | Array    | Yes      | Preparation steps       |
-| author          | ObjectId | Yes      | Recipe creator          |
-| status          | Enum     | Yes      | DRAFT, PUBLISHED        |
-| createdAt       | Date     | Yes      | Creation date           |
-| updatedAt       | Date     | Yes      | Last update date        |
+| Field           | Type     | Required | Description                                            |
+| --------------- | -------- | -------- | ------------------------------------------------------ |
+| title           | String   | Yes      | Recipe title                                           |
+| slug            | String   | Yes      | URL-friendly identifier                                |
+| description     | String   | No       | Recipe description                                     |
+| image           | String   | No       | Optional recipe image                                  |
+| category        | ObjectId | Yes      | Recipe category                                        |
+| cuisine         | String   | No       | Cuisine type                                           |
+| difficulty      | Enum     | Yes      | آسان, متوسط, سخت                                       |
+| preparationTime | Number   | Yes      | Time in minutes                                        |
+| defaultServings | Number   | Yes      | Default serving count                                  |
+| ingredients     | Array    | Yes      | List of ingredients                                    |
+| steps           | Array    | Yes      | Preparation steps                                      |
+| author          | ObjectId | Yes      | Recipe creator                                         |
+| status          | Enum     | No       | Not present in current model; draft/publish is planned |
+| createdAt       | Date     | Yes      | Creation date                                          |
+| updatedAt       | Date     | Yes      | Last update date                                       |
 
 #### Recipe Statistics
 
@@ -367,7 +369,7 @@ Each recipe stores:
 | ---------------- | ------------------ | ------------------ |
 | Category         | Recipe category    | Yes                |
 | Main Ingredient  | Primary ingredient | Yes                |
-| Difficulty       | EASY, MEDIUM, HARD | Yes                |
+| Difficulty       | آسان, متوسط, سخت   | Yes                |
 | Preparation Time | Cooking duration   | Yes                |
 | Cuisine          | Origin type        | Yes                |
 
@@ -436,27 +438,27 @@ Users can search recipes by:
 
 ### Server Actions
 
-| Action                | Description            |
-| --------------------- | ---------------------- |
-| `createRecipe()`      | Create new recipe      |
-| `updateRecipe()`      | Update existing recipe |
-| `deleteRecipe()`      | Soft delete recipe     |
-| `publishRecipe()`     | Publish draft recipe   |
-| `saveDraft()`         | Save as draft          |
-| `getRecipe()`         | Get single recipe      |
-| `getRecipes()`        | Get all recipes        |
-| `getUserRecipes()`    | Get user's recipes     |
-| `searchRecipes()`     | Search recipes         |
-| `filterRecipes()`     | Filter recipes         |
-| `sortRecipes()`       | Sort recipes           |
-| `uploadRecipeImage()` | Upload cover image     |
-| `deleteRecipeImage()` | Remove cover image     |
-| `rateRecipe()`        | Submit rating          |
-| `bookmarkRecipe()`    | Add bookmark           |
-| `removeBookmark()`    | Remove bookmark        |
-| `addComment()`        | Add comment            |
-| `deleteComment()`     | Delete comment         |
-| `getRecipeComments()` | Get recipe comments    |
+| Action                | Description                   |
+| --------------------- | ----------------------------- |
+| `createRecipe()`      | Create new recipe             |
+| `updateRecipe()`      | Update existing recipe        |
+| `deleteRecipe()`      | Soft delete recipe            |
+| `publishRecipe()`     | Planned: publish draft recipe |
+| `saveDraft()`         | Planned: save draft           |
+| `getRecipe()`         | Get single recipe             |
+| `getRecipes()`        | Get all recipes               |
+| `getUserRecipes()`    | Get user's recipes            |
+| `searchRecipes()`     | Search recipes                |
+| `filterRecipes()`     | Filter recipes                |
+| `sortRecipes()`       | Sort recipes                  |
+| `uploadRecipeImage()` | Upload cover image            |
+| `deleteRecipeImage()` | Remove cover image            |
+| `rateRecipe()`        | Submit rating                 |
+| `bookmarkRecipe()`    | Add bookmark                  |
+| `removeBookmark()`    | Remove bookmark               |
+| `addComment()`        | Add comment                   |
+| `deleteComment()`     | Delete comment                |
+| `getRecipeComments()` | Get recipe comments           |
 
 ### Validation Rules
 
@@ -504,8 +506,7 @@ Each ingredient must contain:
 - Every recipe must contain at least one ingredient
 - Every recipe must contain at least one preparation step
 - Every published recipe must have a unique slug
-- Cover image is required
-- Images must be valid image files
+- `image` is optional in the current Recipe model; required cover-image validation/upload is planned
 
 #### User Interactions
 
@@ -525,8 +526,7 @@ Each ingredient must contain:
 - Recipe ratings are automatically recalculated after each new or updated rating
 - Users can apply multiple filters simultaneously
 - Only one sorting option can be active at a time
-- Search results include only published recipes
-- Recipes are visible on the author's public profile only after publication
+- Search and profile publication filtering are planned; the current model has no draft/publish status
 
 ### Dependencies
 
@@ -588,21 +588,20 @@ Provide a structured and intuitive way for users to explore recipes based on the
 
 ### Category Information
 
-| Field         | Type   | Required | Description             |
-| ------------- | ------ | -------- | ----------------------- |
-| name          | String | Yes      | Category name           |
-| slug          | String | Yes      | URL-friendly identifier |
-| description   | String | No       | Category description    |
-| coverImage    | String | Yes      | Cover image URL         |
-| recipeCount   | Number | Auto     | Number of recipes       |
-| featuredOrder | Number | No       | Homepage display order  |
-| createdAt     | Date   | Yes      | Creation date           |
+| Field             | Type   | Required | Description             |
+| ----------------- | ------ | -------- | ----------------------- |
+| name              | String | Yes      | Category name           |
+| slug              | String | Yes      | URL-friendly identifier |
+| icon              | String | Yes      | Category icon           |
+| order             | Number | Yes      | Display order           |
+| stats.recipeCount | Number | Auto     | Number of recipes       |
+| createdAt         | Date   | Yes      | Creation date           |
 
 ### Homepage Integration
 
-The homepage displays featured categories based on the **Featured Order** field.
+The current Category model stores an **order** field. Homepage integration is planned because the homepage route is not implemented.
 
-Categories without a Featured Order are not displayed on the homepage.
+Featured-category filtering is planned and is not implemented in the current model/service boundary.
 
 ### Available Filters
 
@@ -611,7 +610,7 @@ Categories without a Featured Order are not displayed on the homepage.
 | Filter           | Description        |
 | ---------------- | ------------------ |
 | Main Ingredient  | Primary ingredient |
-| Difficulty       | EASY, MEDIUM, HARD |
+| Difficulty       | آسان, متوسط, سخت   |
 | Preparation Time | Cooking duration   |
 | Cuisine          | Origin type        |
 
@@ -1029,7 +1028,7 @@ Each social account is optional and publicly visible.
 
 #### Bio
 
-- Maximum 500 characters
+- Maximum 300 characters in the current User model and validation
 
 #### Avatar
 

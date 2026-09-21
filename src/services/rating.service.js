@@ -35,9 +35,9 @@ import { ERROR_CODES } from "@/constants/error-codes";
 function assertAuthenticated(currentUser) {
   if (!currentUser) {
     throw new AppError(
-      "Authentication is required.",
       ERROR_CODES.UNAUTHORIZED,
-      401
+      "ورود به حساب کاربری الزامی است.",
+      { statusCode: 401 }
     );
   }
 }
@@ -51,9 +51,9 @@ function assertAuthenticated(currentUser) {
 function assertValidRatingValue(value) {
   if (!Number.isInteger(value) || value < 1 || value > 5) {
     throw new AppError(
-      "Rating must be an integer between 1 and 5.",
       ERROR_CODES.INVALID_REQUEST,
-      400
+      "امتیاز باید یک عدد صحیح بین ۱ و ۵ باشد.",
+      { statusCode: 400 }
     );
   }
 }
@@ -64,9 +64,9 @@ function assertValidRatingValue(value) {
 function assertValidObjectId(id, fieldName = "ID") {
   if (!mongoose.isValidObjectId(id)) {
     throw new AppError(
-      `Invalid ${fieldName}.`,
       ERROR_CODES.INVALID_REQUEST,
-      400
+      `شناسه ${fieldName} نامعتبر است.`,
+      { statusCode: 400 }
     );
   }
 }
@@ -81,9 +81,9 @@ function assertNotRecipeOwner(currentUser, recipe) {
 
   if (isOwner) {
     throw new AppError(
-      "You cannot rate your own recipe.",
       ERROR_CODES.FORBIDDEN,
-      403
+      "شما نمی‌توانید به دستور پخت خودتان امتیاز بدهید.",
+      { statusCode: 403 }
     );
   }
 }
@@ -136,7 +136,9 @@ export async function getUserRating(currentUser, recipeId) {
   const recipe = await findRecipeById(recipeId);
 
   if (!recipe) {
-    throw new AppError("Recipe not found.", ERROR_CODES.RECIPE_NOT_FOUND, 404);
+    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+      statusCode: 404,
+    });
   }
 
   return findRatingByUserAndRecipe(currentUser._id, recipeId);
@@ -167,11 +169,9 @@ export async function createRating(currentUser, recipeId, value) {
     const recipe = await findRecipeById(recipeId, session);
 
     if (!recipe) {
-      throw new AppError(
-        "Recipe not found.",
-        ERROR_CODES.RECIPE_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**
@@ -193,9 +193,9 @@ export async function createRating(currentUser, recipeId, value) {
 
     if (existingRating) {
       throw new AppError(
-        "You have already rated this recipe.",
         ERROR_CODES.RATING_ALREADY_EXISTS,
-        409
+        "شما قبلاً به این دستور پخت امتیاز داده‌اید.",
+        { statusCode: 409 }
       );
     }
 
@@ -217,9 +217,9 @@ export async function createRating(currentUser, recipeId, value) {
        */
       if (error?.code === 11000) {
         throw new AppError(
-          "You have already rated this recipe.",
           ERROR_CODES.RATING_ALREADY_EXISTS,
-          409
+          "شما قبلاً به این دستور پخت امتیاز داده‌اید.",
+          { statusCode: 409 }
         );
       }
 
@@ -277,11 +277,9 @@ export async function updateRating(currentUser, recipeId, value) {
     const recipe = await findRecipeById(recipeId, session);
 
     if (!recipe) {
-      throw new AppError(
-        "Recipe not found.",
-        ERROR_CODES.RECIPE_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**
@@ -299,11 +297,9 @@ export async function updateRating(currentUser, recipeId, value) {
     );
 
     if (!existingRating) {
-      throw new AppError(
-        "Rating not found.",
-        ERROR_CODES.RATING_NOT_FOUND,
-        404
-      );
+      throw new AppError(ERROR_CODES.RATING_NOT_FOUND, "امتیاز پیدا نشد.", {
+        statusCode: 404,
+      });
     }
 
     /**
@@ -322,9 +318,9 @@ export async function updateRating(currentUser, recipeId, value) {
 
     if (!updatedRating) {
       throw new AppError(
-        "Rating could not be updated.",
         ERROR_CODES.RATING_NOT_FOUND,
-        404
+        "امتیاز به‌روزرسانی نشد.",
+        { statusCode: 404 }
       );
     }
 
@@ -364,7 +360,7 @@ export async function updateRating(currentUser, recipeId, value) {
 
 //     if (!recipe) {
 //       throw new AppError(
-//         "Recipe not found.",
+//         "دستور پخت پیدا نشد.",
 //         ERROR_CODES.RECIPE_NOT_FOUND,
 //         404
 //       );
@@ -381,7 +377,7 @@ export async function updateRating(currentUser, recipeId, value) {
 
 //     if (!existingRating) {
 //       throw new AppError(
-//         "Rating not found.",
+//         "امتیاز پیدا نشد.",
 //         ERROR_CODES.RATING_NOT_FOUND,
 //         404
 //       );
@@ -398,7 +394,7 @@ export async function updateRating(currentUser, recipeId, value) {
 
 //     if (!deletedRating) {
 //       throw new AppError(
-//         "Rating could not be deleted.",
+//         "امتیاز حذف نشد.",
 //         ERROR_CODES.RATING_NOT_FOUND,
 //         404
 //       );
