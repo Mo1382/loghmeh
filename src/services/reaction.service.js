@@ -1,5 +1,3 @@
-import mongoose from "mongoose";
-
 import {
   findReactionByUserAndComment,
   createReaction as createReactionRepository,
@@ -23,6 +21,9 @@ import {
 import { withTransaction } from "@/lib/transaction";
 import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
+import { assertAuthenticated } from "@/lib/auth/guards";
+import { assertValidObjectId } from "@/lib/validation/object-id";
+import { assertEnum } from "@/lib/validation/enum";
 
 /**
  * --------------------------------------------------------------------------
@@ -40,43 +41,6 @@ export const REACTION_TYPES = {
  * Authentication / Validation
  * --------------------------------------------------------------------------
  */
-
-/**
- * Ensure the current user is authenticated.
- */
-function assertAuthenticated(currentUser) {
-  if (!currentUser) {
-    throw new AppError(
-      ERROR_CODES.UNAUTHORIZED,
-      "ورود به حساب کاربری الزامی است.",
-      { statusCode: 401 }
-    );
-  }
-}
-
-/**
- * Ensure the provided ID is a valid MongoDB ObjectId.
- */
-function assertValidObjectId(id, fieldName = "ID") {
-  if (!mongoose.isValidObjectId(id)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      `شناسه ${fieldName} نامعتبر است.`,
-      { statusCode: 400 }
-    );
-  }
-}
-
-/**
- * Ensure the reaction type is supported.
- */
-function assertValidReactionType(type) {
-  if (!Object.values(REACTION_TYPES).includes(type)) {
-    throw new AppError(ERROR_CODES.INVALID_REQUEST, "نوع واکنش نامعتبر است.", {
-      statusCode: 400,
-    });
-  }
-}
 
 function getReactionNotificationType(type) {
   return type === REACTION_TYPES.LIKE
@@ -197,7 +161,11 @@ export async function createReaction(currentUser, commentId, type) {
 
   assertValidObjectId(commentId, "comment ID");
 
-  assertValidReactionType(type);
+  assertEnum(type, REACTION_TYPES, {
+    errorCode: ERROR_CODES.INVALID_REQUEST,
+    message: "نوع واکنش نامعتبر است.",
+    statusCode: 400,
+  });
 
   return withTransaction(async (session) => {
     await getActiveCommentContext(commentId, session);
@@ -299,7 +267,11 @@ export async function updateReaction(currentUser, commentId, type) {
 
   assertValidObjectId(commentId, "comment ID");
 
-  assertValidReactionType(type);
+  assertEnum(type, REACTION_TYPES, {
+    errorCode: ERROR_CODES.INVALID_REQUEST,
+    message: "نوع واکنش نامعتبر است.",
+    statusCode: 400,
+  });
 
   return withTransaction(async (session) => {
     await getActiveCommentContext(commentId, session);

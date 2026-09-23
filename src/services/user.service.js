@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 import {
   findUserById,
   findUserByUsername,
@@ -12,8 +10,12 @@ import {
 
 import { USER_SORTS } from "@/repositories/user.repository";
 
-import { AppError } from "@/lib/errors/AppError";
+import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
+import { assertAdmin } from "@/lib/auth/guards";
+import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
+
+const Account_Status = ["ACTIVE", "SUSPENDED", "DEACTIVATED"];
 
 /**
  * Cursor format version.
@@ -25,8 +27,6 @@ const CURSOR_VERSION = 1;
 /**
  * Cursor signing algorithm.
  */
-const CURSOR_HASH_ALGORITHM = "sha256";
-
 /**
  * Encode a cursor into an opaque signed string.
  *
@@ -40,109 +40,6 @@ const CURSOR_HASH_ALGORITHM = "sha256";
  *   id: String
  * }
  */
-function encodeCursor(cursor) {
-  const payload = JSON.stringify({
-    v: CURSOR_VERSION,
-    sort: cursor.sort,
-    value: cursor.value,
-    id: cursor.id,
-  });
-
-  const encodedPayload = Buffer.from(payload, "utf8").toString("base64url");
-
-  const signature = crypto
-    .createHmac(CURSOR_HASH_ALGORITHM, getCursorSecret())
-    .update(encodedPayload)
-    .digest("base64url");
-
-  return `${encodedPayload}.${signature}`;
-}
-
-/**
- * Decode and verify a signed cursor.
- *
- * The signature is checked before the payload is trusted.
- */
-function decodeCursor(cursor) {
-  if (typeof cursor !== "string" || !cursor) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-
-  const [encodedPayload, signature] = cursor.split(".");
-
-  if (!encodedPayload || !signature) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-
-  const expectedSignature = crypto
-    .createHmac(CURSOR_HASH_ALGORITHM, getCursorSecret())
-    .update(encodedPayload)
-    .digest("base64url");
-
-  const signatureBuffer = Buffer.from(signature, "utf8");
-
-  const expectedSignatureBuffer = Buffer.from(expectedSignature, "utf8");
-
-  if (
-    signatureBuffer.length !== expectedSignatureBuffer.length ||
-    !crypto.timingSafeEqual(signatureBuffer, expectedSignatureBuffer)
-  ) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-
-  let parsedCursor;
-
-  try {
-    parsedCursor = JSON.parse(
-      Buffer.from(encodedPayload, "base64url").toString("utf8")
-    );
-  } catch {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-
-  return parsedCursor;
-}
-
-/**
- * Get the secret used to sign cursors.
- *
- * AUTH_SECRET is reused because it is already a
- * server-side cryptographic secret required by Auth.js.
- */
-function getCursorSecret() {
-  const secret = process.env.AUTH_SECRET;
-
-  if (!secret) {
-    throw new Error("متغیر AUTH_SECRET تنظیم نشده است.");
-  }
-
-  return secret;
-}
-
 /**
  * Validate and normalize a decoded cursor.
  *
@@ -151,77 +48,86 @@ function getCursorSecret() {
  *
  * Numeric sorts remain numbers.
  */
-function validateCursor(cursor, sort) {
+function validateUserCursor(payload, sort) {
   if (
-    !cursor ||
-    typeof cursor !== "object" ||
-    cursor.v !== CURSOR_VERSION ||
-    cursor.sort !== sort ||
-    cursor.value == null ||
-    !cursor.id ||
-    !/^[a-fA-F0-9]{24}$/.test(cursor.id)
+    !payload ||
+    typeof payload !== "object" ||
+    payload.sort === undefined ||
+    payload.value === undefined ||
+    !payload.id
   ) {
     throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
+      ERROR_CODES.INVALID_CURSOR,
       "نشانگر صفحه‌بندی نامعتبر است.",
-      {
-        statusCode: 400,
-      }
+      { statusCode: 400 }
     );
   }
 
-  switch (sort) {
+  assertEnum(payload.sort, Object.values(USER_SORTS), {
+    errorCode: ERROR_CODES.INVALID_CURSOR,
+    message: "مرتب‌سازی نشانگر صفحه‌بندی نامعتبر است.",
+    statusCode: 400,
+  });
+
+  if (payload.sort !== sort) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی با مرتب‌سازی انتخاب‌شده مطابقت ندارد.",
+      { statusCode: 400 }
+    );
+  }
+
+  assertValidObjectId(payload.id, "cursor ID");
+
+  let value;
+
+  switch (payload.sort) {
     case USER_SORTS.NEWEST:
     case USER_SORTS.OLDEST: {
-      const date = new Date(cursor.value);
+      value = new Date(payload.value);
 
-      if (Number.isNaN(date.getTime())) {
+      if (Number.isNaN(value.getTime())) {
         throw new AppError(
-          ERROR_CODES.INVALID_REQUEST,
-          "نشانگر صفحه‌بندی نامعتبر است.",
-          {
-            statusCode: 400,
-          }
+          ERROR_CODES.INVALID_CURSOR,
+          "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+          { statusCode: 400 }
         );
       }
 
-      return {
-        v: CURSOR_VERSION,
-        sort,
-        value: date,
-        id: cursor.id,
-      };
+      break;
     }
 
-    case USER_SORTS.HIGHEST_RATED:
-    case USER_SORTS.MOST_VIEWED: {
-      if (typeof cursor.value !== "number" || !Number.isFinite(cursor.value)) {
+    case USER_SORTS.MOST_VIEWED:
+    case USER_SORTS.HIGHEST_RATED: {
+      if (
+        typeof payload.value !== "number" ||
+        !Number.isFinite(payload.value)
+      ) {
         throw new AppError(
-          ERROR_CODES.INVALID_REQUEST,
-          "نشانگر صفحه‌بندی نامعتبر است.",
-          {
-            statusCode: 400,
-          }
+          ERROR_CODES.INVALID_CURSOR,
+          "مقدار نشانگر صفحه‌بندی نامعتبر است.",
+          { statusCode: 400 }
         );
       }
 
-      return {
-        v: CURSOR_VERSION,
-        sort,
-        value: cursor.value,
-        id: cursor.id,
-      };
+      value = payload.value;
+
+      break;
     }
 
     default:
       throw new AppError(
-        ERROR_CODES.INVALID_REQUEST,
+        ERROR_CODES.INVALID_CURSOR,
         "مرتب‌سازی کاربران نامعتبر است.",
-        {
-          statusCode: 400,
-        }
+        { statusCode: 400 }
       );
   }
+
+  return {
+    sort: payload.sort,
+    value,
+    id: new mongoose.Types.ObjectId(payload.id),
+  };
 }
 
 /**
@@ -261,38 +167,32 @@ function createNextCursor(user, sort) {
   });
 }
 
-/**
- * Convert a User document into a safe public response object.
- *
- * Sensitive and internal fields are excluded.
- */
-// function toPublicUser(user) {
-//   const data = user.toObject ? user.toObject() : { ...user };
-
-//   delete data.password;
-//   delete data.email;
-//   delete data.role;
-//   delete data.emailVerified;
-//   delete data.accountStatus;
-//   delete data.deletedAt;
-
-//   return data;
-// }
+import { pickAllowedFields } from "@/lib/validation/fields";
 
 function toPublicUser(user) {
+  const publicUser = pickAllowedFields(user, [
+    "_id",
+    "username",
+    "avatar",
+    "bio",
+    "title",
+    "socialLinks",
+  ]);
+
+  const publicStats = pickAllowedFields(user.stats, [
+    "recipeCount",
+    "averageRating",
+    "totalRecipeViews",
+  ]);
+
   return {
-    id: user._id,
-    username: user.username,
-    avatar: user.avatar,
-    bio: user.bio,
-    title: user.title,
-    socialLinks: user.socialLinks,
-    stats: {
-      recipeCount: user.stats.recipeCount,
-      followerCount: user.stats.followerCount,
-      followingCount: user.stats.followingCount,
-      averageRating: user.stats.averageRating,
-    },
+    id: publicUser._id,
+    username: publicUser.username,
+    avatar: publicUser.avatar,
+    bio: publicUser.bio,
+    title: publicUser.title,
+    socialLinks: publicUser.socialLinks,
+    stats: publicStats,
   };
 }
 
@@ -339,24 +239,6 @@ function assertSelfAccess(currentUserId, targetUserId) {
       "شما اجازه ویرایش این کاربر را ندارید.",
       { statusCode: 403 }
     );
-  }
-}
-
-/**
- * Check whether the authenticated user is an administrator.
- */
-function assertAdmin(currentUser) {
-  if (!currentUser) {
-    throw new AppError(
-      ERROR_CODES.UNAUTHORIZED,
-      "ورود به حساب کاربری الزامی است.",
-      { statusCode: 401 }
-    );
-  }
-  if (currentUser.role !== "ADMIN") {
-    throw new AppError(ERROR_CODES.FORBIDDEN, "دسترسی مدیر سیستم الزامی است.", {
-      statusCode: 403,
-    });
   }
 }
 
@@ -418,7 +300,9 @@ export async function getUsers({
   let decodedCursor = null;
 
   if (cursor) {
-    decodedCursor = validateCursor(decodeCursor(cursor), sort);
+    decodedCursor = cursor
+      ? validateUserCursor(decodeCursor(cursor), normalizedSort)
+      : null;
   }
 
   /**
@@ -489,15 +373,11 @@ export async function changeAccountStatus(
 ) {
   assertAdmin(currentUser);
 
-  if (!["ACTIVE", "SUSPENDED", "DEACTIVATED"].includes(accountStatus)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "وضعیت حساب کاربری نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
+  assertEnum(accountStatus, Object.values(Account_Status), {
+    errorCode: ERROR_CODES.INVALID_REQUEST,
+    message: "وضعیت حساب کاربری نامعتبر است.",
+    statusCode: 400,
+  });
 
   if (
     currentUser._id.toString() === targetUserId.toString() &&

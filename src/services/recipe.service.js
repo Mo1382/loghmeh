@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import crypto from "node:crypto";
 
 import {
   createRecipe as createRecipeRepository,
@@ -28,8 +27,14 @@ import {
 } from "@/repositories/category.repository";
 
 import { ERROR_CODES } from "@/constants/error-codes";
-import { AppError } from "@/lib/errors/AppError";
+import AppError from "@/lib/errors/AppError";
 import { withTransaction } from "@/lib/transaction";
+import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+import { assertValidObjectId } from "@/lib/validation/object-id";
+import { pickAllowedFields } from "@/lib/validation/fields";
+import { assertEnum } from "@/lib/validation/enum";
+import { normalizeLimit } from "@/lib/pagination/limit";
+import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
@@ -62,30 +67,6 @@ const MUTABLE_RECIPE_FIELDS = [
   "calories",
 ];
 
-/* -------------------------------------------------------------------------- */
-/* Authentication / Authorization                                             */
-/* -------------------------------------------------------------------------- */
-
-function assertAuthenticated(currentUser) {
-  if (!currentUser) {
-    throw new AppError(
-      ERROR_CODES.UNAUTHORIZED,
-      "ورود به حساب کاربری الزامی است.",
-      { statusCode: 401 }
-    );
-  }
-}
-
-function assertAdmin(currentUser) {
-  assertAuthenticated(currentUser);
-
-  if (currentUser.role !== "ADMIN") {
-    throw new AppError(ERROR_CODES.FORBIDDEN, "دسترسی مدیر سیستم الزامی است.", {
-      statusCode: 403,
-    });
-  }
-}
-
 function assertRecipeOwnerOrAdmin(currentUser, recipe) {
   assertAuthenticated(currentUser);
 
@@ -100,46 +81,6 @@ function assertRecipeOwnerOrAdmin(currentUser, recipe) {
       { statusCode: 403 }
     );
   }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Validation / Normalization                                                 */
-/* -------------------------------------------------------------------------- */
-
-function assertValidObjectId(id, fieldName = "ID") {
-  if (!mongoose.isValidObjectId(id)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      `شناسه ${fieldName} نامعتبر است.`,
-      { statusCode: 400 }
-    );
-  }
-}
-
-function normalizeLimit(limit, defaultLimit = DEFAULT_LIST_LIMIT) {
-  const parsedLimit = Number(limit);
-
-  if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
-    return defaultLimit;
-  }
-
-  return Math.min(parsedLimit, MAX_LIST_LIMIT);
-}
-
-function normalizeSort(sort) {
-  if (!sort) {
-    return RECIPE_SORTS.NEWEST;
-  }
-
-  if (!Object.values(RECIPE_SORTS).includes(sort)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "ترتیب مرتب‌سازی دستورهای پخت نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  return sort;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -236,100 +177,10 @@ function isSlugDuplicateError(error) {
 /* Cursor                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function getCursorSecret() {
-  const secret = process.env.CURSOR_SECRET;
-
-  if (!secret) {
-    throw new Error("متغیر CURSOR_SECRET تنظیم نشده است.");
-  }
-
-  return secret;
-}
-
-function encodeCursor({ sort, value, id }) {
-  const payload = {
-    v: CURSOR_VERSION,
-    sort,
-    value,
-    id: id.toString(),
-  };
-
-  const payloadBase64 = Buffer.from(JSON.stringify(payload), "utf8").toString(
-    "base64url"
-  );
-
-  const signature = crypto
-    .createHmac("sha256", getCursorSecret())
-    .update(payloadBase64)
-    .digest("base64url");
-
-  return `${payloadBase64}.${signature}`;
-}
-
-function decodeCursor(cursor) {
-  if (!cursor || typeof cursor !== "string") {
-    return null;
-  }
-
-  const parts = cursor.split(".");
-
-  if (parts.length !== 2) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  const [payloadBase64, signatureBase64] = parts;
-
-  let expectedSignature;
-  let providedSignature;
-
-  try {
-    expectedSignature = crypto
-      .createHmac("sha256", getCursorSecret())
-      .update(payloadBase64)
-      .digest();
-
-    providedSignature = Buffer.from(signatureBase64, "base64url");
-  } catch {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  if (
-    providedSignature.length !== expectedSignature.length ||
-    !crypto.timingSafeEqual(providedSignature, expectedSignature)
-  ) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  let payload;
-
-  try {
-    const json = Buffer.from(payloadBase64, "base64url").toString("utf8");
-
-    payload = JSON.parse(json);
-  } catch {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
+function validateRecipeCursor(payload, sort) {
   if (
     !payload ||
-    payload.v !== CURSOR_VERSION ||
-    !payload.sort ||
+    payload.sort !== sort ||
     payload.value === undefined ||
     !payload.id
   ) {
@@ -340,13 +191,11 @@ function decodeCursor(cursor) {
     );
   }
 
-  if (!Object.values(RECIPE_SORTS).includes(payload.sort)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "مرتب‌سازی نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
+  assertEnum(payload.sort, Object.values(RECIPE_SORTS), {
+    errorCode: ERROR_CODES.INVALID_REQUEST,
+    message: "ترتیب مرتب‌سازی دستورهای پخت نامعتبر است.",
+    statusCode: 400,
+  });
 
   assertValidObjectId(payload.id, "cursor ID");
 
@@ -420,26 +269,6 @@ function createNextCursor(recipes, sort) {
     value,
     id: lastRecipe._id,
   });
-}
-
-/* -------------------------------------------------------------------------- */
-/* Update Sanitization                                                        */
-/* -------------------------------------------------------------------------- */
-
-function sanitizeRecipeUpdates(updates) {
-  if (!updates || typeof updates !== "object") {
-    return {};
-  }
-
-  const sanitizedUpdates = {};
-
-  for (const field of MUTABLE_RECIPE_FIELDS) {
-    if (Object.prototype.hasOwnProperty.call(updates, field)) {
-      sanitizedUpdates[field] = updates[field];
-    }
-  }
-
-  return sanitizedUpdates;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -560,13 +389,27 @@ export async function getRecipes({
   cursor = null,
   limit = DEFAULT_LIST_LIMIT,
 } = {}) {
-  const normalizedSort = normalizeSort(sort);
-  const normalizedLimit = normalizeLimit(limit);
+  let finalSort = sort;
+  if (!sort) finalSort = RECIPE_SORTS.NEWEST;
+
+  const normalizedSort = assertEnum(finalSort, Object.values(RECIPE_SORTS), {
+    errorCode: ERROR_CODES.INVALID_REQUEST,
+    message: "ترتیب مرتب‌سازی دستورهای پخت نامعتبر است.",
+    statusCode: 400,
+  });
+
+  const normalizedLimit = normalizeLimit(
+    limit,
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT
+  );
 
   let decodedCursor = null;
 
   if (cursor) {
-    decodedCursor = decodeCursor(cursor);
+    decodedCursor = cursor
+      ? validateRecipeCursor(decodeCursor(cursor), normalizedSort)
+      : null;
 
     if (decodedCursor.sort !== normalizedSort) {
       throw new AppError(
@@ -652,7 +495,7 @@ export async function updateRecipe(currentUser, recipeId, updates) {
   assertAuthenticated(currentUser);
   assertValidObjectId(recipeId, "recipe ID");
 
-  const sanitizedUpdates = sanitizeRecipeUpdates(updates);
+  const sanitizedUpdates = pickAllowedFields(updates, MUTABLE_RECIPE_FIELDS);
 
   return withTransaction(async (session) => {
     /*

@@ -1,5 +1,3 @@
-import mongoose from "mongoose";
-
 import {
   findRatingByUserAndRecipe,
   createRating as createRatingRepository,
@@ -22,25 +20,14 @@ import {
 import { withTransaction } from "@/lib/transaction";
 import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
+import { assertAuthenticated } from "@/lib/auth/guards";
+import { assertValidObjectId } from "@/lib/validation/object-id";
 
 /**
  * --------------------------------------------------------------------------
  * Authentication / Validation
  * --------------------------------------------------------------------------
  */
-
-/**
- * Ensure the current user is authenticated.
- */
-function assertAuthenticated(currentUser) {
-  if (!currentUser) {
-    throw new AppError(
-      ERROR_CODES.UNAUTHORIZED,
-      "ورود به حساب کاربری الزامی است.",
-      { statusCode: 401 }
-    );
-  }
-}
 
 /**
  * Ensure the rating value is an integer between 1 and 5.
@@ -53,19 +40,6 @@ function assertValidRatingValue(value) {
     throw new AppError(
       ERROR_CODES.INVALID_REQUEST,
       "امتیاز باید یک عدد صحیح بین ۱ و ۵ باشد.",
-      { statusCode: 400 }
-    );
-  }
-}
-
-/**
- * Ensure the provided ID is a valid MongoDB ObjectId.
- */
-function assertValidObjectId(id, fieldName = "ID") {
-  if (!mongoose.isValidObjectId(id)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      `شناسه ${fieldName} نامعتبر است.`,
       { statusCode: 400 }
     );
   }

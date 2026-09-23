@@ -1,8 +1,9 @@
 import mongoose from "mongoose";
-import { createHmac, timingSafeEqual } from "node:crypto";
 
 import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
+import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+import { assertValidObjectId } from "@/lib/validation/object-id";
 
 import {
   findNotificationByIdAndUser,
@@ -12,9 +13,11 @@ import {
   markNotificationAsRead,
   countUnreadNotifications,
   deleteNotificationByUser,
-} from "@/db/repositories/notification.repository";
+} from "@/repositories/notification.repository";
 
-import { findActiveUsersByIds } from "@/db/repositories/user.repository";
+import { findActiveUsersByIds } from "@/repositories/user.repository";
+import { normalizeLimit } from "@/lib/pagination/limit";
+import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
@@ -32,87 +35,16 @@ export const NOTIFICATION_TYPES = {
 
 const VALID_NOTIFICATION_TYPES = new Set(Object.values(NOTIFICATION_TYPES));
 
-const DEFAULT_LIMIT = 16;
-const MAX_LIMIT = 50;
-
-const CURSOR_VERSION = 1;
-const CURSOR_SECRET = process.env.CURSOR_SECRET;
-
-if (!CURSOR_SECRET) {
-  throw new Error("متغیر CURSOR_SECRET تنظیم نشده است.");
-}
+const DEFAULT_LIST_LIMIT = 16;
+const MAX_LIST_LIMIT = 50;
 
 /* -------------------------------------------------------------------------- */
 /* Authentication / Authorization                                             */
 /* -------------------------------------------------------------------------- */
 
-function assertAuthenticated(currentUser) {
-  if (!currentUser?._id) {
-    throw new AppError(
-      ERROR_CODES.AUTHENTICATION_REQUIRED,
-      "ورود به حساب کاربری الزامی است.",
-      { statusCode: 401 }
-    );
-  }
-}
-
-function assertAdmin(currentUser) {
-  assertAuthenticated(currentUser);
-
-  if (currentUser.role !== "ADMIN") {
-    throw new AppError(
-      ERROR_CODES.ADMIN_ACCESS_REQUIRED,
-      "دسترسی مدیر سیستم الزامی است.",
-      { statusCode: 403 }
-    );
-  }
-}
-
 /* -------------------------------------------------------------------------- */
 /* Validation                                                                  */
 /* -------------------------------------------------------------------------- */
-
-function assertValidObjectId(value, fieldName = "ID") {
-  if (!mongoose.isValidObjectId(value)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_OBJECT_ID,
-      `شناسه ${fieldName} نامعتبر است.`,
-      {
-        statusCode: 400,
-      }
-    );
-  }
-}
-
-function assertValidNotificationType(type) {
-  if (!VALID_NOTIFICATION_TYPES.has(type)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_NOTIFICATION_TYPE,
-      "نوع اعلان نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-}
-
-function normalizeLimit(limit) {
-  if (limit === undefined || limit === null) {
-    return DEFAULT_LIMIT;
-  }
-
-  const normalizedLimit = Number(limit);
-
-  if (!Number.isInteger(normalizedLimit) || normalizedLimit < 1) {
-    throw new AppError(
-      ERROR_CODES.INVALID_LIMIT,
-      "تعداد اعلان‌ها باید یک عدد صحیح مثبت باشد.",
-      { statusCode: 400 }
-    );
-  }
-
-  return Math.min(normalizedLimit, MAX_LIMIT);
-}
 
 function normalizeNotificationText(value, fieldName) {
   if (typeof value !== "string") {
@@ -139,123 +71,6 @@ function normalizeNotificationText(value, fieldName) {
 /* -------------------------------------------------------------------------- */
 /* Cursor Helpers                                                              */
 /* -------------------------------------------------------------------------- */
-
-function createCursorSignature(payload) {
-  return createHmac("sha256", CURSOR_SECRET).update(payload).digest("hex");
-}
-
-function encodeCursor({ userId, createdAt, id }) {
-  const payloadObject = {
-    v: CURSOR_VERSION,
-    userId: userId.toString(),
-    createdAt: new Date(createdAt).toISOString(),
-    id: id.toString(),
-  };
-
-  const payload = Buffer.from(JSON.stringify(payloadObject)).toString(
-    "base64url"
-  );
-
-  const signature = createCursorSignature(payload);
-
-  return `${payload}.${signature}`;
-}
-
-function decodeCursor(cursor, userId) {
-  if (typeof cursor !== "string" || !cursor.trim()) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر اعلان نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-
-  const parts = cursor.split(".");
-
-  if (parts.length !== 2) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر اعلان نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-
-  const [payload, signature] = parts;
-  const expectedSignature = createCursorSignature(payload);
-
-  const actualBuffer = Buffer.from(signature, "utf8");
-  const expectedBuffer = Buffer.from(expectedSignature, "utf8");
-
-  if (
-    actualBuffer.length !== expectedBuffer.length ||
-    !timingSafeEqual(actualBuffer, expectedBuffer)
-  ) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر اعلان نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-
-  let parsedPayload;
-
-  try {
-    parsedPayload = JSON.parse(
-      Buffer.from(payload, "base64url").toString("utf8")
-    );
-  } catch {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر اعلان نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-
-  if (parsedPayload.v !== CURSOR_VERSION) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نسخه نشانگر اعلان پشتیبانی نمی‌شود.",
-      { statusCode: 400 }
-    );
-  }
-
-  assertValidObjectId(parsedPayload.userId, "cursor user ID");
-
-  assertValidObjectId(parsedPayload.id, "cursor notification ID");
-
-  if (parsedPayload.userId !== userId.toString()) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر اعلان متعلق به این کاربر نیست.",
-      { statusCode: 400 }
-    );
-  }
-
-  const createdAt = new Date(parsedPayload.createdAt);
-
-  if (Number.isNaN(createdAt.getTime())) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "تاریخ نشانگر اعلان نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
-
-  return {
-    createdAt,
-    id: new mongoose.Types.ObjectId(parsedPayload.id),
-  };
-}
 
 function createNextCursor(notification, userId) {
   if (!notification) {
@@ -290,11 +105,16 @@ function normalizeSystemNotificationData(notificationData) {
     message,
     recipeId = null,
     commentId = null,
-    supportTicketId = null,
+    ticketId = null,
   } = notificationData;
 
   assertValidObjectId(userId, "user ID");
-  assertValidNotificationType(type);
+
+  assertEnum(type, Object.values(VALID_NOTIFICATION_TYPES), {
+    errorCode: ERROR_CODES.INVALID_NOTIFICATION_TYPE,
+    message: "نوع اعلان نامعتبر است.",
+    statusCode: 400,
+  });
 
   if (actorId !== null) {
     assertValidObjectId(actorId, "actor ID");
@@ -308,8 +128,8 @@ function normalizeSystemNotificationData(notificationData) {
     assertValidObjectId(commentId, "comment ID");
   }
 
-  if (supportTicketId !== null) {
-    assertValidObjectId(supportTicketId, "support ticket ID");
+  if (ticketId !== null) {
+    assertValidObjectId(ticketId, "support ticket ID");
   }
 
   return {
@@ -320,7 +140,7 @@ function normalizeSystemNotificationData(notificationData) {
     message: normalizeNotificationText(message, "متن پیام"),
     recipeId,
     commentId,
-    supportTicketId,
+    ticketId,
 
     // System-managed fields.
     isRead: false,
@@ -360,9 +180,23 @@ export async function getNotifications(
 ) {
   assertAuthenticated(currentUser);
 
-  const normalizedLimit = normalizeLimit(limit);
+  const normalizedLimit = normalizeLimit(
+    limit,
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT
+  );
 
-  const decodedCursor = cursor ? decodeCursor(cursor, currentUser._id) : null;
+  const payload = decodeCursor(cursor);
+
+  if (payload.userId !== currentUser._id.toString()) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر اعلان متعلق به این کاربر نیست.",
+      { statusCode: 400 }
+    );
+  }
+
+  const decodedCursor = normalizeCreatedAtIdCursor(payload);
 
   const notifications = await findNotificationsByUser({
     userId: currentUser._id,
@@ -563,7 +397,7 @@ export async function createGlobalNotification(
 
     recipeId: null,
     commentId: null,
-    supportTicketId: null,
+    ticketId: null,
 
     // System-managed fields.
     isRead: false,

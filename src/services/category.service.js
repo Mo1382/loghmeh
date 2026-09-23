@@ -1,5 +1,3 @@
-import mongoose from "mongoose";
-
 import {
   createCategory as createCategoryRepository,
   findActiveCategories,
@@ -15,49 +13,15 @@ import {
 
 import { ERROR_CODES } from "@/constants/error-codes";
 import AppError from "@/lib/errors/AppError";
+import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+import { assertValidObjectId } from "@/lib/validation/object-id";
+
+import { pickAllowedFields } from "@/lib/validation/fields";
+
+const MUTABLE_CATEGORY_FIELDS = ["name", "slug", "icon", "order"];
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 100;
-
-function assertAuthenticated(currentUser) {
-  if (!currentUser) {
-    throw new AppError(
-      ERROR_CODES.UNAUTHORIZED,
-      "ورود به حساب کاربری الزامی است.",
-      { statusCode: 401 }
-    );
-  }
-}
-
-function assertAdmin(currentUser) {
-  assertAuthenticated(currentUser);
-
-  if (currentUser.role !== "ADMIN") {
-    throw new AppError(ERROR_CODES.FORBIDDEN, "دسترسی مدیر سیستم الزامی است.", {
-      statusCode: 403,
-    });
-  }
-}
-
-function assertValidObjectId(id, fieldName = "ID") {
-  if (!mongoose.isValidObjectId(id)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      `شناسه ${fieldName} نامعتبر است.`,
-      { statusCode: 400 }
-    );
-  }
-}
-
-function normalizeLimit(limit, defaultLimit = DEFAULT_LIST_LIMIT) {
-  const parsedLimit = Number(limit);
-
-  if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
-    return defaultLimit;
-  }
-
-  return Math.min(parsedLimit, MAX_LIST_LIMIT);
-}
 
 function normalizeCategoryName(name) {
   if (typeof name !== "string") {
@@ -133,50 +97,6 @@ async function generateUniqueSlug(name) {
   }
 
   return slug;
-}
-
-function sanitizeCategoryCreateData(categoryData) {
-  const sanitizedData = {};
-
-  if (categoryData.name !== undefined) {
-    sanitizedData.name = categoryData.name;
-  }
-
-  if (categoryData.slug !== undefined) {
-    sanitizedData.slug = categoryData.slug;
-  }
-
-  if (categoryData.icon !== undefined) {
-    sanitizedData.icon = categoryData.icon;
-  }
-
-  if (categoryData.order !== undefined) {
-    sanitizedData.order = categoryData.order;
-  }
-
-  return sanitizedData;
-}
-
-function sanitizeCategoryUpdates(updates) {
-  const sanitizedUpdates = {};
-
-  if (updates.name !== undefined) {
-    sanitizedUpdates.name = updates.name;
-  }
-
-  if (updates.slug !== undefined) {
-    sanitizedUpdates.slug = updates.slug;
-  }
-
-  if (updates.icon !== undefined) {
-    sanitizedUpdates.icon = updates.icon;
-  }
-
-  if (updates.order !== undefined) {
-    sanitizedUpdates.order = updates.order;
-  }
-
-  return sanitizedUpdates;
 }
 
 async function assertUniqueCategoryName(name, currentCategoryId = null) {
@@ -266,8 +186,6 @@ export async function getCategories({ activeOnly = true } = {}) {
 export async function createCategory(currentUser, categoryData) {
   assertAdmin(currentUser);
 
-  const sanitizedData = sanitizeCategoryCreateData(categoryData);
-
   const name = normalizeCategoryName(sanitizedData.name);
 
   await assertUniqueCategoryName(name);
@@ -298,6 +216,8 @@ export async function updateCategory(currentUser, categoryId, updates) {
   assertAdmin(currentUser);
   assertValidObjectId(categoryId, "category ID");
 
+  const sanitizedUpdates = pickAllowedFields(updates, MUTABLE_CATEGORY_FIELDS);
+
   const category = await findCategoryById(categoryId);
 
   if (!category) {
@@ -305,8 +225,6 @@ export async function updateCategory(currentUser, categoryId, updates) {
       statusCode: 404,
     });
   }
-
-  const sanitizedUpdates = sanitizeCategoryUpdates(updates);
 
   if (Object.keys(sanitizedUpdates).length === 0) {
     throw new AppError(

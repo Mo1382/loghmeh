@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-import crypto from "node:crypto";
 
 import {
   countFollowersByUser,
@@ -21,6 +20,10 @@ import {
 import { ERROR_CODES } from "@/constants/error-codes";
 import AppError from "@/lib/errors/AppError";
 import { withTransaction } from "@/lib/transaction";
+import { assertAuthenticated } from "@/lib/auth/guards";
+import { assertValidObjectId } from "@/lib/validation/object-id";
+import { normalizeLimit } from "@/lib/pagination/limit";
+import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
 
 /**
  * --------------------------------------------------------------------------
@@ -30,8 +33,6 @@ import { withTransaction } from "@/lib/transaction";
 
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
-
-const CURSOR_VERSION = 1;
 
 const FOLLOW_LIST_TYPES = {
   FOLLOWING: "FOLLOWING",
@@ -43,32 +44,6 @@ const FOLLOW_LIST_TYPES = {
  * Authentication / Validation
  * --------------------------------------------------------------------------
  */
-
-/**
- * Ensure the current user is authenticated.
- */
-function assertAuthenticated(currentUser) {
-  if (!currentUser) {
-    throw new AppError(
-      ERROR_CODES.UNAUTHORIZED,
-      "ورود به حساب کاربری الزامی است.",
-      { statusCode: 401 }
-    );
-  }
-}
-
-/**
- * Ensure the provided ID is a valid MongoDB ObjectId.
- */
-function assertValidObjectId(id, fieldName = "ID") {
-  if (!mongoose.isValidObjectId(id)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      `شناسه ${fieldName} نامعتبر است.`,
-      { statusCode: 400 }
-    );
-  }
-}
 
 /**
  * Ensure that a user account is active.
@@ -96,179 +71,10 @@ function assertNotSelfFollow(currentUser, targetUserId) {
 }
 
 /**
- * Normalize the requested list size.
- */
-function normalizeLimit(limit, defaultLimit = DEFAULT_LIST_LIMIT) {
-  const parsedLimit = Number(limit);
-
-  if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
-    return defaultLimit;
-  }
-
-  return Math.min(parsedLimit, MAX_LIST_LIMIT);
-}
-
-/**
  * --------------------------------------------------------------------------
  * Cursor
  * --------------------------------------------------------------------------
  */
-
-/**
- * Get the secret used to sign Follow cursors.
- */
-function getCursorSecret() {
-  const secret = process.env.CURSOR_SECRET;
-
-  if (!secret) {
-    throw new Error("متغیر CURSOR_SECRET تنظیم نشده است.");
-  }
-
-  return secret;
-}
-
-/**
- * Encode a cursor for a Followers/Following list.
- *
- * The cursor is bound to:
- * - the user whose list is being viewed
- * - the list direction
- * - the pagination position
- */
-function encodeCursor({ userId, listType, createdAt, id }) {
-  const payload = {
-    v: CURSOR_VERSION,
-    userId: userId.toString(),
-    listType,
-    createdAt,
-    id: id.toString(),
-  };
-
-  const payloadBase64 = Buffer.from(JSON.stringify(payload), "utf8").toString(
-    "base64url"
-  );
-
-  const signature = crypto
-    .createHmac("sha256", getCursorSecret())
-    .update(payloadBase64)
-    .digest("base64url");
-
-  return `${payloadBase64}.${signature}`;
-}
-
-/**
- * Decode and verify a Followers/Following cursor.
- */
-function decodeCursor(cursor, expectedUserId, expectedListType) {
-  if (!cursor || typeof cursor !== "string") {
-    return null;
-  }
-
-  const parts = cursor.split(".");
-
-  if (parts.length !== 2) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  const [payloadBase64, signatureBase64] = parts;
-
-  let expectedSignature;
-  let providedSignature;
-
-  try {
-    expectedSignature = crypto
-      .createHmac("sha256", getCursorSecret())
-      .update(payloadBase64)
-      .digest();
-
-    providedSignature = Buffer.from(signatureBase64, "base64url");
-  } catch {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  if (
-    providedSignature.length !== expectedSignature.length ||
-    !crypto.timingSafeEqual(providedSignature, expectedSignature)
-  ) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  let payload;
-
-  try {
-    const json = Buffer.from(payloadBase64, "base64url").toString("utf8");
-
-    payload = JSON.parse(json);
-  } catch {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  if (
-    !payload ||
-    payload.v !== CURSOR_VERSION ||
-    !payload.userId ||
-    !payload.listType ||
-    !payload.createdAt ||
-    !payload.id
-  ) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  assertValidObjectId(payload.userId, "cursor user ID");
-
-  assertValidObjectId(payload.id, "cursor ID");
-
-  if (payload.userId.toString() !== expectedUserId.toString()) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی متعلق به این کاربر نیست.",
-      { statusCode: 400 }
-    );
-  }
-
-  if (payload.listType !== expectedListType) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نشانگر صفحه‌بندی با فهرست انتخاب‌شده مطابقت ندارد.",
-      { statusCode: 400 }
-    );
-  }
-
-  const createdAt = new Date(payload.createdAt);
-
-  if (Number.isNaN(createdAt.getTime())) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
-  }
-
-  return {
-    createdAt,
-    id: new mongoose.Types.ObjectId(payload.id),
-  };
-}
 
 /**
  * Create the next cursor from the last Follow
@@ -591,11 +397,31 @@ export async function getFollowing({
     });
   }
 
-  const normalizedLimit = normalizeLimit(limit);
+  const normalizedLimit = normalizeLimit(
+    limit,
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT
+  );
 
-  const decodedCursor = cursor
-    ? decodeCursor(cursor, userId, FOLLOW_LIST_TYPES.FOLLOWING)
-    : null;
+  const payload = decodeCursor(cursor);
+
+  if (payload.userId.toString() !== userId.toString()) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی متعلق به این کاربر نیست.",
+      { statusCode: 400 }
+    );
+  }
+
+  if (payload.listType !== FOLLOW_LIST_TYPES.FOLLOWING) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی با فهرست انتخاب‌شده مطابقت ندارد.",
+      { statusCode: 400 }
+    );
+  }
+
+  const decodedCursor = normalizeCreatedAtIdCursor(payload);
 
   /**
    * Fetch one extra Follow to determine hasMore.
@@ -661,10 +487,18 @@ export async function getFollowers({
     });
   }
 
-  const normalizedLimit = normalizeLimit(limit);
+  const normalizedLimit = normalizeLimit(
+    limit,
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT
+  );
 
   const decodedCursor = cursor
-    ? decodeCursor(cursor, userId, FOLLOW_LIST_TYPES.FOLLOWERS)
+    ? normalizeFollowCursor(
+        decodeCursor(cursor),
+        userId,
+        FOLLOW_LIST_TYPES.FOLLOWERS
+      )
     : null;
 
   /**

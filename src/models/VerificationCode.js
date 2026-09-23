@@ -9,10 +9,9 @@ const verificationCodeSchema = new mongoose.Schema(
       trim: true,
     },
 
-    code: {
+    codeHash: {
       type: String,
       required: true,
-      match: /^\d{6}$/,
     },
 
     purpose: {

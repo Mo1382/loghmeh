@@ -18,7 +18,7 @@ import {
 } from "@/repositories/verification-code.repository";
 
 import { withTransaction } from "@/lib/transaction";
-import { AppError } from "@/lib/errors/AppError";
+import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
 
 /**

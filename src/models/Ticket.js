@@ -20,7 +20,7 @@ const ticketReplySchema = new mongoose.Schema(
   }
 );
 
-const supportTicketSchema = new mongoose.Schema(
+const ticketSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -60,11 +60,9 @@ const supportTicketSchema = new mongoose.Schema(
 
 // Indexes
 // For queries in admin panel
-supportTicketSchema.index({ userId: 1, createdAt: -1 });
-supportTicketSchema.index({ status: 1, createdAt: -1 });
+ticketSchema.index({ userId: 1, createdAt: -1 });
+ticketSchema.index({ status: 1, createdAt: -1 });
 
-const SupportTicket =
-  mongoose.models.SupportTicket ||
-  mongoose.model("SupportTicket", supportTicketSchema);
+const ticket = mongoose.models.ticket || mongoose.model("ticket", ticketSchema);
 
-export default SupportTicket;
+export default ticket;

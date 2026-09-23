@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { ZodError } from "zod";
 
-import { AppError } from "@/lib/errors/AppError";
+import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
 
 /**

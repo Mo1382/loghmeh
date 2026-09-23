@@ -54,9 +54,9 @@ const notificationSchema = new mongoose.Schema(
       default: null,
     },
 
-    supportTicketId: {
+    ticketId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "SupportTicket",
+      ref: "Ticket",
       default: null,
     },
 

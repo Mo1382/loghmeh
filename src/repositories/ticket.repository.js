@@ -1,4 +1,4 @@
-import SupportTicket from "@/models/SupportTicket";
+import Ticket from "@/models/Ticket";
 
 /**
  * Apply MongoDB session only when provided.
@@ -8,23 +8,23 @@ function applySession(query, session) {
 }
 
 /**
- * Find a support ticket by its ID.
+ * Find a support Ticket by its ID.
  */
-export function findTicketById(ticketId, session) {
-  const query = SupportTicket.findById(ticketId);
+export function findTicketById(TicketId, session) {
+  const query = Ticket.findById(TicketId);
 
   return applySession(query, session);
 }
 
 /**
- * Find a support ticket belonging to a specific user.
+ * Find a support Ticket belonging to a specific user.
  *
- * Useful for normal user operations where the ticket
+ * Useful for normal user operations where the Ticket
  * must belong to the authenticated user.
  */
-export function findTicketByIdAndUser(ticketId, userId, session) {
-  const query = SupportTicket.findOne({
-    _id: ticketId,
+export function findTicketByIdAndUser(TicketId, userId, session) {
+  const query = Ticket.findOne({
+    _id: TicketId,
     userId,
   });
 
@@ -32,7 +32,7 @@ export function findTicketByIdAndUser(ticketId, userId, session) {
 }
 
 /**
- * Find a user's support tickets using cursor-based loading.
+ * Find a user's support Tickets using cursor-based loading.
  *
  * Sort order:
  * - createdAt DESC
@@ -70,7 +70,7 @@ export function findTicketsByUser({
     ];
   }
 
-  const query = SupportTicket.find(filter)
+  const query = Ticket.find(filter)
     .sort({
       createdAt: -1,
       _id: -1,
@@ -81,7 +81,7 @@ export function findTicketsByUser({
 }
 
 /**
- * Find all support tickets.
+ * Find all support Tickets.
  *
  * Intended mainly for the Admin panel.
  *
@@ -90,7 +90,7 @@ export function findTicketsByUser({
  * - _id DESC
  */
 export function findAllTickets(session) {
-  const query = SupportTicket.find({}).sort({
+  const query = Ticket.find({}).sort({
     createdAt: -1,
     _id: -1,
   });
@@ -99,12 +99,12 @@ export function findAllTickets(session) {
 }
 
 /**
- * Find support tickets by status.
+ * Find support Tickets by status.
  *
  * Intended mainly for the Admin panel.
  */
 export function findTicketsByStatus(status, session) {
-  const query = SupportTicket.find({
+  const query = Ticket.find({
     status,
   }).sort({
     createdAt: -1,
@@ -115,28 +115,26 @@ export function findTicketsByStatus(status, session) {
 }
 
 /**
- * Create a support ticket.
+ * Create a support Ticket.
  *
  * userId is obtained from the authenticated user.
  */
-export function createTicket(ticketData, session) {
+export function createTicket(TicketData, session) {
   if (session) {
-    return SupportTicket.create([ticketData], { session }).then(
-      ([ticket]) => ticket
-    );
+    return Ticket.create([TicketData], { session }).then(([Ticket]) => Ticket);
   }
 
-  return SupportTicket.create(ticketData);
+  return Ticket.create(TicketData);
 }
 
 /**
- * Add an admin reply to a support ticket.
+ * Add an admin reply to a support Ticket.
  *
- * Replies are embedded inside the ticket document.
+ * Replies are embedded inside the Ticket document.
  */
-export function addTicketReply(ticketId, replyData, session) {
-  const query = SupportTicket.findByIdAndUpdate(
-    ticketId,
+export function addTicketReply(TicketId, replyData, session) {
+  const query = Ticket.findByIdAndUpdate(
+    TicketId,
     {
       $push: {
         replies: replyData,
@@ -152,11 +150,11 @@ export function addTicketReply(ticketId, replyData, session) {
 }
 
 /**
- * Update the status of a support ticket.
+ * Update the status of a support Ticket.
  */
-export function updateTicketStatus(ticketId, status, session) {
-  const query = SupportTicket.findByIdAndUpdate(
-    ticketId,
+export function updateTicketStatus(TicketId, status, session) {
+  const query = Ticket.findByIdAndUpdate(
+    TicketId,
     {
       $set: {
         status,
@@ -172,14 +170,14 @@ export function updateTicketStatus(ticketId, status, session) {
 }
 
 /**
- * Close a support ticket.
+ * Close a support Ticket.
  *
- * The Service layer should decide whether the ticket
+ * The Service layer should decide whether the Ticket
  * is allowed to be closed.
  */
-export function closeTicket(ticketId, closedAt = new Date(), session) {
-  const query = SupportTicket.findByIdAndUpdate(
-    ticketId,
+export function closeTicket(TicketId, closedAt = new Date(), session) {
+  const query = Ticket.findByIdAndUpdate(
+    TicketId,
     {
       $set: {
         status: "CLOSED",
@@ -196,11 +194,11 @@ export function closeTicket(ticketId, closedAt = new Date(), session) {
 }
 
 /**
- * Reopen a previously closed ticket.
+ * Reopen a previously closed Ticket.
  */
-export function reopenTicket(ticketId, session) {
-  const query = SupportTicket.findByIdAndUpdate(
-    ticketId,
+export function reopenTicket(TicketId, session) {
+  const query = Ticket.findByIdAndUpdate(
+    TicketId,
     {
       $set: {
         status: "OPEN",
@@ -217,12 +215,12 @@ export function reopenTicket(ticketId, session) {
 }
 
 /**
- * Delete a support ticket by its ID.
+ * Delete a support Ticket by its ID.
  *
  * Authorization must be handled in the Service layer.
  */
-export function deleteTicketById(ticketId, session) {
-  const query = SupportTicket.findByIdAndDelete(ticketId);
+export function deleteTicketById(TicketId, session) {
+  const query = Ticket.findByIdAndDelete(TicketId);
 
   return applySession(query, session);
 }
