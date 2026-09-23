@@ -1,5 +1,5 @@
 import { ERROR_CODES } from "@/constants/error-codes";
-import { AppError } from "@/lib/errors/AppError";
+import AppError from "@/lib/errors/AppError";
 
 /**
  * Ensure that a value is one of the allowed enum values.

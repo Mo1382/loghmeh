@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { NOTIFICATION_TYPES } from "@/constants/enums";
 
 const notificationSchema = new mongoose.Schema(
   {
@@ -10,15 +11,7 @@ const notificationSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: [
-        "RECIPE_RATED",
-        "RECIPE_COMMENTED",
-        "COMMENT_REPLIED",
-        "COMMENT_LIKED",
-        "COMMENT_DISLIKED",
-        "ANNOUNCEMENT",
-        "SUPPORT_REPLY",
-      ],
+      enum: Object.values(NOTIFICATION_TYPES),
       required: true,
     },
 
@@ -78,6 +71,7 @@ const notificationSchema = new mongoose.Schema(
 
 // Indexes
 notificationSchema.index({ userId: 1, createdAt: -1 });
+notificationSchema.index({ userId: 1, isRead: 1 });
 
 const Notification =
   mongoose.models.Notification ||

@@ -1,26 +1,22 @@
 import {
-  findRatingByUserAndRecipe,
-  createRating as createRatingRepository,
-  updateRatingByUserAndRecipe,
-  deleteRatingByUserAndRecipe,
   calculateRecipeRatingStats,
+  createRating as createRatingRepository,
+  findRatingByUserAndRecipe,
+  updateRatingByUserAndRecipe,
 } from "@/repositories/rating.repository";
 
 import {
-  findRecipeById,
   incrementRatingCount,
   updateAverageRating,
 } from "@/repositories/recipe.repository";
 
-import {
-  createSystemNotification,
-  NOTIFICATION_TYPES,
-} from "@/services/notification.service";
+import { NOTIFICATION_TYPES } from "@/constants/enums";
+import { createSystemNotification } from "@/services/notification.service";
 
-import { withTransaction } from "@/lib/transaction";
-import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
 import { assertAuthenticated } from "@/lib/auth/guards";
+import AppError from "@/lib/errors/AppError";
+import { withTransaction } from "@/lib/transaction";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
 /**
@@ -103,17 +99,7 @@ export async function getUserRating(currentUser, recipeId) {
 
   assertValidObjectId(recipeId, "recipe ID");
 
-  /**
-   * Only active recipes are available through
-   * the public/user-facing rating flow.
-   */
-  const recipe = await findRecipeById(recipeId);
-
-  if (!recipe) {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
+  const { recipe } = await getAccessibleRecipe(recipeId);
 
   return findRatingByUserAndRecipe(currentUser._id, recipeId);
 }
@@ -135,18 +121,7 @@ export async function createRating(currentUser, recipeId, value) {
   assertValidRatingValue(value);
 
   return withTransaction(async (session) => {
-    /**
-     * Only active / non-deleted recipes can receive ratings.
-     *
-     * The repository query is part of the same transaction.
-     */
-    const recipe = await findRecipeById(recipeId, session);
-
-    if (!recipe) {
-      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
+    const { recipe } = await getAccessibleRecipe(recipeId);
 
     /**
      * Users cannot rate their own recipes.
@@ -245,16 +220,7 @@ export async function updateRating(currentUser, recipeId, value) {
   assertValidRatingValue(value);
 
   return withTransaction(async (session) => {
-    /**
-     * Recipe must still be active.
-     */
-    const recipe = await findRecipeById(recipeId, session);
-
-    if (!recipe) {
-      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
+    const { recipe } = await getAccessibleRecipe(recipeId);
 
     /**
      * The recipe owner cannot have a rating relationship.
@@ -330,15 +296,8 @@ export async function updateRating(currentUser, recipeId, value) {
 //     /**
 //      * Recipe must still be active.
 //      */
-//     const recipe = await findRecipeById(recipeId, session);
-
-//     if (!recipe) {
-//       throw new AppError(
-//         "دستور پخت پیدا نشد.",
-//         ERROR_CODES.RECIPE_NOT_FOUND,
-//         404
-//       );
-//     }
+//     const { recipe } =
+// await getAccessibleRecipe(recipeId);
 
 //     /**
 //      * Find the user's existing rating.

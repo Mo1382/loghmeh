@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import crypto from "node:crypto";
 
 import { ERROR_CODES } from "@/constants/error-codes";
-import { AppError } from "@/lib/errors/AppError";
+import AppError from "@/lib/errors/AppError";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 import { assertEnum } from "@/lib/validation/enum";
 

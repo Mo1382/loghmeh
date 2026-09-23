@@ -12,8 +12,8 @@ import {
 } from "@/repositories/category.repository";
 
 import { ERROR_CODES } from "@/constants/error-codes";
+import { assertAdmin } from "@/lib/auth/guards";
 import AppError from "@/lib/errors/AppError";
-import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
 import { pickAllowedFields } from "@/lib/validation/fields";
@@ -185,6 +185,11 @@ export async function getCategories({ activeOnly = true } = {}) {
 
 export async function createCategory(currentUser, categoryData) {
   assertAdmin(currentUser);
+
+  const sanitizedData = pickAllowedFields(
+    categoryData,
+    MUTABLE_CATEGORY_FIELDS
+  );
 
   const name = normalizeCategoryName(sanitizedData.name);
 

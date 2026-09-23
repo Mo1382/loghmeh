@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { USER_TITLES } from "@/constants/enums";
 
 /**
  * Reusable fields
@@ -96,7 +97,7 @@ export const registerUserSchema = z
 
     password: passwordSchema,
 
-    title: z.enum(["USER", "COOK", "HEAD_CHEF", "BARISTA", "FOOD_BLOGGER"]),
+    title: z.enum(USER_TITLES).default("USER"),
   })
   .strict();
 

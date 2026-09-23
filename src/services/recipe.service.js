@@ -3,8 +3,6 @@ import mongoose from "mongoose";
 import {
   createRecipe as createRecipeRepository,
   findDeletedRecipeById,
-  findRecipeById,
-  findRecipeBySlug,
   findRecipes,
   incrementCommentCount,
   incrementRatingCount,
@@ -26,31 +24,29 @@ import {
   incrementRecipeCount as incrementCategoryRecipeCount,
 } from "@/repositories/category.repository";
 
+import {
+  getAccessibleRecipe,
+  getAccessibleRecipeBySlug,
+} from "@/lib/helpers/recipe-access";
+
 import { ERROR_CODES } from "@/constants/error-codes";
-import AppError from "@/lib/errors/AppError";
-import { withTransaction } from "@/lib/transaction";
 import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
-import { assertValidObjectId } from "@/lib/validation/object-id";
-import { pickAllowedFields } from "@/lib/validation/fields";
-import { assertEnum } from "@/lib/validation/enum";
-import { normalizeLimit } from "@/lib/pagination/limit";
+import AppError from "@/lib/errors/AppError";
 import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
+import { normalizeLimit } from "@/lib/pagination/limit";
+import { withTransaction } from "@/lib/transaction";
+import { assertEnum } from "@/lib/validation/enum";
+import { pickAllowedFields } from "@/lib/validation/fields";
+import { assertValidObjectId } from "@/lib/validation/object-id";
+import { RECIPE_SORTS } from "@/constants/enums";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
 /* -------------------------------------------------------------------------- */
 
-const RECIPE_SORTS = {
-  NEWEST: "NEWEST",
-  OLDEST: "OLDEST",
-  MOST_VIEWED: "MOST_VIEWED",
-  HIGHEST_RATED: "HIGHEST_RATED",
-};
-
 const DEFAULT_LIST_LIMIT = 16;
 const HOME_LIST_LIMIT = 12;
 const MAX_LIST_LIMIT = 50;
-const CURSOR_VERSION = 1;
 const MAX_SLUG_RETRIES = 10;
 
 const MUTABLE_RECIPE_FIELDS = [
@@ -81,70 +77,6 @@ function assertRecipeOwnerOrAdmin(currentUser, recipe) {
       { statusCode: 403 }
     );
   }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Recipe Accessibility                                                        */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Checks whether the Recipe's required dependencies are active and usable.
- *
- * A Recipe is accessible only when:
- * - the Recipe itself is not deleted
- * - its author exists
- * - its author is ACTIVE
- * - its author is not deleted
- * - its category exists
- * - its category is active
- */
-async function getAccessibleRecipeContext(recipe, session) {
-  const [author, category] = await Promise.all([
-    findUserById(recipe.authorId, session),
-    findActiveCategoryById(recipe.categoryId, session),
-  ]);
-
-  if (!author || author.accountStatus !== "ACTIVE") {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
-
-  if (!category) {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
-
-  return {
-    recipe,
-    author,
-    category,
-  };
-}
-
-async function getAccessibleRecipe(recipeId, session) {
-  const recipe = await findRecipeById(recipeId, session);
-
-  if (!recipe) {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
-
-  return getAccessibleRecipeContext(recipe, session);
-}
-
-async function getAccessibleRecipeBySlug(slug, session) {
-  const recipe = await findRecipeBySlug(slug, session);
-
-  if (!recipe) {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
-
-  return getAccessibleRecipeContext(recipe, session);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -610,7 +542,7 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
     /*
      * A restored Recipe must have an active author and category.
      */
-    await getAccessibleRecipeContext(recipe, session);
+    await assertAccessibleRecipe(recipe, session);
 
     const restoredRecipe = await restoreRecipeRepository(recipeId, session);
 

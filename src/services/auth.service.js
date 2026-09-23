@@ -1,25 +1,26 @@
-import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 
 import {
-  findUserByEmail,
-  findUserByUsername,
-  findUserByIdentifier,
   createUser,
-  updateUserPassword,
+  findUserByEmail,
+  findUserByIdentifier,
+  findUserByIdWithPassword,
+  findUserByUsername,
   markEmailAsVerified,
-  findUserById,
+  updateUserPassword,
 } from "@/repositories/user.repository";
 
 import {
+  deleteVerificationCodeById,
   findActiveVerificationCode,
   replaceVerificationCode,
-  deleteVerificationCodeById,
 } from "@/repositories/verification-code.repository";
 
-import { withTransaction } from "@/lib/transaction";
-import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
+import { VERIFICATION_CODE_PURPOSES } from "@/constants/enums";
+import AppError from "@/lib/errors/AppError";
+import { withTransaction } from "@/lib/transaction";
 
 /**
  * Verification code lifetime.
@@ -194,7 +195,7 @@ function verifyPasswordResetToken(token) {
  * Auth.js can sign the user in after this service
  * returns the newly created user.
  */
-export async function registerUser({ username, email, password }) {
+export async function registerUser({ username, email, password, title }) {
   const existingEmail = await findUserByEmail(email);
 
   if (existingEmail) {
@@ -229,6 +230,7 @@ export async function registerUser({ username, email, password }) {
         username,
         email,
         password: passwordHash,
+        title,
       },
       session
     );
@@ -237,7 +239,7 @@ export async function registerUser({ username, email, password }) {
       {
         email,
         codeHash,
-        purpose: "EMAIL_VERIFICATION",
+        purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
         expiresAt,
       },
       session
@@ -339,7 +341,7 @@ export async function verifyEmail({ email, code }) {
 
   const verificationCode = await findActiveVerificationCode(
     email,
-    "EMAIL_VERIFICATION"
+    VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
   );
 
   if (!verificationCode) {
@@ -393,7 +395,7 @@ export async function requestPasswordReset({ email }) {
   await replaceVerificationCode({
     email,
     codeHash,
-    purpose: "PASSWORD_RESET",
+    purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
     expiresAt,
   });
 
@@ -416,7 +418,7 @@ export async function requestPasswordReset({ email }) {
 export async function verifyPasswordResetCode({ email, code }) {
   const verificationCode = await findActiveVerificationCode(
     email,
-    "PASSWORD_RESET"
+    VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
   );
 
   if (!verificationCode) {
@@ -474,7 +476,7 @@ export async function resetPassword({ resetToken, password }) {
 
   const verificationCode = await findActiveVerificationCode(
     payload.email,
-    "PASSWORD_RESET"
+    VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
   );
 
   if (

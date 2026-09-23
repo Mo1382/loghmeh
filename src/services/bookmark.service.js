@@ -1,30 +1,24 @@
-import crypto from "node:crypto";
-import mongoose from "mongoose";
-
 import {
-  findBookmarkByUserAndRecipe,
   createBookmark as createBookmarkRepository,
   deleteBookmarkByUserAndRecipe,
+  findBookmarkByUserAndRecipe,
   findBookmarksByUser,
 } from "@/repositories/bookmark.repository";
 
-import {
-  findRecipeById,
-  findRecipesByIds,
-  incrementBookmarkCount,
-} from "@/repositories/recipe.repository";
+import { findAccessibleRecipesByIds } from "@/repositories/recipe.repository";
 
-import { withTransaction } from "@/lib/transaction";
-import AppError from "@/lib/errors/AppError";
+import { getAccessibleRecipe } from "@/lib/helpers/recipe-access";
+
 import { ERROR_CODES } from "@/constants/error-codes";
 import { assertAuthenticated } from "@/lib/auth/guards";
-import { assertValidObjectId } from "@/lib/validation/object-id";
-import { normalizeLimit } from "@/lib/pagination/limit";
+import AppError from "@/lib/errors/AppError";
 import {
   decodeCursor,
   encodeCursor,
   normalizeCreatedAtIdCursor,
 } from "@/lib/pagination/cursor";
+import { normalizeLimit } from "@/lib/pagination/limit";
+import { assertValidObjectId } from "@/lib/validation/object-id";
 
 /**
  * --------------------------------------------------------------------------
@@ -68,32 +62,30 @@ function createNextCursor(bookmarks) {
  */
 export async function createBookmark(currentUser, recipeId) {
   assertAuthenticated(currentUser);
-
   assertValidObjectId(recipeId, "recipe ID");
 
-  return withTransaction(async (session) => {
-    /**
-     * Only active / non-deleted recipes
-     * can be bookmarked.
-     */
-    const recipe = await findRecipeById(recipeId, session);
+  const { recipe } = await getAccessibleRecipe(recipeId);
 
-    if (!recipe) {
-      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
+  const existingBookmark = await findBookmarkByUserAndRecipe(
+    currentUser._id,
+    recipeId
+  );
 
-    /**
-     * A user can bookmark a recipe only once.
-     */
-    const existingBookmark = await findBookmarkByUserAndRecipe(
-      currentUser._id,
-      recipeId,
-      session
+  if (existingBookmark) {
+    throw new AppError(
+      ERROR_CODES.BOOKMARK_ALREADY_EXISTS,
+      "شما قبلاً این دستور پخت را ذخیره کرده‌اید.",
+      { statusCode: 409 }
     );
+  }
 
-    if (existingBookmark) {
+  try {
+    return await createBookmarkRepository({
+      userId: currentUser._id,
+      recipeId,
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
       throw new AppError(
         ERROR_CODES.BOOKMARK_ALREADY_EXISTS,
         "شما قبلاً این دستور پخت را ذخیره کرده‌اید.",
@@ -101,40 +93,8 @@ export async function createBookmark(currentUser, recipeId) {
       );
     }
 
-    let bookmark;
-
-    try {
-      bookmark = await createBookmarkRepository(
-        {
-          userId: currentUser._id,
-          recipeId,
-        },
-        session
-      );
-    } catch (error) {
-      /**
-       * The unique { userId, recipeId }
-       * index is the final protection
-       * against concurrent duplicates.
-       */
-      if (error?.code === 11000) {
-        throw new AppError(
-          ERROR_CODES.BOOKMARK_ALREADY_EXISTS,
-          "شما قبلاً این دستور پخت را ذخیره کرده‌اید.",
-          { statusCode: 409 }
-        );
-      }
-
-      throw error;
-    }
-
-    /**
-     * Keep Recipe.stats.bookmarkCount synchronized.
-     */
-    await incrementBookmarkCount(recipeId, 1, session);
-
-    return bookmark;
-  });
+    throw error;
+  }
 }
 
 /**
@@ -148,59 +108,37 @@ export async function createBookmark(currentUser, recipeId) {
  */
 export async function deleteBookmark(currentUser, recipeId) {
   assertAuthenticated(currentUser);
-
   assertValidObjectId(recipeId, "recipe ID");
 
-  return withTransaction(async (session) => {
-    /**
-     * The parent Recipe must still be active.
-     *
-     * This is consistent with the domain rule that
-     * operations on deleted Recipes are blocked.
-     */
-    const recipe = await findRecipeById(recipeId, session);
+  const { recipe } = await getAccessibleRecipe(recipeId);
 
-    if (!recipe) {
-      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
+  const existingBookmark = await findBookmarkByUserAndRecipe(
+    currentUser._id,
+    recipeId
+  );
 
-    const existingBookmark = await findBookmarkByUserAndRecipe(
-      currentUser._id,
-      recipeId,
-      session
+  if (!existingBookmark) {
+    throw new AppError(
+      ERROR_CODES.BOOKMARK_NOT_FOUND,
+      "ذخیره دستور پخت پیدا نشد.",
+      { statusCode: 404 }
     );
+  }
 
-    if (!existingBookmark) {
-      throw new AppError(
-        ERROR_CODES.BOOKMARK_NOT_FOUND,
-        "ذخیره دستور پخت پیدا نشد.",
-        { statusCode: 404 }
-      );
-    }
+  const deletedBookmark = await deleteBookmarkByUserAndRecipe(
+    currentUser._id,
+    recipeId
+  );
 
-    const deletedBookmark = await deleteBookmarkByUserAndRecipe(
-      currentUser._id,
-      recipeId,
-      session
+  if (!deletedBookmark) {
+    throw new AppError(
+      ERROR_CODES.BOOKMARK_NOT_FOUND,
+      "ذخیره دستور پخت حذف نشد.",
+      { statusCode: 404 }
     );
+  }
 
-    if (!deletedBookmark) {
-      throw new AppError(
-        ERROR_CODES.BOOKMARK_NOT_FOUND,
-        "ذخیره دستور پخت حذف نشد.",
-        { statusCode: 404 }
-      );
-    }
-
-    /**
-     * Keep Recipe.stats.bookmarkCount synchronized.
-     */
-    await incrementBookmarkCount(recipeId, -1, session);
-
-    return deletedBookmark;
-  });
+  return deletedBookmark;
 }
 
 /**
@@ -220,13 +158,7 @@ export async function getUserBookmark(currentUser, recipeId) {
 
   assertValidObjectId(recipeId, "recipe ID");
 
-  const recipe = await findRecipeById(recipeId);
-
-  if (!recipe) {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
+  const { recipe } = await getAccessibleRecipe(recipeId);
 
   return findBookmarkByUserAndRecipe(currentUser._id, recipeId);
 }
@@ -281,7 +213,7 @@ export async function getUserBookmarks({
    */
   const recipeIds = pageBookmarks.map((bookmark) => bookmark.recipeId);
 
-  const recipes = await findRecipesByIds(recipeIds);
+  const recipes = await findAccessibleRecipesByIds(recipeIds);
 
   /**
    * MongoDB $in does not guarantee the same

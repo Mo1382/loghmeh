@@ -1,4 +1,5 @@
 import User from "@/models/User";
+import { USER_SORTS, USER_STATS } from "@/constants/enums";
 
 /**
  * Apply MongoDB session only when provided.
@@ -10,21 +11,9 @@ function applySession(query, session) {
 /**
  * Allowed user statistics that can be updated using $inc.
  */
-export const USER_STATS = {
-  RECIPE_COUNT: "recipeCount",
-  TOTAL_RECIPE_VIEWS: "totalRecipeViews",
-};
-
 /**
  * Available sorting options for user lists.
  */
-export const USER_SORTS = {
-  HIGHEST_RATED: "HIGHEST_RATED",
-  MOST_VIEWED: "MOST_VIEWED",
-  NEWEST: "NEWEST",
-  OLDEST: "OLDEST",
-};
-
 /**
  * Build a cursor filter according to the selected sort.
  *

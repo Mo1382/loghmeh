@@ -1,4 +1,4 @@
-import { INGREDIENT_UNITS } from "@/constants/enums";
+import { DIFFICULTIES, INGREDIENT_UNITS } from "@/constants/enums";
 import mongoose from "mongoose";
 
 const ingredientSchema = new mongoose.Schema(
@@ -128,7 +128,7 @@ const recipeSchema = new mongoose.Schema(
 
     difficulty: {
       type: String,
-      enum: ["آسان", "متوسط", "سخت"],
+      enum: DIFFICULTIES,
       required: true,
     },
 

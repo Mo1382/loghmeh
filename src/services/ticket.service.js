@@ -1,8 +1,19 @@
-import mongoose from "mongoose";
-
 import AppError from "@/lib/errors/AppError";
+
 import { ERROR_CODES } from "@/constants/error-codes";
+
 import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+
+import { assertValidObjectId } from "@/lib/validation/object-id";
+
+import {
+  decodeCursor,
+  encodeCursor,
+  normalizeCreatedAtIdCursor,
+} from "@/lib/pagination/cursor";
+import { TICKET_STATUSES } from "@/constants/enums";
+
+import { normalizeLimit } from "@/lib/pagination/limit";
 
 import {
   createTicket as createTicketRepository,
@@ -10,51 +21,24 @@ import {
   findTicketByIdAndUser,
   findTicketsByUser,
 } from "@/repositories/ticket.repository";
-import { normalizeLimit } from "@/lib/pagination/limit";
-import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
 /* -------------------------------------------------------------------------- */
 
-export const TICKET_STATUSES = {
-  OPEN: "OPEN",
-  IN_PROGRESS: "IN_PROGRESS",
-  RESOLVED: "RESOLVED",
-  CLOSED: "CLOSED",
-};
-
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
 
 /* -------------------------------------------------------------------------- */
-/* Authentication / Authorization                                             */
+/* Validation                                                                 */
 /* -------------------------------------------------------------------------- */
-
-/* -------------------------------------------------------------------------- */
-/* Validation                                                                  */
-/* -------------------------------------------------------------------------- */
-
-function assertValidObjectId(value, fieldName = "ID") {
-  if (!mongoose.isValidObjectId(value)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_OBJECT_ID,
-      `شناسه ${fieldName} نامعتبر است.`,
-      {
-        statusCode: 400,
-      }
-    );
-  }
-}
 
 function normalizeMessage(message) {
   if (typeof message !== "string") {
     throw new AppError(
       ERROR_CODES.INVALID_TICKET_MESSAGE,
       "متن پیام الزامی است.",
-      {
-        statusCode: 400,
-      }
+      { statusCode: 400 }
     );
   }
 
@@ -88,27 +72,28 @@ function normalizeMessage(message) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Cursor Helpers                                                              */
+/* Cursor Helpers                                                             */
 /* -------------------------------------------------------------------------- */
 
 function createNextCursor(ticket, userId) {
-  if (!ticket) {
+  if (!ticket || !ticket.createdAt || !ticket._id) {
     return null;
   }
 
   return encodeCursor({
-    userId,
-    createdAt: ticket.createdAt,
-    id: ticket._id,
+    userId: userId.toString(),
+    createdAt: ticket.createdAt.toISOString(),
+    id: ticket._id.toString(),
   });
 }
 
 /* -------------------------------------------------------------------------- */
-/* Get Ticket                                                                  */
+/* Get Ticket                                                                 */
 /* -------------------------------------------------------------------------- */
 
 export async function getTicketById(currentUser, ticketId) {
   assertAuthenticated(currentUser);
+
   assertValidObjectId(ticketId, "ticket ID");
 
   const ticket = await findTicketByIdAndUser(ticketId, currentUser._id);
@@ -117,9 +102,7 @@ export async function getTicketById(currentUser, ticketId) {
     throw new AppError(
       ERROR_CODES.TICKET_NOT_FOUND,
       "تیکت پشتیبانی پیدا نشد.",
-      {
-        statusCode: 404,
-      }
+      { statusCode: 404 }
     );
   }
 
@@ -128,6 +111,7 @@ export async function getTicketById(currentUser, ticketId) {
 
 export async function getTicketByIdForAdmin(currentUser, ticketId) {
   assertAdmin(currentUser);
+
   assertValidObjectId(ticketId, "ticket ID");
 
   const ticket = await findTicketById(ticketId);
@@ -136,9 +120,7 @@ export async function getTicketByIdForAdmin(currentUser, ticketId) {
     throw new AppError(
       ERROR_CODES.TICKET_NOT_FOUND,
       "تیکت پشتیبانی پیدا نشد.",
-      {
-        statusCode: 404,
-      }
+      { statusCode: 404 }
     );
   }
 
@@ -146,12 +128,12 @@ export async function getTicketByIdForAdmin(currentUser, ticketId) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Get User Tickets                                                            */
+/* Get User Tickets                                                           */
 /* -------------------------------------------------------------------------- */
 
 export async function getUserTickets(
   currentUser,
-  { cursor = null, limit = DEFAULT_LIMIT } = {}
+  { cursor = null, limit = DEFAULT_LIST_LIMIT } = {}
 ) {
   assertAuthenticated(currentUser);
 
@@ -161,21 +143,29 @@ export async function getUserTickets(
     MAX_LIST_LIMIT
   );
 
-  const payload = decodeCursor(cursor);
+  let normalizedCursor = null;
 
-  if (payload.userId !== currentUser._id.toString()) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر تیکت پشتیبانی متعلق به این کاربر نیست.",
-      { statusCode: 400 }
-    );
+  /*
+   * No cursor means the first page.
+   * We must not access payload.userId when cursor is empty.
+   */
+  if (cursor) {
+    const payload = decodeCursor(cursor);
+
+    if (payload.userId !== currentUser._id.toString()) {
+      throw new AppError(
+        ERROR_CODES.INVALID_CURSOR,
+        "نشانگر تیکت پشتیبانی متعلق به این کاربر نیست.",
+        { statusCode: 400 }
+      );
+    }
+
+    normalizedCursor = normalizeCreatedAtIdCursor(payload);
   }
-
-  const decodedCursor = normalizeCreatedAtIdCursor(payload);
 
   const tickets = await findTicketsByUser({
     userId: currentUser._id,
-    cursor: decodedCursor,
+    cursor: normalizedCursor,
     limit: normalizedLimit + 1,
   });
 
@@ -197,7 +187,7 @@ export async function getUserTickets(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Create Ticket                                                               */
+/* Create Ticket                                                              */
 /* -------------------------------------------------------------------------- */
 
 export async function createSupportTicket(currentUser, message) {

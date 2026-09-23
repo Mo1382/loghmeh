@@ -1,8 +1,7 @@
-import mongoose from "mongoose";
-
+import Category from "@/models/Category";
 import Recipe from "@/models/Recipe";
 import User from "@/models/User";
-import Category from "@/models/Category";
+import { RECIPE_SORTS, RECIPE_STATS } from "@/constants/enums";
 
 /* -------------------------------------------------------------------------- */
 /* Sorting                                                                    */
@@ -14,13 +13,6 @@ import Category from "@/models/Category";
  * The Service layer is responsible for deciding which
  * sorting modes are allowed for each use case.
  */
-export const RECIPE_SORTS = {
-  NEWEST: "NEWEST",
-  OLDEST: "OLDEST",
-  MOST_VIEWED: "MOST_VIEWED",
-  HIGHEST_RATED: "HIGHEST_RATED",
-};
-
 /* -------------------------------------------------------------------------- */
 /* Statistics                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -28,12 +20,6 @@ export const RECIPE_SORTS = {
 /**
  * Allowed recipe statistic fields.
  */
-export const RECIPE_STATS = {
-  VIEW_COUNT: "stats.viewCount",
-  RATING_COUNT: "stats.ratingCount",
-  COMMENT_COUNT: "stats.commentCount",
-};
-
 /* -------------------------------------------------------------------------- */
 /* Query Helpers                                                              */
 /* -------------------------------------------------------------------------- */
@@ -510,6 +496,105 @@ export function findRecipesByIds(recipeIds, session) {
   });
 
   return applySession(query, session);
+}
+
+export function findAccessibleRecipesByIds(recipeIds, session) {
+  const pipeline = [
+    {
+      $match: {
+        _id: {
+          $in: recipeIds,
+        },
+        deletedAt: null,
+      },
+    },
+
+    {
+      $lookup: {
+        from: "users",
+        let: {
+          authorId: "$authorId",
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$_id", "$$authorId"] },
+                  { $eq: ["$accountStatus", "ACTIVE"] },
+                  { $eq: ["$deletedAt", null] },
+                ],
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+            },
+          },
+        ],
+        as: "accessibleAuthor",
+      },
+    },
+
+    {
+      $match: {
+        "accessibleAuthor.0": {
+          $exists: true,
+        },
+      },
+    },
+
+    {
+      $lookup: {
+        from: "categories",
+        let: {
+          categoryId: "$categoryId",
+        },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$_id", "$$categoryId"] },
+                  { $eq: ["$isActive", true] },
+                ],
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 1,
+            },
+          },
+        ],
+        as: "accessibleCategory",
+      },
+    },
+
+    {
+      $match: {
+        "accessibleCategory.0": {
+          $exists: true,
+        },
+      },
+    },
+
+    {
+      $project: {
+        accessibleAuthor: 0,
+        accessibleCategory: 0,
+      },
+    },
+  ];
+
+  const aggregate = Recipe.aggregate(pipeline);
+
+  if (session) {
+    aggregate.session(session);
+  }
+
+  return aggregate;
 }
 
 /* -------------------------------------------------------------------------- */

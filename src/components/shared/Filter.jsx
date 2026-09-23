@@ -9,6 +9,7 @@ import FilterConfirmBtn from "../ui/Buttons/FilterConfirmBtn";
 import Checkbox from "../ui/Checkbox";
 import FilterSelectBar from "./FilterSelectBar";
 import useClickOutside from "@/lib/hooks/useClickOutside";
+import { DIFFICULTIES } from "@/constants/enums";
 
 const filterItems = [
   // Options must be fetched from the backend
@@ -26,7 +27,7 @@ const filterItems = [
   {
     id: "difficulties",
     label: "درجه سختی",
-    options: ["آسان", "متوسط", "سخت"],
+    options: DIFFICULTIES,
   },
   {
     id: "prepTime",

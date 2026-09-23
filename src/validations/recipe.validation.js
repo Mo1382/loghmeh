@@ -1,4 +1,4 @@
-import { INGREDIENT_UNITS } from "@/constants/enums";
+import { DIFFICULTIES, INGREDIENT_UNITS } from "@/constants/enums";
 import { z } from "zod";
 
 /**
@@ -26,7 +26,7 @@ const originSchema = z
   .trim()
   .max(60, "مبدأ نباید بیشتر از ۶۰ کاراکتر باشد.");
 
-const difficultySchema = z.enum(["آسان", "متوسط", "سخت"]);
+const difficultySchema = z.enum(DIFFICULTIES);
 
 const preparationTimeSchema = z
   .number()

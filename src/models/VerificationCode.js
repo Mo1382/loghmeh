@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { VERIFICATION_CODE_PURPOSES } from "@/constants/enums";
 
 const verificationCodeSchema = new mongoose.Schema(
   {
@@ -16,7 +17,7 @@ const verificationCodeSchema = new mongoose.Schema(
 
     purpose: {
       type: String,
-      enum: ["EMAIL_VERIFICATION", "PASSWORD_RESET"],
+      enum: Object.values(VERIFICATION_CODE_PURPOSES),
       required: true,
     },
 

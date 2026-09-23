@@ -1,37 +1,30 @@
-import mongoose from "mongoose";
-
 import {
-  findCommentById,
-  findCommentsByRecipe,
-  findCommentByReplyId,
-  findDeletedCommentById,
-  createComment as createCommentRepository,
   addCommentReply,
+  createComment as createCommentRepository,
   deleteCommentReplyById,
-  softDeleteComment,
+  findCommentById,
+  findCommentByReplyId,
+  findCommentsByRecipe,
+  findDeletedCommentById,
   restoreComment as restoreCommentRepository,
+  softDeleteComment,
 } from "@/repositories/comment.repository";
 
-import {
-  findRecipeById,
-  incrementCommentCount,
-} from "@/repositories/recipe.repository";
+import { incrementCommentCount } from "@/repositories/recipe.repository";
 
-import { withTransaction } from "@/lib/transaction";
-import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
 import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
-import { assertValidObjectId } from "@/lib/validation/object-id";
-import {
-  createSystemNotification,
-  NOTIFICATION_TYPES,
-} from "./notification.service";
-import { normalizeLimit } from "@/lib/pagination/limit";
+import AppError from "@/lib/errors/AppError";
 import {
   decodeCursor,
   encodeCursor,
   normalizeCreatedAtIdCursor,
 } from "@/lib/pagination/cursor";
+import { normalizeLimit } from "@/lib/pagination/limit";
+import { withTransaction } from "@/lib/transaction";
+import { assertValidObjectId } from "@/lib/validation/object-id";
+import { NOTIFICATION_TYPES } from "@/constants/enums";
+import { createSystemNotification } from "./notification.service";
 
 /**
  * --------------------------------------------------------------------------
@@ -203,13 +196,7 @@ export async function getCommentById(commentId) {
     });
   }
 
-  const recipe = await findRecipeById(comment.recipeId);
-
-  if (!recipe) {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
+  const { recipe } = await getAccessibleRecipe(comment.recipeId);
 
   return comment;
 }
@@ -225,13 +212,7 @@ export async function getCommentsByRecipe({
 } = {}) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  const recipe = await findRecipeById(recipeId);
-
-  if (!recipe) {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
+  const { recipe } = await getAccessibleRecipe(recipeId);
 
   const normalizedLimit = normalizeLimit(
     limit,
@@ -282,13 +263,7 @@ export async function createComment(currentUser, recipeId, text) {
     /**
      * Only active recipes can receive comments.
      */
-    const recipe = await findRecipeById(recipeId, session);
-
-    if (!recipe) {
-      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
+    const { recipe } = await getAccessibleRecipe(recipeId);
 
     const comment = await createCommentRepository(
       {
@@ -359,13 +334,7 @@ export async function createCommentReply(currentUser, commentId, text) {
       });
     }
 
-    const recipe = await findRecipeById(comment.recipeId, session);
-
-    if (!recipe) {
-      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
+    const { recipe } = await getAccessibleRecipe(comment.recipeId);
 
     assertCanReplyToComment(currentUser, recipe);
 
@@ -433,13 +402,7 @@ export async function deleteComment(currentUser, commentId) {
 
     assertCommentOwnerOrAdmin(currentUser, comment);
 
-    const recipe = await findRecipeById(comment.recipeId, session);
-
-    if (!recipe) {
-      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
+    const { recipe } = await getAccessibleRecipe(comment.recipeId);
 
     const deletedComment = await softDeleteComment(
       commentId,
@@ -504,19 +467,7 @@ export async function restoreComment(currentUser, commentId) {
       );
     }
 
-    /**
-     * The parent Recipe must be active before
-     * the comment can become publicly visible again.
-     */
-    const recipe = await findRecipeById(comment.recipeId, session);
-
-    if (!recipe) {
-      throw new AppError(
-        ERROR_CODES.RECIPE_NOT_FOUND,
-        "دستور پخت پیدا نشد یا غیرفعال است.",
-        { statusCode: 404 }
-      );
-    }
+    const { recipe } = await getAccessibleRecipe(comment.recipeId);
 
     const restoredComment = await restoreCommentRepository(commentId, session);
 

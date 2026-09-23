@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { ACCOUNT_STATUSES, USER_ROLES, USER_TITLES } from "@/constants/enums";
 
 const userSchema = new mongoose.Schema(
   {
@@ -47,14 +48,14 @@ const userSchema = new mongoose.Schema(
 
     title: {
       type: String,
-      enum: ["USER", "COOK", "HEAD_CHEF", "BARISTA", "FOOD_BLOGGER"],
+      enum: USER_TITLES,
       default: "USER",
       required: true,
     },
 
     role: {
       type: String,
-      enum: ["USER", "ADMIN"],
+      enum: USER_ROLES,
       default: "USER",
       required: true,
     },
@@ -104,7 +105,7 @@ const userSchema = new mongoose.Schema(
 
     accountStatus: {
       type: String,
-      enum: ["ACTIVE", "SUSPENDED", "DEACTIVATED"],
+      enum: ACCOUNT_STATUSES,
       default: "ACTIVE",
       required: true,
     },

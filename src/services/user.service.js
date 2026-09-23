@@ -1,3 +1,6 @@
+import { pickAllowedFields } from "@/lib/validation/fields";
+import mongoose from "mongoose";
+
 import {
   findUserById,
   findUserByUsername,
@@ -8,21 +11,15 @@ import {
   restoreUser,
 } from "@/repositories/user.repository";
 
-import { USER_SORTS } from "@/repositories/user.repository";
+import { USER_SORTS } from "@/constants/enums";
 
 import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
 import { assertAdmin } from "@/lib/auth/guards";
 import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
-
-const Account_Status = ["ACTIVE", "SUSPENDED", "DEACTIVATED"];
-
-/**
- * Cursor format version.
- *
- * Increment this when the internal cursor structure changes.
- */
-const CURSOR_VERSION = 1;
+import { assertValidObjectId } from "@/lib/validation/object-id";
+import { assertEnum } from "@/lib/validation/enum";
+import { ACCOUNT_STATUSES } from "@/constants/enums";
 
 /**
  * Cursor signing algorithm.
@@ -167,8 +164,6 @@ function createNextCursor(user, sort) {
   });
 }
 
-import { pickAllowedFields } from "@/lib/validation/fields";
-
 function toPublicUser(user) {
   const publicUser = pickAllowedFields(user, [
     "_id",
@@ -285,40 +280,36 @@ export async function getUsers({
   filter = {},
   sort = USER_SORTS.NEWEST,
   cursor = null,
-  limit = 16,
-}) {
-  if (!Object.values(USER_SORTS).includes(sort)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "مرتب‌سازی کاربران نامعتبر است.",
-      {
-        statusCode: 400,
-      }
-    );
-  }
+  limit = DEFAULT_LIST_LIMIT,
+} = {}) {
+  assertEnum(sort, Object.values(USER_SORTS), {
+    errorCode: ERROR_CODES.INVALID_REQUEST,
+    message: "مرتب‌سازی کاربران نامعتبر است.",
+    statusCode: 400,
+  });
+
+  const normalizedLimit = normalizeLimit(
+    limit,
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT
+  );
 
   let decodedCursor = null;
 
   if (cursor) {
-    decodedCursor = cursor
-      ? validateUserCursor(decodeCursor(cursor), normalizedSort)
-      : null;
+    decodedCursor = validateUserCursor(decodeCursor(cursor), sort);
   }
 
-  /**
-   * Fetch one extra user to determine
-   * whether another batch exists.
-   */
   const users = await findUsers({
     filter,
     sort,
     cursor: decodedCursor,
-    limit: limit + 1,
+    limit: normalizedLimit + 1,
   });
 
-  const hasMore = users.length > limit;
+  const hasMore = users.length > normalizedLimit;
 
-  const visibleUsers = hasMore ? users.slice(0, limit) : users;
+  const visibleUsers = hasMore ? users.slice(0, normalizedLimit) : users;
 
   const nextCursor = hasMore
     ? createNextCursor(visibleUsers[visibleUsers.length - 1], sort)
@@ -373,7 +364,7 @@ export async function changeAccountStatus(
 ) {
   assertAdmin(currentUser);
 
-  assertEnum(accountStatus, Object.values(Account_Status), {
+  assertEnum(accountStatus, ACCOUNT_STATUSES, {
     errorCode: ERROR_CODES.INVALID_REQUEST,
     message: "وضعیت حساب کاربری نامعتبر است.",
     statusCode: 400,

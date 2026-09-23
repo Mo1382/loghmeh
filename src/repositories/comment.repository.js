@@ -1,4 +1,5 @@
 import Comment from "@/models/Comment";
+import { COMMENT_STATS } from "@/constants/enums";
 
 /**
  * Apply MongoDB session only when provided.
@@ -13,11 +14,6 @@ function applySession(query, session) {
  * Using a fixed list prevents arbitrary fields from being
  * modified through the generic comment-stat update function.
  */
-export const COMMENT_STATS = {
-  LIKE_COUNT: "likeCount",
-  DISLIKE_COUNT: "dislikeCount",
-};
-
 /**
  * Find a comment by its ID.
  */

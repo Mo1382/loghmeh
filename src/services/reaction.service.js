@@ -1,9 +1,9 @@
 import {
-  findReactionByUserAndComment,
-  createReaction as createReactionRepository,
-  updateReactionType,
-  deleteReactionByUserAndComment,
   calculateCommentReactionStats,
+  createReaction as createReactionRepository,
+  deleteReactionByUserAndComment,
+  findReactionByUserAndComment,
+  updateReactionType,
 } from "@/repositories/reaction.repository";
 
 import {
@@ -11,30 +11,21 @@ import {
   updateReactionCounts,
 } from "@/repositories/comment.repository";
 
-import { findRecipeById } from "@/repositories/recipe.repository";
+import { createSystemNotification } from "@/services/notification.service";
 
-import {
-  createSystemNotification,
-  NOTIFICATION_TYPES,
-} from "@/services/notification.service";
-
-import { withTransaction } from "@/lib/transaction";
-import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
 import { assertAuthenticated } from "@/lib/auth/guards";
-import { assertValidObjectId } from "@/lib/validation/object-id";
+import AppError from "@/lib/errors/AppError";
+import { withTransaction } from "@/lib/transaction";
 import { assertEnum } from "@/lib/validation/enum";
+import { assertValidObjectId } from "@/lib/validation/object-id";
+import { NOTIFICATION_TYPES, REACTION_TYPES } from "@/constants/enums";
 
 /**
  * --------------------------------------------------------------------------
  * Constants
  * --------------------------------------------------------------------------
  */
-
-export const REACTION_TYPES = {
-  LIKE: "LIKE",
-  DISLIKE: "DISLIKE",
-};
 
 /**
  * --------------------------------------------------------------------------
@@ -69,13 +60,7 @@ async function getActiveCommentContext(commentId, session) {
     });
   }
 
-  const recipe = await findRecipeById(comment.recipeId, session);
-
-  if (!recipe) {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
+  await getAccessibleRecipe(comment.recipeId);
 
   return {
     comment,
@@ -161,7 +146,7 @@ export async function createReaction(currentUser, commentId, type) {
 
   assertValidObjectId(commentId, "comment ID");
 
-  assertEnum(type, REACTION_TYPES, {
+  assertEnum(type, Object.values(REACTION_TYPES), {
     errorCode: ERROR_CODES.INVALID_REQUEST,
     message: "نوع واکنش نامعتبر است.",
     statusCode: 400,
@@ -267,7 +252,7 @@ export async function updateReaction(currentUser, commentId, type) {
 
   assertValidObjectId(commentId, "comment ID");
 
-  assertEnum(type, REACTION_TYPES, {
+  assertEnum(type, Object.values(REACTION_TYPES), {
     errorCode: ERROR_CODES.INVALID_REQUEST,
     message: "نوع واکنش نامعتبر است.",
     statusCode: 400,

@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { TICKET_STATUSES } from "@/constants/enums";
 
 const ticketReplySchema = new mongoose.Schema(
   {
@@ -38,8 +39,8 @@ const ticketSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"],
-      default: "OPEN",
+      enum: Object.values(TICKET_STATUSES),
+      default: TICKET_STATUSES.OPEN,
       required: true,
     },
 

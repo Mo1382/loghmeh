@@ -1,9 +1,19 @@
-import mongoose from "mongoose";
-
 import AppError from "@/lib/errors/AppError";
+
 import { ERROR_CODES } from "@/constants/error-codes";
+
 import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+
 import { assertValidObjectId } from "@/lib/validation/object-id";
+import { assertEnum } from "@/lib/validation/enum";
+
+import {
+  decodeCursor,
+  encodeCursor,
+  normalizeCreatedAtIdCursor,
+} from "@/lib/pagination/cursor";
+
+import { normalizeLimit } from "@/lib/pagination/limit";
 
 import {
   findNotificationByIdAndUser,
@@ -16,34 +26,17 @@ import {
 } from "@/repositories/notification.repository";
 
 import { findActiveUsersByIds } from "@/repositories/user.repository";
-import { normalizeLimit } from "@/lib/pagination/limit";
-import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
+import { NOTIFICATION_TYPES } from "@/constants/enums";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
 /* -------------------------------------------------------------------------- */
 
-export const NOTIFICATION_TYPES = {
-  RECIPE_RATED: "RECIPE_RATED",
-  RECIPE_COMMENTED: "RECIPE_COMMENTED",
-  COMMENT_REPLIED: "COMMENT_REPLIED",
-  COMMENT_LIKED: "COMMENT_LIKED",
-  COMMENT_DISLIKED: "COMMENT_DISLIKED",
-  ANNOUNCEMENT: "ANNOUNCEMENT",
-  SUPPORT_REPLIED: "SUPPORT_REPLIED",
-};
-
-const VALID_NOTIFICATION_TYPES = new Set(Object.values(NOTIFICATION_TYPES));
-
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
 
 /* -------------------------------------------------------------------------- */
-/* Authentication / Authorization                                             */
-/* -------------------------------------------------------------------------- */
-
-/* -------------------------------------------------------------------------- */
-/* Validation                                                                  */
+/* Validation                                                                 */
 /* -------------------------------------------------------------------------- */
 
 function normalizeNotificationText(value, fieldName) {
@@ -69,27 +62,38 @@ function normalizeNotificationText(value, fieldName) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Cursor Helpers                                                              */
+/* Cursor Helpers                                                             */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Create the next cursor from the last notification in the current page.
+ */
 function createNextCursor(notification, userId) {
   if (!notification) {
     return null;
   }
 
+  if (!notification.createdAt || !notification._id) {
+    return null;
+  }
+
   return encodeCursor({
-    userId,
-    createdAt: notification.createdAt,
-    id: notification._id,
+    userId: userId.toString(),
+    createdAt: notification.createdAt.toISOString(),
+    id: notification._id.toString(),
   });
 }
 
 /* -------------------------------------------------------------------------- */
-/* Notification Data Helpers                                                   */
+/* Notification Data Helpers                                                  */
 /* -------------------------------------------------------------------------- */
 
 function normalizeSystemNotificationData(notificationData) {
-  if (!notificationData || typeof notificationData !== "object") {
+  if (
+    !notificationData ||
+    typeof notificationData !== "object" ||
+    Array.isArray(notificationData)
+  ) {
     throw new AppError(
       ERROR_CODES.INVALID_NOTIFICATION_DATA,
       "اطلاعات اعلان الزامی است.",
@@ -105,12 +109,12 @@ function normalizeSystemNotificationData(notificationData) {
     message,
     recipeId = null,
     commentId = null,
-    ticketId = null,
+    supportTicketId = null,
   } = notificationData;
 
   assertValidObjectId(userId, "user ID");
 
-  assertEnum(type, Object.values(VALID_NOTIFICATION_TYPES), {
+  assertEnum(type, Object.values(NOTIFICATION_TYPES), {
     errorCode: ERROR_CODES.INVALID_NOTIFICATION_TYPE,
     message: "نوع اعلان نامعتبر است.",
     statusCode: 400,
@@ -128,8 +132,8 @@ function normalizeSystemNotificationData(notificationData) {
     assertValidObjectId(commentId, "comment ID");
   }
 
-  if (ticketId !== null) {
-    assertValidObjectId(ticketId, "support ticket ID");
+  if (supportTicketId !== null) {
+    assertValidObjectId(supportTicketId, "support ticket ID");
   }
 
   return {
@@ -140,7 +144,7 @@ function normalizeSystemNotificationData(notificationData) {
     message: normalizeNotificationText(message, "متن پیام"),
     recipeId,
     commentId,
-    ticketId,
+    supportTicketId,
 
     // System-managed fields.
     isRead: false,
@@ -149,11 +153,12 @@ function normalizeSystemNotificationData(notificationData) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Get Notification                                                            */
+/* Get Notification                                                           */
 /* -------------------------------------------------------------------------- */
 
 export async function getNotificationById(currentUser, notificationId) {
   assertAuthenticated(currentUser);
+
   assertValidObjectId(notificationId, "notification ID");
 
   const notification = await findNotificationByIdAndUser(
@@ -171,12 +176,12 @@ export async function getNotificationById(currentUser, notificationId) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Get Notifications                                                           */
+/* Get Notifications                                                          */
 /* -------------------------------------------------------------------------- */
 
 export async function getNotifications(
   currentUser,
-  { cursor = null, limit = DEFAULT_LIMIT } = {}
+  { cursor = null, limit = DEFAULT_LIST_LIMIT } = {}
 ) {
   assertAuthenticated(currentUser);
 
@@ -186,21 +191,30 @@ export async function getNotifications(
     MAX_LIST_LIMIT
   );
 
-  const payload = decodeCursor(cursor);
+  let decodedCursor = null;
+  let normalizedCursor = null;
 
-  if (payload.userId !== currentUser._id.toString()) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر اعلان متعلق به این کاربر نیست.",
-      { statusCode: 400 }
-    );
+  /*
+   * An empty cursor means the first page.
+   * decodeCursor() returns null in this case.
+   */
+  if (cursor) {
+    decodedCursor = decodeCursor(cursor);
+
+    if (decodedCursor.userId !== currentUser._id.toString()) {
+      throw new AppError(
+        ERROR_CODES.INVALID_CURSOR,
+        "نشانگر اعلان متعلق به این کاربر نیست.",
+        { statusCode: 400 }
+      );
+    }
+
+    normalizedCursor = normalizeCreatedAtIdCursor(decodedCursor);
   }
-
-  const decodedCursor = normalizeCreatedAtIdCursor(payload);
 
   const notifications = await findNotificationsByUser({
     userId: currentUser._id,
-    cursor: decodedCursor,
+    cursor: normalizedCursor,
     limit: normalizedLimit + 1,
   });
 
@@ -224,7 +238,7 @@ export async function getNotifications(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Unread Count                                                                */
+/* Unread Count                                                               */
 /* -------------------------------------------------------------------------- */
 
 export async function getUnreadNotificationCount(currentUser) {
@@ -254,8 +268,10 @@ export async function markNotificationRead(currentUser, notificationId) {
     });
   }
 
-  // Idempotent behavior:
-  // if already read, keep the original readAt timestamp.
+  /*
+   * Idempotent behavior:
+   * if already read, preserve the original readAt.
+   */
   if (notification.isRead) {
     return notification;
   }
@@ -275,7 +291,7 @@ export async function markNotificationRead(currentUser, notificationId) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Delete Notification                                                         */
+/* Delete Notification                                                        */
 /* -------------------------------------------------------------------------- */
 
 export async function deleteNotification(currentUser, notificationId) {
@@ -298,7 +314,7 @@ export async function deleteNotification(currentUser, notificationId) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Internal / System Notification                                              */
+/* Internal / System Notification                                             */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -319,14 +335,11 @@ export async function createSystemNotification(notificationData, session) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Global / Admin Notification                                                 */
+/* Global / Admin Notification                                                */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Create an announcement notification for multiple
- * active users.
- *
- * `recipientUserIds` should contain the intended recipients.
+ * Create an announcement notification for multiple active users.
  *
  * The function:
  * - requires ADMIN privileges
@@ -355,9 +368,7 @@ export async function createGlobalNotification(
     throw new AppError(
       ERROR_CODES.NO_RECIPIENTS,
       "حداقل یک دریافت‌کننده الزامی است.",
-      {
-        statusCode: 400,
-      }
+      { statusCode: 400 }
     );
   }
 
@@ -397,7 +408,7 @@ export async function createGlobalNotification(
 
     recipeId: null,
     commentId: null,
-    ticketId: null,
+    supportTicketId: null,
 
     // System-managed fields.
     isRead: false,

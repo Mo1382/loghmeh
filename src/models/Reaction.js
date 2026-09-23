@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { REACTION_TYPES } from "@/constants/enums";
 
 const reactionSchema = new mongoose.Schema(
   {
@@ -16,7 +17,7 @@ const reactionSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ["LIKE", "DISLIKE"],
+      enum: Object.values(REACTION_TYPES),
       required: true,
     },
   },
