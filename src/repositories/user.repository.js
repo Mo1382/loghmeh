@@ -1,12 +1,6 @@
 import User from "@/models/User";
-import { USER_SORTS, USER_STATS } from "@/constants/enums";
-
-/**
- * Apply MongoDB session only when provided.
- */
-function applySession(query, session) {
-  return session ? query.session(session) : query;
-}
+import { ACCOUNT_STATUSES, USER_SORTS, USER_STATS } from "@/constants/enums";
+import { applySession } from "@/lib/helpers/apply-session";
 
 /**
  * Allowed user statistics that can be updated using $inc.
@@ -136,7 +130,7 @@ export function findUserByIdWithPassword(userId, session) {
 export function findActiveUsersByIds(userIds, session) {
   const query = User.find({
     _id: { $in: userIds },
-    accountStatus: "ACTIVE",
+    accountStatus: ACCOUNT_STATUSES.ACTIVE,
     deletedAt: null,
   });
 
@@ -246,6 +240,7 @@ export function markEmailAsVerified(userId, session) {
     {
       _id: userId,
       deletedAt: null,
+      emailVerified: false,
     },
     {
       $set: {

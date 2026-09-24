@@ -11,33 +11,38 @@ import {
 import {
   findActiveUsersByIds,
   findUserById,
-  incrementFollowerCount,
-  incrementFollowingCount,
 } from "@/repositories/user.repository";
 
+import { ACCOUNT_STATUSES, FOLLOW_LIST_TYPES } from "@/constants/enums";
 import { ERROR_CODES } from "@/constants/error-codes";
+
 import { assertAuthenticated } from "@/lib/auth/guards";
 import AppError from "@/lib/errors/AppError";
-import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
-import { normalizeLimit } from "@/lib/pagination/limit";
-import { withTransaction } from "@/lib/transaction";
-import { assertValidObjectId } from "@/lib/validation/object-id";
-import { FOLLOW_LIST_TYPES } from "@/constants/enums";
 
-/**
- * --------------------------------------------------------------------------
- * Constants
- * --------------------------------------------------------------------------
- */
+import {
+  decodeCursor,
+  encodeCursor,
+  normalizeCreatedAtIdCursor,
+} from "@/lib/pagination/cursor";
+
+import { normalizeLimit } from "@/lib/pagination/limit";
+import { assertValidObjectId } from "@/lib/validation/object-id";
+
+import {
+  assertCursorResource,
+  assertCursorOwner,
+} from "@/lib/pagination/cursor-context";
+
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                  */
+/* -------------------------------------------------------------------------- */
 
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
 
-/**
- * --------------------------------------------------------------------------
- * Authentication / Validation
- * --------------------------------------------------------------------------
- */
+/* -------------------------------------------------------------------------- */
+/* Authentication / Validation                                                */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Ensure that a user account is active.
@@ -46,7 +51,11 @@ const MAX_LIST_LIMIT = 50;
  * are not considered active.
  */
 function assertActiveUser(user, message = "حساب کاربری فعال نیست.") {
-  if (!user || user.accountStatus !== "ACTIVE" || user.deletedAt) {
+  if (
+    !user ||
+    user.accountStatus !== ACCOUNT_STATUSES.ACTIVE ||
+    user.deletedAt
+  ) {
     throw new AppError(ERROR_CODES.FORBIDDEN, message, { statusCode: 403 });
   }
 }
@@ -64,15 +73,18 @@ function assertNotSelfFollow(currentUser, targetUserId) {
   }
 }
 
-/**
- * --------------------------------------------------------------------------
- * Cursor
- * --------------------------------------------------------------------------
- */
+/* -------------------------------------------------------------------------- */
+/* Cursor                                                                     */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Create the next cursor from the last Follow
  * included in the current page.
+ *
+ * Cursor context:
+ * - resource: FOLLOWS
+ * - userId: the user whose following/follower list is being requested
+ * - listType: FOLLOWING or FOLLOWERS
  */
 function createNextCursor({ follows, userId, listType }) {
   if (!follows.length) {
@@ -81,23 +93,51 @@ function createNextCursor({ follows, userId, listType }) {
 
   const lastFollow = follows[follows.length - 1];
 
-  if (!lastFollow.createdAt) {
+  if (!lastFollow.createdAt || !lastFollow._id) {
     return null;
   }
 
   return encodeCursor({
-    userId,
+    resource: "FOLLOWS",
+    userId: userId.toString(),
     listType,
     createdAt: lastFollow.createdAt.toISOString(),
-    id: lastFollow._id,
+    id: lastFollow._id.toString(),
   });
 }
 
 /**
- * --------------------------------------------------------------------------
- * User mapping
- * --------------------------------------------------------------------------
+ * Validate and normalize a Follow cursor.
+ *
+ * The cursor must belong to:
+ * - the FOLLOWS resource,
+ * - the requested user,
+ * - the requested list type.
  */
+function normalizeFollowCursor(payload, expectedUserId, expectedListType) {
+  assertCursorResource(payload, "FOLLOWS");
+
+  assertCursorOwner(
+    payload,
+    "userId",
+    expectedUserId,
+    "نشانگر صفحه‌بندی متعلق به این کاربر نیست."
+  );
+
+  if (payload.listType !== expectedListType) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی با فهرست انتخاب‌شده مطابقت ندارد.",
+      { statusCode: 400 }
+    );
+  }
+
+  return normalizeCreatedAtIdCursor(payload);
+}
+
+/* -------------------------------------------------------------------------- */
+/* User mapping                                                               */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Convert Follow documents into active User documents
@@ -137,16 +177,13 @@ async function mapFollowsToUsers(follows, listType) {
     .filter(Boolean);
 }
 
-/**
- * --------------------------------------------------------------------------
- * Create
- * --------------------------------------------------------------------------
- */
+/* -------------------------------------------------------------------------- */
+/* Create                                                                     */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Follow another user.
  */
-
 export async function createFollow(currentUser, targetUserId) {
   assertAuthenticated(currentUser);
 
@@ -174,8 +211,9 @@ export async function createFollow(currentUser, targetUserId) {
 
   assertActiveUser(targetUser, "حساب کاربری هدف فعال نیست.");
 
-  /*
+  /**
    * The existence check provides a clear business-level error.
+   *
    * The unique MongoDB index remains the final protection
    * against concurrent duplicate Follow creation.
    */
@@ -210,11 +248,9 @@ export async function createFollow(currentUser, targetUserId) {
   }
 }
 
-/**
- * --------------------------------------------------------------------------
- * Delete
- * --------------------------------------------------------------------------
- */
+/* -------------------------------------------------------------------------- */
+/* Delete                                                                     */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Unfollow another user.
@@ -229,51 +265,48 @@ export async function deleteFollow(currentUser, targetUserId) {
 
   assertNotSelfFollow(currentUser, targetUserId);
 
-  return withTransaction(async (session) => {
-    const existingFollow = await findFollowByFollowerAndFollowing(
-      currentUser._id,
-      targetUserId,
-      session
+  const authenticatedUser = await findUserById(currentUser._id);
+
+  if (!authenticatedUser) {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
+      statusCode: 404,
+    });
+  }
+
+  assertActiveUser(authenticatedUser, "حساب کاربری شما فعال نیست.");
+
+  const existingFollow = await findFollowByFollowerAndFollowing(
+    authenticatedUser._id,
+    targetUserId
+  );
+
+  if (!existingFollow) {
+    throw new AppError(
+      ERROR_CODES.FOLLOW_NOT_FOUND,
+      "رابطه دنبال‌کردن پیدا نشد.",
+      { statusCode: 404 }
     );
+  }
 
-    if (!existingFollow) {
-      throw new AppError(
-        ERROR_CODES.FOLLOW_NOT_FOUND,
-        "رابطه دنبال‌کردن پیدا نشد.",
-        { statusCode: 404 }
-      );
-    }
+  const deletedFollow = await deleteFollowByFollowerAndFollowing(
+    authenticatedUser._id,
+    targetUserId
+  );
 
-    const deletedFollow = await deleteFollowByFollowerAndFollowing(
-      currentUser._id,
-      targetUserId,
-      session
+  if (!deletedFollow) {
+    throw new AppError(
+      ERROR_CODES.FOLLOW_NOT_FOUND,
+      "رابطه دنبال‌کردن حذف نشد.",
+      { statusCode: 404 }
     );
+  }
 
-    if (!deletedFollow) {
-      throw new AppError(
-        ERROR_CODES.FOLLOW_NOT_FOUND,
-        "رابطه دنبال‌کردن حذف نشد.",
-        { statusCode: 404 }
-      );
-    }
-
-    /**
-     * Update both denormalized counters.
-     */
-    await incrementFollowingCount(currentUser._id, -1, session);
-
-    await incrementFollowerCount(targetUserId, -1, session);
-
-    return deletedFollow;
-  });
+  return deletedFollow;
 }
 
-/**
- * --------------------------------------------------------------------------
- * Follow status
- * --------------------------------------------------------------------------
- */
+/* -------------------------------------------------------------------------- */
+/* Follow status                                                              */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Check whether the current user follows a target user.
@@ -286,8 +319,7 @@ export async function isFollowing(currentUser, targetUserId) {
   assertNotSelfFollow(currentUser, targetUserId);
 
   /**
-   * The target account must exist and must not
-   * be soft-deleted.
+   * The target account must exist.
    */
   const targetUser = await findUserById(targetUserId);
 
@@ -305,24 +337,21 @@ export async function isFollowing(currentUser, targetUserId) {
   return Boolean(follow);
 }
 
-/**
- * --------------------------------------------------------------------------
- * Counts
- * --------------------------------------------------------------------------
- */
+/* -------------------------------------------------------------------------- */
+/* Counts                                                                     */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Get the number of users a specific user follows
  * and the number of their followers.
  */
-
 export async function getFollowCounts(userId) {
   assertValidObjectId(userId, "user ID");
 
   const user = await findUserById(userId);
 
   if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "User not found.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
   }
@@ -337,11 +366,10 @@ export async function getFollowCounts(userId) {
     following,
   };
 }
-/**
- * --------------------------------------------------------------------------
- * Following list
- * --------------------------------------------------------------------------
- */
+
+/* -------------------------------------------------------------------------- */
+/* Following list                                                             */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Get the users followed by a specific user.
@@ -355,7 +383,7 @@ export async function getFollowing({
 } = {}) {
   assertValidObjectId(userId, "user ID");
 
-  /*
+  /**
    * Make sure the requested user exists
    * and is not soft-deleted.
    */
@@ -375,42 +403,18 @@ export async function getFollowing({
 
   let decodedCursor = null;
 
-  /*
+  /**
    * An empty cursor means the first page.
    */
   if (cursor) {
-    const payload = decodeCursor(cursor);
-
-    if (!payload?.userId || !payload?.listType) {
-      throw new AppError(
-        ERROR_CODES.INVALID_CURSOR,
-        "نشانگر صفحه‌بندی نامعتبر است.",
-        { statusCode: 400 }
-      );
-    }
-
-    assertValidObjectId(payload.userId, "cursor user ID");
-
-    if (payload.userId.toString() !== userId.toString()) {
-      throw new AppError(
-        ERROR_CODES.INVALID_CURSOR,
-        "نشانگر صفحه‌بندی متعلق به این کاربر نیست.",
-        { statusCode: 400 }
-      );
-    }
-
-    if (payload.listType !== FOLLOW_LIST_TYPES.FOLLOWING) {
-      throw new AppError(
-        ERROR_CODES.INVALID_CURSOR,
-        "نشانگر صفحه‌بندی با فهرست انتخاب‌شده مطابقت ندارد.",
-        { statusCode: 400 }
-      );
-    }
-
-    decodedCursor = normalizeCreatedAtIdCursor(payload);
+    decodedCursor = normalizeFollowCursor(
+      decodeCursor(cursor),
+      userId,
+      FOLLOW_LIST_TYPES.FOLLOWING
+    );
   }
 
-  /*
+  /**
    * Fetch one extra Follow to determine hasMore.
    */
   const follows = await findFollowingByUser({
@@ -459,7 +463,7 @@ export async function getFollowers({
 } = {}) {
   assertValidObjectId(userId, "user ID");
 
-  /*
+  /**
    * Make sure the requested user exists
    * and is not soft-deleted.
    */
@@ -479,42 +483,18 @@ export async function getFollowers({
 
   let decodedCursor = null;
 
-  /*
+  /**
    * An empty cursor means the first page.
    */
   if (cursor) {
-    const payload = decodeCursor(cursor);
-
-    if (!payload?.userId || !payload?.listType) {
-      throw new AppError(
-        ERROR_CODES.INVALID_CURSOR,
-        "نشانگر صفحه‌بندی نامعتبر است.",
-        { statusCode: 400 }
-      );
-    }
-
-    assertValidObjectId(payload.userId, "cursor user ID");
-
-    if (payload.userId.toString() !== userId.toString()) {
-      throw new AppError(
-        ERROR_CODES.INVALID_CURSOR,
-        "نشانگر صفحه‌بندی متعلق به این کاربر نیست.",
-        { statusCode: 400 }
-      );
-    }
-
-    if (payload.listType !== FOLLOW_LIST_TYPES.FOLLOWERS) {
-      throw new AppError(
-        ERROR_CODES.INVALID_CURSOR,
-        "نشانگر صفحه‌بندی با فهرست انتخاب‌شده مطابقت ندارد.",
-        { statusCode: 400 }
-      );
-    }
-
-    decodedCursor = normalizeCreatedAtIdCursor(payload);
+    decodedCursor = normalizeFollowCursor(
+      decodeCursor(cursor),
+      userId,
+      FOLLOW_LIST_TYPES.FOLLOWERS
+    );
   }
 
-  /*
+  /**
    * Fetch one extra Follow to determine hasMore.
    */
   const follows = await findFollowersByUser({

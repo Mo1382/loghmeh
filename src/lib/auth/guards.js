@@ -1,5 +1,6 @@
 import { ERROR_CODES } from "@/constants/error-codes";
 import AppError from "@/lib/errors/AppError";
+import { USER_ROLES } from "@/constants/enums";
 
 /**
  * Ensure a user is authenticated.
@@ -22,7 +23,7 @@ export function assertAuthenticated(currentUser) {
 export function assertAdmin(currentUser) {
   assertAuthenticated(currentUser);
 
-  if (currentUser.role !== "ADMIN") {
+  if (currentUser.role !== USER_ROLES.ADMIN) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
       "شما مجوز انجام اینکار را ندارید.",

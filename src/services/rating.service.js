@@ -18,6 +18,7 @@ import { assertAuthenticated } from "@/lib/auth/guards";
 import AppError from "@/lib/errors/AppError";
 import { withTransaction } from "@/lib/transaction";
 import { assertValidObjectId } from "@/lib/validation/object-id";
+import { getAccessibleRecipe } from "@/lib/helpers/recipe-access";
 
 /**
  * --------------------------------------------------------------------------
@@ -121,7 +122,7 @@ export async function createRating(currentUser, recipeId, value) {
   assertValidRatingValue(value);
 
   return withTransaction(async (session) => {
-    const { recipe } = await getAccessibleRecipe(recipeId);
+    const { recipe } = await getAccessibleRecipe(recipeId, session);
 
     /**
      * Users cannot rate their own recipes.
@@ -220,7 +221,7 @@ export async function updateRating(currentUser, recipeId, value) {
   assertValidRatingValue(value);
 
   return withTransaction(async (session) => {
-    const { recipe } = await getAccessibleRecipe(recipeId);
+    const { recipe } = await getAccessibleRecipe(recipeId, session);
 
     /**
      * The recipe owner cannot have a rating relationship.
@@ -273,79 +274,3 @@ export async function updateRating(currentUser, recipeId, value) {
     return updatedRating;
   });
 }
-
-/**
- * --------------------------------------------------------------------------
- * Delete
- * --------------------------------------------------------------------------
- */
-
-/**
- * Delete the current user's rating.
- *
- * After deletion:
- * - Recipe.stats.ratingCount decreases by one.
- * - Recipe.stats.averageRating is recalculated.
- */
-// export async function deleteRating(currentUser, recipeId) {
-//   assertAuthenticated(currentUser);
-
-//   assertValidObjectId(recipeId, "recipe ID");
-
-//   return withTransaction(async (session) => {
-//     /**
-//      * Recipe must still be active.
-//      */
-//     const { recipe } =
-// await getAccessibleRecipe(recipeId);
-
-//     /**
-//      * Find the user's existing rating.
-//      */
-//     const existingRating = await findRatingByUserAndRecipe(
-//       currentUser._id,
-//       recipeId,
-//       session
-//     );
-
-//     if (!existingRating) {
-//       throw new AppError(
-//         "امتیاز پیدا نشد.",
-//         ERROR_CODES.RATING_NOT_FOUND,
-//         404
-//       );
-//     }
-
-//     /**
-//      * Delete the Rating document.
-//      */
-//     const deletedRating = await deleteRatingByUserAndRecipe(
-//       currentUser._id,
-//       recipeId,
-//       session
-//     );
-
-//     if (!deletedRating) {
-//       throw new AppError(
-//         "امتیاز حذف نشد.",
-//         ERROR_CODES.RATING_NOT_FOUND,
-//         404
-//       );
-//     }
-
-//     /**
-//      * Rating count changes only when a Rating is deleted.
-//      */
-//     await incrementRatingCount(recipeId, -1, session);
-
-//     /**
-//      * Recalculate the average.
-//      *
-//      * If this was the last Rating,
-//      * averageRating becomes 0.
-//      */
-//     await refreshRecipeAverageRating(recipeId, session);
-
-//     return deletedRating;
-//   });
-// }

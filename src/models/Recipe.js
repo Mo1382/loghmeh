@@ -150,6 +150,17 @@ const recipeSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      validate: {
+        validator: (value) => {
+          try {
+            const url = new URL(value);
+            return url.protocol === "https:";
+          } catch {
+            return false;
+          }
+        },
+        message: "Image URL must be a valid HTTPS URL.",
+      },
     },
 
     ingredients: {

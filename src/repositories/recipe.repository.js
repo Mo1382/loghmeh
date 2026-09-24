@@ -2,6 +2,8 @@ import Category from "@/models/Category";
 import Recipe from "@/models/Recipe";
 import User from "@/models/User";
 import { RECIPE_SORTS, RECIPE_STATS } from "@/constants/enums";
+import { ACCOUNT_STATUSES } from "@/constants/enums";
+import { applySession } from "@/lib/helpers/apply-session";
 
 /* -------------------------------------------------------------------------- */
 /* Sorting                                                                    */
@@ -23,13 +25,6 @@ import { RECIPE_SORTS, RECIPE_STATS } from "@/constants/enums";
 /* -------------------------------------------------------------------------- */
 /* Query Helpers                                                              */
 /* -------------------------------------------------------------------------- */
-
-/**
- * Apply MongoDB session only when a session is provided.
- */
-function applySession(query, session) {
-  return session ? query.session(session) : query;
-}
 
 /**
  * Build the cursor condition for the selected sort.
@@ -142,7 +137,7 @@ function buildAccessibilityStages() {
         pipeline: [
           {
             $match: {
-              accountStatus: "ACTIVE",
+              accountStatus: ACCOUNT_STATUSES.ACTIVE,
               deletedAt: null,
             },
           },
@@ -207,7 +202,7 @@ function buildAccessibilityStages() {
  * Accessibility filtering is performed BEFORE sorting and pagination:
  *
  * Recipe.deletedAt === null
- * AND Author.accountStatus === "ACTIVE"
+ * AND Author.accountStatus === ACCOUNT_STATUSES.ACTIVE
  * AND Author.deletedAt === null
  * AND Category.isActive === true
  */
@@ -521,7 +516,7 @@ export function findAccessibleRecipesByIds(recipeIds, session) {
               $expr: {
                 $and: [
                   { $eq: ["$_id", "$$authorId"] },
-                  { $eq: ["$accountStatus", "ACTIVE"] },
+                  { $eq: ["$accountStatus", ACCOUNT_STATUSES.ACTIVE] },
                   { $eq: ["$deletedAt", null] },
                 ],
               },

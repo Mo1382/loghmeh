@@ -7,8 +7,9 @@ import { findUserById } from "@/repositories/user.repository";
 
 import { findActiveCategoryById } from "@/repositories/category.repository";
 
-import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
+import { ACCOUNT_STATUSES } from "@/constants/enums";
+import AppError from "@/lib/errors/AppError";
 
 async function assertAccessibleRecipe(recipe, session) {
   const [author, category] = await Promise.all([
@@ -16,7 +17,7 @@ async function assertAccessibleRecipe(recipe, session) {
     findActiveCategoryById(recipe.categoryId, session),
   ]);
 
-  if (!author || author.accountStatus !== "ACTIVE") {
+  if (!author || author.accountStatus !== ACCOUNT_STATUSES.ACTIVE) {
     throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
       statusCode: 404,
     });

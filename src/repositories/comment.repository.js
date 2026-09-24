@@ -1,12 +1,6 @@
 import Comment from "@/models/Comment";
 import { COMMENT_STATS } from "@/constants/enums";
-
-/**
- * Apply MongoDB session only when provided.
- */
-function applySession(query, session) {
-  return session ? query.session(session) : query;
-}
+import { applySession } from "@/lib/helpers/apply-session";
 
 /**
  * Allowed comment statistics that can be updated using $inc.

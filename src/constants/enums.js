@@ -19,15 +19,21 @@ export const INGREDIENT_UNITS = [
 export const DIFFICULTIES = ["آسان", "متوسط", "سخت"];
 
 // Account identity and access
-export const ACCOUNT_STATUSES = ["ACTIVE", "SUSPENDED", "DEACTIVATED"];
-export const USER_ROLES = ["USER", "ADMIN"];
-export const USER_TITLES = [
-  "USER",
-  "COOK",
-  "HEAD_CHEF",
-  "BARISTA",
-  "FOOD_BLOGGER",
-];
+export const ACCOUNT_STATUSES = {
+  ACTIVE: "ACTIVE",
+  SUSPENDED: "SUSPENDED",
+  DEACTIVATED: "DEACTIVATED",
+};
+
+export const USER_ROLES = { USER: "USER", ADMIN: "ADMIN" };
+
+const USER_TITLES = {
+  USER: "USER",
+  COOK: "COOK",
+  HEAD_CHEF: "HEAD_CHEF",
+  BARISTA: "BARISTA",
+  FOOD_BLOGGER: "FOOD_BLOGGER",
+};
 
 // Authentication and verification
 export const VERIFICATION_CODE_PURPOSES = {

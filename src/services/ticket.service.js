@@ -11,6 +11,12 @@ import {
   encodeCursor,
   normalizeCreatedAtIdCursor,
 } from "@/lib/pagination/cursor";
+
+import {
+  assertCursorOwner,
+  assertCursorResource,
+} from "@/lib/pagination/cursor-context";
+
 import { TICKET_STATUSES } from "@/constants/enums";
 
 import { normalizeLimit } from "@/lib/pagination/limit";
@@ -75,12 +81,16 @@ function normalizeMessage(message) {
 /* Cursor Helpers                                                             */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Create the next cursor from the last ticket in the current page.
+ */
 function createNextCursor(ticket, userId) {
   if (!ticket || !ticket.createdAt || !ticket._id) {
     return null;
   }
 
   return encodeCursor({
+    resource: "SUPPORT_TICKETS",
     userId: userId.toString(),
     createdAt: ticket.createdAt.toISOString(),
     id: ticket._id.toString(),
@@ -93,7 +103,6 @@ function createNextCursor(ticket, userId) {
 
 export async function getTicketById(currentUser, ticketId) {
   assertAuthenticated(currentUser);
-
   assertValidObjectId(ticketId, "ticket ID");
 
   const ticket = await findTicketByIdAndUser(ticketId, currentUser._id);
@@ -111,7 +120,6 @@ export async function getTicketById(currentUser, ticketId) {
 
 export async function getTicketByIdForAdmin(currentUser, ticketId) {
   assertAdmin(currentUser);
-
   assertValidObjectId(ticketId, "ticket ID");
 
   const ticket = await findTicketById(ticketId);
@@ -145,20 +153,17 @@ export async function getUserTickets(
 
   let normalizedCursor = null;
 
-  /*
-   * No cursor means the first page.
-   * We must not access payload.userId when cursor is empty.
-   */
   if (cursor) {
     const payload = decodeCursor(cursor);
 
-    if (payload.userId !== currentUser._id.toString()) {
-      throw new AppError(
-        ERROR_CODES.INVALID_CURSOR,
-        "نشانگر تیکت پشتیبانی متعلق به این کاربر نیست.",
-        { statusCode: 400 }
-      );
-    }
+    assertCursorResource(payload, "SUPPORT_TICKETS");
+
+    assertCursorOwner(
+      payload,
+      "userId",
+      currentUser._id,
+      "نشانگر تیکت پشتیبانی متعلق به این کاربر نیست."
+    );
 
     normalizedCursor = normalizeCreatedAtIdCursor(payload);
   }
@@ -190,7 +195,7 @@ export async function getUserTickets(
 /* Create Ticket                                                              */
 /* -------------------------------------------------------------------------- */
 
-export async function createSupportTicket(currentUser, message) {
+export async function createTicket(currentUser, message) {
   assertAuthenticated(currentUser);
 
   const normalizedMessage = normalizeMessage(message);

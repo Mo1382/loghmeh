@@ -1,25 +1,15 @@
 import mongoose from "mongoose";
 import crypto from "node:crypto";
 
-import { ERROR_CODES } from "@/constants/error-codes";
 import AppError from "@/lib/errors/AppError";
+import { ERROR_CODES } from "@/constants/error-codes";
 import { assertValidObjectId } from "@/lib/validation/object-id";
-import { assertEnum } from "@/lib/validation/enum";
 
 const CURSOR_VERSION = 1;
 
-/* -------------------------------------------------------------------------- */
-/* Errors                                                                     */
-/* -------------------------------------------------------------------------- */
-
-function invalidCursorError(message = "نشانگر صفحه‌بندی نامعتبر است.") {
-  return new AppError(ERROR_CODES.INVALID_CURSOR, message, { statusCode: 400 });
-}
-
-/* -------------------------------------------------------------------------- */
-/* Secret                                                                     */
-/* -------------------------------------------------------------------------- */
-
+/**
+ * Get the secret used to sign cursors.
+ */
 function getCursorSecret() {
   const secret = process.env.CURSOR_SECRET;
 
@@ -30,22 +20,28 @@ function getCursorSecret() {
   return secret;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Encode / Decode                                                            */
-/* -------------------------------------------------------------------------- */
-
+/**
+ * Encode an arbitrary cursor payload into an opaque signed string.
+ *
+ * The caller is responsible for providing the required
+ * domain-specific cursor fields.
+ */
 export function encodeCursor(payload) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new TypeError("Cursor payload must be an object.");
+  if (!payload || typeof payload !== "object") {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "داده نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
-  const signedPayload = {
+  const finalPayload = {
     v: CURSOR_VERSION,
     ...payload,
   };
 
   const payloadBase64 = Buffer.from(
-    JSON.stringify(signedPayload),
+    JSON.stringify(finalPayload),
     "utf8"
   ).toString("base64url");
 
@@ -57,6 +53,12 @@ export function encodeCursor(payload) {
   return `${payloadBase64}.${signature}`;
 }
 
+/**
+ * Decode and verify a signed cursor.
+ *
+ * This function only validates the signature and cursor version.
+ * Domain-specific validation belongs to the corresponding Service.
+ */
 export function decodeCursor(cursor) {
   if (!cursor || typeof cursor !== "string") {
     return null;
@@ -65,7 +67,11 @@ export function decodeCursor(cursor) {
   const parts = cursor.split(".");
 
   if (parts.length !== 2) {
-    throw invalidCursorError();
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   const [payloadBase64, signatureBase64] = parts;
@@ -81,58 +87,71 @@ export function decodeCursor(cursor) {
 
     providedSignature = Buffer.from(signatureBase64, "base64url");
   } catch {
-    throw invalidCursorError();
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   if (
     providedSignature.length !== expectedSignature.length ||
     !crypto.timingSafeEqual(providedSignature, expectedSignature)
   ) {
-    throw invalidCursorError();
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   let payload;
 
   try {
-    const json = Buffer.from(payloadBase64, "base64url").toString("utf8");
-
-    payload = JSON.parse(json);
+    payload = JSON.parse(
+      Buffer.from(payloadBase64, "base64url").toString("utf8")
+    );
   } catch {
-    throw invalidCursorError();
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    Array.isArray(payload) ||
-    payload.v !== CURSOR_VERSION
-  ) {
-    throw invalidCursorError();
+  if (!payload || typeof payload !== "object" || payload.v !== CURSOR_VERSION) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   return payload;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Common Cursor Normalization                                                */
-/* -------------------------------------------------------------------------- */
-
 /**
- * Normalize the common { createdAt, id } cursor structure.
+ * Normalize a cursor that uses createdAt + id pagination.
  *
- * Converts:
- * - createdAt -> Date
- * - id        -> ObjectId
+ * Domain-specific fields such as:
+ * - resource
+ * - userId
+ * - recipeId
+ * - listType
+ * are intentionally ignored here.
  */
 export function normalizeCreatedAtIdCursor(payload) {
   if (
     !payload ||
     typeof payload !== "object" ||
-    Array.isArray(payload) ||
     !payload.createdAt ||
     !payload.id
   ) {
-    throw invalidCursorError();
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   assertValidObjectId(payload.id, "cursor ID");
@@ -140,7 +159,11 @@ export function normalizeCreatedAtIdCursor(payload) {
   const createdAt = new Date(payload.createdAt);
 
   if (Number.isNaN(createdAt.getTime())) {
-    throw invalidCursorError("تاریخ نشانگر صفحه‌بندی نامعتبر است.");
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
   }
 
   return {

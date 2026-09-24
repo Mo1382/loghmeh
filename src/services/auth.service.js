@@ -12,13 +12,16 @@ import {
 } from "@/repositories/user.repository";
 
 import {
-  deleteVerificationCodeById,
+  consumeVerificationCode,
   findActiveVerificationCode,
   replaceVerificationCode,
 } from "@/repositories/verification-code.repository";
 
 import { ERROR_CODES } from "@/constants/error-codes";
-import { VERIFICATION_CODE_PURPOSES } from "@/constants/enums";
+import {
+  ACCOUNT_STATUSES,
+  VERIFICATION_CODE_PURPOSES,
+} from "@/constants/enums";
 import AppError from "@/lib/errors/AppError";
 import { withTransaction } from "@/lib/transaction";
 
@@ -49,14 +52,32 @@ async function hashVerificationCode(code) {
 /**
  * Convert a User document into a safe plain object.
  *
- * The password must never be returned to the application client.
+ * Only explicitly allowed fields are returned.
+ * Internal/security fields such as password, deletedAt,
+ * and sessionVersion are never exposed.
  */
 function toSafeUser(user) {
   const data = user.toObject ? user.toObject() : { ...user };
 
-  delete data.password;
-
-  return data;
+  return {
+    id: data._id,
+    username: data.username,
+    email: data.email,
+    avatar: data.avatar,
+    bio: data.bio,
+    title: data.title,
+    role: data.role,
+    socialLinks: data.socialLinks,
+    stats: {
+      recipeCount: data.stats?.recipeCount ?? 0,
+      averageRating: data.stats?.averageRating ?? 0,
+      totalRecipeViews: data.stats?.totalRecipeViews ?? 0,
+    },
+    emailVerified: data.emailVerified,
+    accountStatus: data.accountStatus,
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
+  };
 }
 
 /**
@@ -363,9 +384,31 @@ export async function verifyEmail({ email, code }) {
   }
 
   const updatedUser = await withTransaction(async (session) => {
+    const consumedVerification = await consumeVerificationCode({
+      verificationCodeId: verificationCode._id,
+      email,
+      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
+      codeHash: verificationCode.codeHash,
+      session,
+    });
+
+    if (!consumedVerification) {
+      throw new AppError(
+        ERROR_CODES.INVALID_VERIFICATION_CODE,
+        "کد تأیید نامعتبر یا قبلاً استفاده شده است.",
+        { statusCode: 400 }
+      );
+    }
+
     const verifiedUser = await markEmailAsVerified(user._id, session);
 
-    await deleteVerificationCodeById(verificationCode._id, session);
+    if (!verifiedUser) {
+      throw new AppError(
+        ERROR_CODES.EMAIL_ALREADY_VERIFIED,
+        "ایمیل قبلاً تأیید شده است.",
+        { statusCode: 409 }
+      );
+    }
 
     return verifiedUser;
   });
@@ -382,7 +425,11 @@ export async function verifyEmail({ email, code }) {
 export async function requestPasswordReset({ email }) {
   const user = await findUserByEmail(email);
 
-  if (!user || user.deletedAt || user.accountStatus !== "ACTIVE") {
+  if (
+    !user ||
+    user.deletedAt ||
+    user.accountStatus !== ACCOUNT_STATUSES.ACTIVE
+  ) {
     return passwordResetRequestResponse();
   }
 
@@ -466,7 +513,7 @@ export async function resetPassword({ resetToken, password }) {
     });
   }
 
-  if (user.accountStatus !== "ACTIVE") {
+  if (user.accountStatus !== ACCOUNT_STATUSES.ACTIVE) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
       "این حساب کاربری نمی‌تواند رمز عبور خود را بازنشانی کند.",
@@ -503,9 +550,29 @@ export async function resetPassword({ resetToken, password }) {
   const passwordHash = await bcrypt.hash(password, 12);
 
   const updatedUser = await withTransaction(async (session) => {
+    const consumedVerification = await consumeVerificationCode({
+      verificationCodeId: verificationCode._id,
+      email: payload.email,
+      purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
+      codeHash: verificationCode.codeHash,
+      session,
+    });
+
+    if (!consumedVerification) {
+      throw new AppError(
+        ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+        "توکن بازنشانی رمز عبور نامعتبر یا قبلاً استفاده شده است.",
+        { statusCode: 400 }
+      );
+    }
+
     const updated = await updateUserPassword(user._id, passwordHash, session);
 
-    await deleteVerificationCodeById(verificationCode._id, session);
+    if (!updated) {
+      throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
+        statusCode: 404,
+      });
+    }
 
     return updated;
   });

@@ -20,6 +20,11 @@ import {
 import { normalizeLimit } from "@/lib/pagination/limit";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
+import {
+  assertCursorOwner,
+  assertCursorResource,
+} from "@/lib/pagination/cursor-context";
+
 /**
  * --------------------------------------------------------------------------
  * Constants
@@ -33,21 +38,22 @@ const MAX_LIST_LIMIT = 50;
  * Create the next cursor from the last bookmark
  * included in the current page.
  */
-function createNextCursor(bookmarks) {
+function createNextCursor(bookmarks, userId) {
   if (!bookmarks.length) {
     return null;
   }
 
   const lastBookmark = bookmarks[bookmarks.length - 1];
-  const { createdAt, _id } = lastBookmark;
 
-  if (!createdAt || !_id) {
+  if (!lastBookmark.createdAt || !lastBookmark._id) {
     return null;
   }
 
   return encodeCursor({
-    createdAt,
-    id: _id.toString(),
+    resource: "BOOKMARKS",
+    userId: userId.toString(),
+    createdAt: lastBookmark.createdAt.toISOString(),
+    id: lastBookmark._id.toString(),
   });
 }
 
@@ -170,6 +176,18 @@ export async function getUserBookmark(currentUser, recipeId) {
  * Deleted recipes are excluded from the returned
  * recipe list.
  */
+/**
+ * --------------------------------------------------------------------------
+ * Get User Bookmarks
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Get the current user's bookmarked Recipes
+ * using cursor-based pagination.
+ *
+ * Only accessible Recipes are returned.
+ */
 export async function getUserBookmarks({
   currentUser,
   cursor = null,
@@ -183,9 +201,22 @@ export async function getUserBookmarks({
     MAX_LIST_LIMIT
   );
 
-  const decodedCursor = cursor
-    ? normalizeCreatedAtIdCursor(decodeCursor(cursor))
-    : null;
+  let decodedCursor = null;
+
+  if (cursor) {
+    const payload = decodeCursor(cursor);
+
+    assertCursorResource(payload, "BOOKMARKS");
+
+    assertCursorOwner(
+      payload,
+      "userId",
+      currentUser._id,
+      "نشانگر صفحه‌بندی متعلق به این کاربر نیست."
+    );
+
+    decodedCursor = normalizeCreatedAtIdCursor(payload);
+  }
 
   const bookmarks = await findBookmarksByUser({
     userId: currentUser._id,
@@ -207,10 +238,6 @@ export async function getUserBookmarks({
     };
   }
 
-  /**
-   * Fetch Recipes in one query instead of
-   * querying once for every Bookmark.
-   */
   const recipeIds = pageBookmarks.map((bookmark) => bookmark.recipeId);
 
   const recipes = await findAccessibleRecipesByIds(recipeIds);
@@ -229,7 +256,9 @@ export async function getUserBookmarks({
     .map((bookmark) => recipesById.get(bookmark.recipeId.toString()))
     .filter(Boolean);
 
-  const nextCursor = hasMore ? createNextCursor(pageBookmarks) : null;
+  const nextCursor = hasMore
+    ? createNextCursor(pageBookmarks, currentUser._id)
+    : null;
 
   return {
     items,

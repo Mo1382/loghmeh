@@ -1,6 +1,20 @@
 import mongoose from "mongoose";
 import { ACCOUNT_STATUSES, USER_ROLES, USER_TITLES } from "@/constants/enums";
 
+function isValidHttpsUrl(value) {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+
+    return url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 const userSchema = new mongoose.Schema(
   {
     sessionVersion: {
@@ -37,6 +51,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
       trim: true,
+      validate: {
+        validator: isValidHttpsUrl,
+        message: "Avatar URL must be a valid HTTPS URL.",
+      },
     },
 
     bio: {
@@ -48,15 +66,15 @@ const userSchema = new mongoose.Schema(
 
     title: {
       type: String,
-      enum: USER_TITLES,
-      default: "USER",
+      enum: Object.values(USER_TITLES),
+      default: USER_TITLES.USER,
       required: true,
     },
 
     role: {
       type: String,
-      enum: USER_ROLES,
-      default: "USER",
+      enum: Object.values(USER_ROLES),
+      default: USER_ROLES.USER,
       required: true,
     },
 
@@ -65,16 +83,46 @@ const userSchema = new mongoose.Schema(
         type: String,
         default: null,
         trim: true,
+        validate: {
+          validator: (value) => {
+            if (!isValidHttpsUrl(value)) {
+              return false;
+            }
+
+            return /^https:\/\/(www\.)?instagram\.com\//i.test(value);
+          },
+          message: "Instagram URL must be a valid HTTPS Instagram URL.",
+        },
       },
       telegram: {
         type: String,
         default: null,
         trim: true,
+        validate: {
+          validator: (value) => {
+            if (!isValidHttpsUrl(value)) {
+              return false;
+            }
+
+            return /^https:\/\/(www\.)?(t\.me|telegram\.me)\//i.test(value);
+          },
+          message: "Telegram URL must be a valid HTTPS Telegram URL.",
+        },
       },
       x: {
         type: String,
         default: null,
         trim: true,
+        validate: {
+          validator: (value) => {
+            if (!isValidHttpsUrl(value)) {
+              return false;
+            }
+
+            return /^https:\/\/(www\.)?(x\.com|twitter\.com)\//i.test(value);
+          },
+          message: "X URL must be a valid HTTPS X URL.",
+        },
       },
     },
 
@@ -105,8 +153,8 @@ const userSchema = new mongoose.Schema(
 
     accountStatus: {
       type: String,
-      enum: ACCOUNT_STATUSES,
-      default: "ACTIVE",
+      enum: Object.values(ACCOUNT_STATUSES),
+      default: ACCOUNT_STATUSES.ACTIVE,
       required: true,
     },
 

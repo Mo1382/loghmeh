@@ -97,7 +97,7 @@ export const registerUserSchema = z
 
     password: passwordSchema,
 
-    title: z.enum(USER_TITLES).default("USER"),
+    title: z.enum(Object.values(USER_TITLES)).default(USER_TITLES.USER),
   })
   .strict();
 

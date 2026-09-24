@@ -12,9 +12,11 @@ import {
 
 import { incrementCommentCount } from "@/repositories/recipe.repository";
 
+import { NOTIFICATION_TYPES, USER_ROLES } from "@/constants/enums";
 import { ERROR_CODES } from "@/constants/error-codes";
 import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
 import AppError from "@/lib/errors/AppError";
+import { getAccessibleRecipe } from "@/lib/helpers/recipe-access";
 import {
   decodeCursor,
   encodeCursor,
@@ -23,8 +25,12 @@ import {
 import { normalizeLimit } from "@/lib/pagination/limit";
 import { withTransaction } from "@/lib/transaction";
 import { assertValidObjectId } from "@/lib/validation/object-id";
-import { NOTIFICATION_TYPES } from "@/constants/enums";
 import { createSystemNotification } from "./notification.service";
+
+import {
+  assertCursorOwner,
+  assertCursorResource,
+} from "@/lib/pagination/cursor-context";
 
 /**
  * --------------------------------------------------------------------------
@@ -52,7 +58,7 @@ function assertCommentOwnerOrAdmin(currentUser, comment) {
 
   const isOwner = comment.authorId?.toString() === currentUser._id?.toString();
 
-  const isAdmin = currentUser.role === "ADMIN";
+  const isAdmin = currentUser.role === USER_ROLES.ADMIN;
 
   if (!isOwner && !isAdmin) {
     throw new AppError(
@@ -72,7 +78,7 @@ function assertReplyOwnerOrAdmin(currentUser, reply) {
 
   const isOwner = reply.authorId?.toString() === currentUser._id?.toString();
 
-  const isAdmin = currentUser.role === "ADMIN";
+  const isAdmin = currentUser.role === USER_ROLES.ADMIN;
 
   if (!isOwner && !isAdmin) {
     throw new AppError(
@@ -95,7 +101,7 @@ function assertCanReplyToComment(currentUser, recipe) {
   const isRecipeOwner =
     recipe.authorId?.toString() === currentUser._id?.toString();
 
-  const isAdmin = currentUser.role === "ADMIN";
+  const isAdmin = currentUser.role === USER_ROLES.ADMIN;
 
   if (!isRecipeOwner && !isAdmin) {
     throw new AppError(
@@ -156,20 +162,22 @@ function normalizeCommentText(text) {
  * Create the next cursor from the last comment
  * in the current page.
  */
-function createNextCursor(comments) {
+function createNextCursor(comments, recipeId) {
   if (!comments.length) {
     return null;
   }
 
   const lastComment = comments[comments.length - 1];
 
-  if (!lastComment.createdAt) {
+  if (!lastComment.createdAt || !lastComment._id) {
     return null;
   }
 
   return encodeCursor({
+    resource: "COMMENTS",
+    recipeId: recipeId.toString(),
     createdAt: lastComment.createdAt.toISOString(),
-    id: lastComment._id,
+    id: lastComment._id.toString(),
   });
 }
 
@@ -212,7 +220,7 @@ export async function getCommentsByRecipe({
 } = {}) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  const { recipe } = await getAccessibleRecipe(recipeId);
+  await getAccessibleRecipe(recipeId);
 
   const normalizedLimit = normalizeLimit(
     limit,
@@ -220,9 +228,22 @@ export async function getCommentsByRecipe({
     MAX_LIST_LIMIT
   );
 
-  const decodedCursor = cursor
-    ? normalizeCreatedAtIdCursor(decodeCursor(cursor))
-    : null;
+  let decodedCursor = null;
+
+  if (cursor) {
+    const payload = decodeCursor(cursor);
+
+    assertCursorResource(payload, "COMMENTS");
+
+    assertCursorOwner(
+      payload,
+      "recipeId",
+      recipeId,
+      "نشانگر صفحه‌بندی با دستور پخت انتخاب‌شده مطابقت ندارد."
+    );
+
+    decodedCursor = normalizeCreatedAtIdCursor(payload);
+  }
 
   const comments = await findCommentsByRecipe({
     recipeId,
@@ -234,7 +255,7 @@ export async function getCommentsByRecipe({
 
   const items = hasMore ? comments.slice(0, normalizedLimit) : comments;
 
-  const nextCursor = hasMore ? createNextCursor(items) : null;
+  const nextCursor = hasMore ? createNextCursor(items, recipeId) : null;
 
   return {
     items,
@@ -263,7 +284,7 @@ export async function createComment(currentUser, recipeId, text) {
     /**
      * Only active recipes can receive comments.
      */
-    const { recipe } = await getAccessibleRecipe(recipeId);
+    const { recipe } = await getAccessibleRecipe(recipeId, session);
 
     const comment = await createCommentRepository(
       {
@@ -334,7 +355,7 @@ export async function createCommentReply(currentUser, commentId, text) {
       });
     }
 
-    const { recipe } = await getAccessibleRecipe(comment.recipeId);
+    const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
 
     assertCanReplyToComment(currentUser, recipe);
 
@@ -402,7 +423,7 @@ export async function deleteComment(currentUser, commentId) {
 
     assertCommentOwnerOrAdmin(currentUser, comment);
 
-    const { recipe } = await getAccessibleRecipe(comment.recipeId);
+    const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
 
     const deletedComment = await softDeleteComment(
       commentId,
@@ -467,7 +488,7 @@ export async function restoreComment(currentUser, commentId) {
       );
     }
 
-    const { recipe } = await getAccessibleRecipe(comment.recipeId);
+    const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
 
     const restoredComment = await restoreCommentRepository(commentId, session);
 

@@ -5,6 +5,7 @@ import { ERROR_CODES } from "@/constants/error-codes";
 import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
 
 import { assertValidObjectId } from "@/lib/validation/object-id";
+
 import { assertEnum } from "@/lib/validation/enum";
 
 import {
@@ -12,6 +13,11 @@ import {
   encodeCursor,
   normalizeCreatedAtIdCursor,
 } from "@/lib/pagination/cursor";
+
+import {
+  assertCursorOwner,
+  assertCursorResource,
+} from "@/lib/pagination/cursor-context";
 
 import { normalizeLimit } from "@/lib/pagination/limit";
 
@@ -26,6 +32,7 @@ import {
 } from "@/repositories/notification.repository";
 
 import { findActiveUsersByIds } from "@/repositories/user.repository";
+
 import { NOTIFICATION_TYPES } from "@/constants/enums";
 
 /* -------------------------------------------------------------------------- */
@@ -78,6 +85,7 @@ function createNextCursor(notification, userId) {
   }
 
   return encodeCursor({
+    resource: "NOTIFICATIONS",
     userId: userId.toString(),
     createdAt: notification.createdAt.toISOString(),
     id: notification._id.toString(),
@@ -109,7 +117,7 @@ function normalizeSystemNotificationData(notificationData) {
     message,
     recipeId = null,
     commentId = null,
-    supportTicketId = null,
+    ticketId = null,
   } = notificationData;
 
   assertValidObjectId(userId, "user ID");
@@ -132,8 +140,8 @@ function normalizeSystemNotificationData(notificationData) {
     assertValidObjectId(commentId, "comment ID");
   }
 
-  if (supportTicketId !== null) {
-    assertValidObjectId(supportTicketId, "support ticket ID");
+  if (ticketId !== null) {
+    assertValidObjectId(ticketId, "support ticket ID");
   }
 
   return {
@@ -144,7 +152,7 @@ function normalizeSystemNotificationData(notificationData) {
     message: normalizeNotificationText(message, "متن پیام"),
     recipeId,
     commentId,
-    supportTicketId,
+    ticketId,
 
     // System-managed fields.
     isRead: false,
@@ -158,7 +166,6 @@ function normalizeSystemNotificationData(notificationData) {
 
 export async function getNotificationById(currentUser, notificationId) {
   assertAuthenticated(currentUser);
-
   assertValidObjectId(notificationId, "notification ID");
 
   const notification = await findNotificationByIdAndUser(
@@ -191,25 +198,21 @@ export async function getNotifications(
     MAX_LIST_LIMIT
   );
 
-  let decodedCursor = null;
   let normalizedCursor = null;
 
-  /*
-   * An empty cursor means the first page.
-   * decodeCursor() returns null in this case.
-   */
   if (cursor) {
-    decodedCursor = decodeCursor(cursor);
+    const payload = decodeCursor(cursor);
 
-    if (decodedCursor.userId !== currentUser._id.toString()) {
-      throw new AppError(
-        ERROR_CODES.INVALID_CURSOR,
-        "نشانگر اعلان متعلق به این کاربر نیست.",
-        { statusCode: 400 }
-      );
-    }
+    assertCursorResource(payload, "NOTIFICATIONS");
 
-    normalizedCursor = normalizeCreatedAtIdCursor(decodedCursor);
+    assertCursorOwner(
+      payload,
+      "userId",
+      currentUser._id,
+      "نشانگر اعلان متعلق به این کاربر نیست."
+    );
+
+    normalizedCursor = normalizeCreatedAtIdCursor(payload);
   }
 
   const notifications = await findNotificationsByUser({
@@ -253,7 +256,6 @@ export async function getUnreadNotificationCount(currentUser) {
 
 export async function markNotificationRead(currentUser, notificationId) {
   assertAuthenticated(currentUser);
-
   assertValidObjectId(notificationId, "notification ID");
 
   // First verify ownership and retrieve the current state.
@@ -268,7 +270,7 @@ export async function markNotificationRead(currentUser, notificationId) {
     });
   }
 
-  /*
+  /**
    * Idempotent behavior:
    * if already read, preserve the original readAt.
    */
@@ -296,7 +298,6 @@ export async function markNotificationRead(currentUser, notificationId) {
 
 export async function deleteNotification(currentUser, notificationId) {
   assertAuthenticated(currentUser);
-
   assertValidObjectId(notificationId, "notification ID");
 
   const deletedNotification = await deleteNotificationByUser(
@@ -408,7 +409,7 @@ export async function createGlobalNotification(
 
     recipeId: null,
     commentId: null,
-    supportTicketId: null,
+    ticketId: null,
 
     // System-managed fields.
     isRead: false,

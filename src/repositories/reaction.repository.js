@@ -1,11 +1,6 @@
 import Reaction from "@/models/Reaction";
-
-/**
- * Apply MongoDB session only when provided.
- */
-function applySession(query, session) {
-  return session ? query.session(session) : query;
-}
+import { applySession } from "@/lib/helpers/apply-session";
+import { REACTION_TYPES } from "@/constants/enums";
 
 /**
  * Find a reaction by its ID.
@@ -124,12 +119,12 @@ export function calculateCommentReactionStats(commentId, session) {
         _id: null,
         likeCount: {
           $sum: {
-            $cond: [{ $eq: ["$type", "LIKE"] }, 1, 0],
+            $cond: [{ $eq: ["$type", REACTION_TYPES.LIKE] }, 1, 0],
           },
         },
         dislikeCount: {
           $sum: {
-            $cond: [{ $eq: ["$type", "DISLIKE"] }, 1, 0],
+            $cond: [{ $eq: ["$type", REACTION_TYPES.DISLIKE] }, 1, 0],
           },
         },
       },

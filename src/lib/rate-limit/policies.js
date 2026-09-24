@@ -119,7 +119,7 @@ export const bookmarkLimiter = createLimiter({
  * Support
  */
 
-export const createSupportTicketLimiter = createLimiter({
+export const createTicketLimiter = createLimiter({
   name: "support:create",
   requests: 3,
   window: "10 m",

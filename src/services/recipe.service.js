@@ -30,15 +30,26 @@ import {
 } from "@/lib/helpers/recipe-access";
 
 import { ERROR_CODES } from "@/constants/error-codes";
+
 import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+
 import AppError from "@/lib/errors/AppError";
+
+import { assertCursorResource } from "@/lib/pagination/cursor-context";
+
 import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
+
 import { normalizeLimit } from "@/lib/pagination/limit";
+
 import { withTransaction } from "@/lib/transaction";
+
 import { assertEnum } from "@/lib/validation/enum";
+
 import { pickAllowedFields } from "@/lib/validation/fields";
+
 import { assertValidObjectId } from "@/lib/validation/object-id";
-import { RECIPE_SORTS } from "@/constants/enums";
+
+import { ACCOUNT_STATUSES, RECIPE_SORTS, USER_ROLES } from "@/constants/enums";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
@@ -63,12 +74,16 @@ const MUTABLE_RECIPE_FIELDS = [
   "calories",
 ];
 
+/* -------------------------------------------------------------------------- */
+/* Authorization Helpers                                                     */
+/* -------------------------------------------------------------------------- */
+
 function assertRecipeOwnerOrAdmin(currentUser, recipe) {
   assertAuthenticated(currentUser);
 
   const isOwner = recipe.authorId?.toString() === currentUser._id?.toString();
 
-  const isAdmin = currentUser.role === "ADMIN";
+  const isAdmin = currentUser.role === USER_ROLES.ADMIN;
 
   if (!isOwner && !isAdmin) {
     throw new AppError(
@@ -109,53 +124,93 @@ function isSlugDuplicateError(error) {
 /* Cursor                                                                     */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Validate and normalize a decoded recipe cursor.
+ *
+ * Cursor payload:
+ * {
+ *   v: 1,
+ *   resource: "RECIPES",
+ *   sort: String,
+ *   value: Number | Date,
+ *   id: String
+ * }
+ */
 function validateRecipeCursor(payload, sort) {
   if (
     !payload ||
-    payload.sort !== sort ||
+    typeof payload !== "object" ||
+    payload.sort === undefined ||
     payload.value === undefined ||
     !payload.id
   ) {
     throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
+      ERROR_CODES.INVALID_CURSOR,
       "نشانگر صفحه‌بندی نامعتبر است.",
       { statusCode: 400 }
     );
   }
 
+  assertCursorResource(payload, "RECIPES");
+
   assertEnum(payload.sort, Object.values(RECIPE_SORTS), {
-    errorCode: ERROR_CODES.INVALID_REQUEST,
+    errorCode: ERROR_CODES.INVALID_CURSOR,
     message: "ترتیب مرتب‌سازی دستورهای پخت نامعتبر است.",
     statusCode: 400,
   });
 
+  if (payload.sort !== sort) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی با مرتب‌سازی انتخاب‌شده مطابقت ندارد.",
+      { statusCode: 400 }
+    );
+  }
+
   assertValidObjectId(payload.id, "cursor ID");
 
-  let value = payload.value;
+  let value;
 
-  if (
-    payload.sort === RECIPE_SORTS.NEWEST ||
-    payload.sort === RECIPE_SORTS.OLDEST
-  ) {
-    value = new Date(payload.value);
+  switch (payload.sort) {
+    case RECIPE_SORTS.NEWEST:
+    case RECIPE_SORTS.OLDEST: {
+      value = new Date(payload.value);
 
-    if (Number.isNaN(value.getTime())) {
+      if (Number.isNaN(value.getTime())) {
+        throw new AppError(
+          ERROR_CODES.INVALID_CURSOR,
+          "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+          { statusCode: 400 }
+        );
+      }
+
+      break;
+    }
+
+    case RECIPE_SORTS.MOST_VIEWED:
+    case RECIPE_SORTS.HIGHEST_RATED: {
+      if (
+        typeof payload.value !== "number" ||
+        !Number.isFinite(payload.value)
+      ) {
+        throw new AppError(
+          ERROR_CODES.INVALID_CURSOR,
+          "مقدار نشانگر صفحه‌بندی نامعتبر است.",
+          { statusCode: 400 }
+        );
+      }
+
+      value = payload.value;
+
+      break;
+    }
+
+    default:
       throw new AppError(
-        ERROR_CODES.INVALID_REQUEST,
-        "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+        ERROR_CODES.INVALID_CURSOR,
+        "مرتب‌سازی دستورهای پخت نامعتبر است.",
         { statusCode: 400 }
       );
-    }
-  } else {
-    value = Number(payload.value);
-
-    if (!Number.isFinite(value)) {
-      throw new AppError(
-        ERROR_CODES.INVALID_REQUEST,
-        "مقدار نشانگر صفحه‌بندی نامعتبر است.",
-        { statusCode: 400 }
-      );
-    }
   }
 
   return {
@@ -165,6 +220,9 @@ function validateRecipeCursor(payload, sort) {
   };
 }
 
+/**
+ * Create the next cursor from the last returned recipes.
+ */
 function createNextCursor(recipes, sort) {
   if (!recipes.length) {
     return null;
@@ -197,9 +255,10 @@ function createNextCursor(recipes, sort) {
   }
 
   return encodeCursor({
+    resource: "RECIPES",
     sort,
     value,
-    id: lastRecipe._id,
+    id: lastRecipe._id.toString(),
   });
 }
 
@@ -235,7 +294,7 @@ export async function createRecipe(currentUser, recipeData) {
           });
         }
 
-        if (author.accountStatus !== "ACTIVE") {
+        if (author.accountStatus !== ACCOUNT_STATUSES.ACTIVE) {
           throw new AppError(
             ERROR_CODES.FORBIDDEN,
             "حساب کاربری شما فعال نیست.",
@@ -315,14 +374,17 @@ export async function getRecipeBySlug(slug) {
   return recipe;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Get Recipes                                                                */
+/* -------------------------------------------------------------------------- */
+
 export async function getRecipes({
   filter = {},
   sort = RECIPE_SORTS.NEWEST,
   cursor = null,
   limit = DEFAULT_LIST_LIMIT,
 } = {}) {
-  let finalSort = sort;
-  if (!sort) finalSort = RECIPE_SORTS.NEWEST;
+  const finalSort = sort || RECIPE_SORTS.NEWEST;
 
   const normalizedSort = assertEnum(finalSort, Object.values(RECIPE_SORTS), {
     errorCode: ERROR_CODES.INVALID_REQUEST,
@@ -339,43 +401,34 @@ export async function getRecipes({
   let decodedCursor = null;
 
   if (cursor) {
-    decodedCursor = cursor
-      ? validateRecipeCursor(decodeCursor(cursor), normalizedSort)
-      : null;
-
-    if (decodedCursor.sort !== normalizedSort) {
-      throw new AppError(
-        ERROR_CODES.INVALID_REQUEST,
-        "نشانگر صفحه‌بندی با مرتب‌سازی انتخاب‌شده مطابقت ندارد.",
-        { statusCode: 400 }
-      );
-    }
+    decodedCursor = validateRecipeCursor(decodeCursor(cursor), normalizedSort);
   }
 
   const safeFilter = {};
 
   if (filter.categoryId !== undefined) {
     assertValidObjectId(filter.categoryId, "category ID");
+
     safeFilter.categoryId = filter.categoryId;
   }
 
   if (filter.authorId !== undefined) {
     assertValidObjectId(filter.authorId, "author ID");
+
     safeFilter.authorId = filter.authorId;
   }
 
-  /*
+  /**
    * findRecipes() must return only accessible Recipes:
    *
    * Recipe.deletedAt === null
    * AND Author.deletedAt === null
-   * AND Author.accountStatus === "ACTIVE"
+   * AND Author.accountStatus === ACCOUNT_STATUSES.ACTIVE
    * AND Category.isActive === true
    *
-   * These conditions must be applied inside the repository BEFORE
-   * cursor pagination and limit calculation.
+   * These conditions must be applied inside the repository
+   * BEFORE cursor pagination and limit calculation.
    */
-
   const recipes = await findRecipes({
     filter: safeFilter,
     sort: normalizedSort,
@@ -425,13 +478,15 @@ export function getHomeCategoryRecipes(categoryId) {
 
 export async function updateRecipe(currentUser, recipeId, updates) {
   assertAuthenticated(currentUser);
+
   assertValidObjectId(recipeId, "recipe ID");
 
   const sanitizedUpdates = pickAllowedFields(updates, MUTABLE_RECIPE_FIELDS);
 
   return withTransaction(async (session) => {
-    /*
+    /**
      * Recipe must be accessible before it can be updated.
+     *
      * This checks the Recipe, its Author and its Category.
      */
     const { recipe } = await getAccessibleRecipe(recipeId, session);
@@ -485,23 +540,23 @@ export async function updateRecipe(currentUser, recipeId, updates) {
 
 export async function deleteRecipe(currentUser, recipeId) {
   assertAuthenticated(currentUser);
+
   assertValidObjectId(recipeId, "recipe ID");
 
   return withTransaction(async (session) => {
-    /*
+    /**
      * Recipe must be fully accessible before delete.
      */
     const { recipe } = await getAccessibleRecipe(recipeId, session);
 
     assertRecipeOwnerOrAdmin(currentUser, recipe);
 
-    /*
+    /**
      * Only the Recipe is soft-deleted.
      *
      * Bookmarks, Ratings, Comments, Reactions and all other
      * relationships are intentionally preserved.
      */
-
     const deletedRecipe = await softDeleteRecipe(recipeId, new Date(), session);
 
     if (!deletedRecipe) {
@@ -524,12 +579,14 @@ export async function deleteRecipe(currentUser, recipeId) {
 
 export async function restoreDeletedRecipe(currentUser, recipeId) {
   assertAdmin(currentUser);
+
   assertValidObjectId(recipeId, "recipe ID");
 
   return withTransaction(async (session) => {
-    /*
-     * Restore intentionally uses the deleted-Recipe lookup because
-     * getAccessibleRecipe() only works with non-deleted Recipes.
+    /**
+     * Restore intentionally uses the deleted-Recipe lookup
+     * because getAccessibleRecipe() only works with
+     * non-deleted Recipes.
      */
     const recipe = await findDeletedRecipeById(recipeId, session);
 
@@ -539,10 +596,31 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
       });
     }
 
-    /*
-     * A restored Recipe must have an active author and category.
+    /**
+     * A restored Recipe must have an active author.
      */
-    await assertAccessibleRecipe(recipe, session);
+    const author = await findUserById(recipe.authorId, session);
+
+    if (!author || author.accountStatus !== ACCOUNT_STATUSES.ACTIVE) {
+      throw new AppError(
+        ERROR_CODES.FORBIDDEN,
+        "دستور پخت به دلیل غیرفعال بودن نویسنده قابل بازیابی نیست.",
+        { statusCode: 403 }
+      );
+    }
+
+    /**
+     * A restored Recipe must have an active category.
+     */
+    const category = await findActiveCategoryById(recipe.categoryId, session);
+
+    if (!category) {
+      throw new AppError(
+        ERROR_CODES.CATEGORY_NOT_FOUND,
+        "دستور پخت به دلیل غیرفعال بودن دسته‌بندی قابل بازیابی نیست.",
+        { statusCode: 404 }
+      );
+    }
 
     const restoredRecipe = await restoreRecipeRepository(recipeId, session);
 
@@ -569,12 +647,12 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
 export async function incrementRecipeView(recipeId) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  /*
+  /**
    * A Recipe view is allowed only for an accessible Recipe.
    */
   const { recipe } = await getAccessibleRecipe(recipeId);
 
-  /*
+  /**
    * View counters are atomic and intentionally non-transactional.
    */
   const updatedRecipe = await incrementViewCount(recipe._id, 1);

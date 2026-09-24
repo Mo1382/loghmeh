@@ -18,7 +18,7 @@ const messageSchema = z
  * replies are added by administrators.
  */
 
-export const createSupportTicketSchema = z
+export const createTicketSchema = z
   .object({
     message: messageSchema,
   })

@@ -1,5 +1,6 @@
-import { pickAllowedFields } from "@/lib/validation/fields";
 import mongoose from "mongoose";
+
+import { pickAllowedFields } from "@/lib/validation/fields";
 
 import {
   findUserById,
@@ -11,34 +12,46 @@ import {
   restoreUser,
 } from "@/repositories/user.repository";
 
-import { USER_SORTS } from "@/constants/enums";
+import { ACCOUNT_STATUSES, USER_SORTS } from "@/constants/enums";
 
 import AppError from "@/lib/errors/AppError";
+
 import { ERROR_CODES } from "@/constants/error-codes";
+
 import { assertAdmin } from "@/lib/auth/guards";
+
 import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
+
+import { assertCursorResource } from "@/lib/pagination/cursor-context";
+
+import { normalizeLimit } from "@/lib/pagination/limit";
+
 import { assertValidObjectId } from "@/lib/validation/object-id";
+
 import { assertEnum } from "@/lib/validation/enum";
-import { ACCOUNT_STATUSES } from "@/constants/enums";
+
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                  */
+/* -------------------------------------------------------------------------- */
+
+const DEFAULT_LIST_LIMIT = 16;
+const MAX_LIST_LIMIT = 50;
+
+/* -------------------------------------------------------------------------- */
+/* Cursor Helpers                                                             */
+/* -------------------------------------------------------------------------- */
 
 /**
- * Cursor signing algorithm.
- */
-/**
- * Encode a cursor into an opaque signed string.
- *
- * The cursor is Base64URL encoded and signed with HMAC.
+ * Validate and normalize a decoded user cursor.
  *
  * Cursor payload:
  * {
  *   v: 1,
+ *   resource: "USERS",
  *   sort: String,
  *   value: Number | Date,
  *   id: String
  * }
- */
-/**
- * Validate and normalize a decoded cursor.
  *
  * Date-based sorts are converted back from their
  * JSON string representation into Date objects.
@@ -59,6 +72,8 @@ function validateUserCursor(payload, sort) {
       { statusCode: 400 }
     );
   }
+
+  assertCursorResource(payload, "USERS");
 
   assertEnum(payload.sort, Object.values(USER_SORTS), {
     errorCode: ERROR_CODES.INVALID_CURSOR,
@@ -158,11 +173,16 @@ function createNextCursor(user, sort) {
   }
 
   return encodeCursor({
+    resource: "USERS",
     sort,
     value,
     id: user._id.toString(),
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/* User Response Helpers                                                      */
+/* -------------------------------------------------------------------------- */
 
 function toPublicUser(user) {
   const publicUser = pickAllowedFields(user, [
@@ -197,15 +217,6 @@ function toPublicUser(user) {
  * Intended for the authenticated user viewing their own account.
  * Sensitive fields such as password and deletedAt are excluded.
  */
-// function toPrivateUser(user) {
-//   const data = user.toObject ? user.toObject() : { ...user };
-
-//   delete data.password;
-//   delete data.deletedAt;
-
-//   return data;
-// }
-
 function toPrivateUser(user) {
   return {
     id: user._id,
@@ -224,6 +235,10 @@ function toPrivateUser(user) {
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Authorization Helpers                                                     */
+/* -------------------------------------------------------------------------- */
+
 /**
  * Check whether the authenticated user is the owner of the target resource.
  */
@@ -236,6 +251,10 @@ function assertSelfAccess(currentUserId, targetUserId) {
     );
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Get User                                                                   */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Get a user by ID.
@@ -266,6 +285,10 @@ export async function getUserByUsername(username) {
 
   return toPublicUser(user);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Get Users                                                                  */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Get users using cursor-based infinite loading.
@@ -322,6 +345,10 @@ export async function getUsers({
   };
 }
 
+/* -------------------------------------------------------------------------- */
+/* Update User Profile                                                        */
+/* -------------------------------------------------------------------------- */
+
 /**
  * Update the authenticated user's profile.
  *
@@ -352,6 +379,10 @@ export async function updateUserProfile(currentUserId, targetUserId, updates) {
   return toPrivateUser(updatedUser);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Change Account Status                                                      */
+/* -------------------------------------------------------------------------- */
+
 /**
  * Change a user's account status.
  *
@@ -364,7 +395,7 @@ export async function changeAccountStatus(
 ) {
   assertAdmin(currentUser);
 
-  assertEnum(accountStatus, ACCOUNT_STATUSES, {
+  assertEnum(accountStatus, Object.values(ACCOUNT_STATUSES), {
     errorCode: ERROR_CODES.INVALID_REQUEST,
     message: "وضعیت حساب کاربری نامعتبر است.",
     statusCode: 400,
@@ -372,7 +403,7 @@ export async function changeAccountStatus(
 
   if (
     currentUser._id.toString() === targetUserId.toString() &&
-    accountStatus !== "ACTIVE"
+    accountStatus !== ACCOUNT_STATUSES.ACTIVE
   ) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
@@ -399,6 +430,10 @@ export async function changeAccountStatus(
 
   return toPrivateUser(updatedUser);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Delete User                                                                */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Soft-delete a user.
@@ -436,6 +471,10 @@ export async function deleteUser(currentUser, targetUserId) {
     success: true,
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Restore User                                                               */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Restore a soft-deleted user.

@@ -1,11 +1,5 @@
 import Rating from "@/models/Rating";
-
-/**
- * Apply MongoDB session only when provided.
- */
-function applySession(query, session) {
-  return session ? query.session(session) : query;
-}
+import { applySession } from "@/lib/helpers/apply-session";
 
 /**
  * Find a rating by ID.

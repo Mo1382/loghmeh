@@ -1,11 +1,5 @@
 import Bookmark from "@/models/Bookmark";
-
-/**
- * Apply MongoDB session only when provided.
- */
-function applySession(query, session) {
-  return session ? query.session(session) : query;
-}
+import { applySession } from "@/lib/helpers/apply-session";
 
 /**
  * Find a bookmark by its ID.

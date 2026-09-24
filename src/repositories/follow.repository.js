@@ -1,18 +1,13 @@
 import Follow from "@/models/Follow";
 import User from "@/models/User";
+import { ACCOUNT_STATUSES } from "@/constants/enums";
+import { applySession } from "@/lib/helpers/apply-session";
 
 /**
  * --------------------------------------------------------------------------
  * Helpers
  * --------------------------------------------------------------------------
  */
-
-/**
- * Apply MongoDB session only when provided.
- */
-function applySession(query, session) {
-  return session ? query.session(session) : query;
-}
 
 /**
  * --------------------------------------------------------------------------
@@ -192,7 +187,7 @@ export function findFollowingByUser({
      */
     {
       $match: {
-        "followingUser.accountStatus": "ACTIVE",
+        "followingUser.accountStatus": ACCOUNT_STATUSES.ACTIVE,
         "followingUser.deletedAt": null,
       },
     },
@@ -317,7 +312,7 @@ export function findFollowersByUser({
      */
     {
       $match: {
-        "followerUser.accountStatus": "ACTIVE",
+        "followerUser.accountStatus": ACCOUNT_STATUSES.ACTIVE,
         "followerUser.deletedAt": null,
       },
     },
@@ -379,7 +374,7 @@ export function countFollowingByUser(followerId, session) {
         pipeline: [
           {
             $match: {
-              accountStatus: "ACTIVE",
+              accountStatus: ACCOUNT_STATUSES.ACTIVE,
               deletedAt: null,
             },
           },
@@ -429,7 +424,7 @@ export function countFollowersByUser(followingId, session) {
         pipeline: [
           {
             $match: {
-              accountStatus: "ACTIVE",
+              accountStatus: ACCOUNT_STATUSES.ACTIVE,
               deletedAt: null,
             },
           },

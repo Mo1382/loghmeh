@@ -20,6 +20,7 @@ import { withTransaction } from "@/lib/transaction";
 import { assertEnum } from "@/lib/validation/enum";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 import { NOTIFICATION_TYPES, REACTION_TYPES } from "@/constants/enums";
+import { getAccessibleRecipe } from "@/lib/helpers/recipe-access";
 
 /**
  * --------------------------------------------------------------------------
@@ -60,7 +61,7 @@ async function getActiveCommentContext(commentId, session) {
     });
   }
 
-  await getAccessibleRecipe(comment.recipeId);
+  const recipe = await getAccessibleRecipe(comment.recipeId);
 
   return {
     comment,
@@ -130,20 +131,8 @@ export async function getUserReaction(currentUser, commentId) {
   return findReactionByUserAndComment(currentUser._id, commentId);
 }
 
-/**
- * --------------------------------------------------------------------------
- * Create
- * --------------------------------------------------------------------------
- */
-
-/**
- * Create a reaction for a comment.
- *
- * A user can have only one reaction per comment.
- */
 export async function createReaction(currentUser, commentId, type) {
   assertAuthenticated(currentUser);
-
   assertValidObjectId(commentId, "comment ID");
 
   assertEnum(type, Object.values(REACTION_TYPES), {
@@ -153,7 +142,10 @@ export async function createReaction(currentUser, commentId, type) {
   });
 
   return withTransaction(async (session) => {
-    await getActiveCommentContext(commentId, session);
+    const { comment, recipe } = await getActiveCommentContext(
+      commentId,
+      session
+    );
 
     /**
      * Check whether this user already has
@@ -234,22 +226,8 @@ export async function createReaction(currentUser, commentId, type) {
   });
 }
 
-/**
- * --------------------------------------------------------------------------
- * Update
- * --------------------------------------------------------------------------
- */
-
-/**
- * Change the current user's reaction type.
- *
- * Examples:
- * LIKE -> DISLIKE
- * DISLIKE -> LIKE
- */
 export async function updateReaction(currentUser, commentId, type) {
   assertAuthenticated(currentUser);
-
   assertValidObjectId(commentId, "comment ID");
 
   assertEnum(type, Object.values(REACTION_TYPES), {
@@ -259,7 +237,10 @@ export async function updateReaction(currentUser, commentId, type) {
   });
 
   return withTransaction(async (session) => {
-    await getActiveCommentContext(commentId, session);
+    const { comment, recipe } = await getActiveCommentContext(
+      commentId,
+      session
+    );
 
     const existingReaction = await findReactionByUserAndComment(
       currentUser._id,
