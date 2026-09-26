@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { MAX_COMMENT_REPLIES } from "@/constants/enums";
 
 const replySchema = new mongoose.Schema(
   {
@@ -61,6 +62,10 @@ const commentSchema = new mongoose.Schema(
     replies: {
       type: [replySchema],
       default: [],
+      validate: {
+        validator: (items) => items.length <= MAX_COMMENT_REPLIES,
+        message: `A comment cannot have more than ${MAX_COMMENT_REPLIES} replies.`,
+      },
     },
 
     likeCount: {

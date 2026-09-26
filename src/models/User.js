@@ -2,6 +2,10 @@ import mongoose from "mongoose";
 import { ACCOUNT_STATUSES, USER_ROLES, USER_TITLES } from "@/constants/enums";
 
 function isValidHttpsUrl(value) {
+  if (value == null) {
+    return true;
+  }
+
   if (typeof value !== "string") {
     return false;
   }

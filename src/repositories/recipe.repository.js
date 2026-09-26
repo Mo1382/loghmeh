@@ -127,7 +127,7 @@ function buildCursorFilter(sort, cursor) {
  *
  * These stages are intended to run BEFORE pagination.
  */
-function buildAccessibilityStages() {
+function buildRecipeAccessibilityStages() {
   return [
     {
       $lookup: {
@@ -150,7 +150,6 @@ function buildAccessibilityStages() {
         as: "accessibleAuthor",
       },
     },
-
     {
       $lookup: {
         from: Category.collection.name,
@@ -171,18 +170,12 @@ function buildAccessibilityStages() {
         as: "accessibleCategory",
       },
     },
-
     {
       $match: {
-        "accessibleAuthor.0": {
-          $exists: true,
-        },
-        "accessibleCategory.0": {
-          $exists: true,
-        },
+        "accessibleAuthor.0": { $exists: true },
+        "accessibleCategory.0": { $exists: true },
       },
     },
-
     {
       $project: {
         accessibleAuthor: 0,
@@ -256,45 +249,23 @@ export function findRecipes({
   }
 
   const pipeline = [
-    /*
-     * Base Recipe filters.
-     *
-     * deletedAt is enforced here so deleted Recipes never
-     * participate in the result set.
-     */
     {
       $match: queryFilter,
     },
   ];
 
-  /*
-   * Cursor filtering is applied before the cross-document
-   * accessibility checks.
-   */
   if (cursorFilter) {
     pipeline.push({
       $match: cursorFilter,
     });
   }
 
-  /*
-   * Author and Category accessibility must be determined
-   * BEFORE limit/hasMore pagination.
-   */
-  pipeline.push(...buildAccessibilityStages());
+  pipeline.push(...buildRecipeAccessibilityStages());
 
-  /*
-   * Sort only after inaccessible Recipes have been removed.
-   */
   pipeline.push({
     $sort: sortOption,
   });
 
-  /*
-   * Apply limit after accessibility filtering so that the
-   * returned page actually contains the requested number
-   * of accessible Recipes.
-   */
   pipeline.push({
     $limit: limit,
   });
@@ -472,27 +443,6 @@ export function restoreRecipe(recipeId, session) {
 /* Find Multiple Recipes                                                      */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Find multiple Recipes by their IDs.
- *
- * Deleted Recipes are excluded.
- *
- * This function intentionally does not perform Author/Category
- * accessibility filtering because callers may use it for internal
- * relationship checks. Public multi-Recipe loading should use
- * findRecipes().
- */
-export function findRecipesByIds(recipeIds, session) {
-  const query = Recipe.find({
-    _id: {
-      $in: recipeIds,
-    },
-    deletedAt: null,
-  });
-
-  return applySession(query, session);
-}
-
 export function findAccessibleRecipesByIds(recipeIds, session) {
   const pipeline = [
     {
@@ -503,93 +453,12 @@ export function findAccessibleRecipesByIds(recipeIds, session) {
         deletedAt: null,
       },
     },
-
-    {
-      $lookup: {
-        from: "users",
-        let: {
-          authorId: "$authorId",
-        },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ["$_id", "$$authorId"] },
-                  { $eq: ["$accountStatus", ACCOUNT_STATUSES.ACTIVE] },
-                  { $eq: ["$deletedAt", null] },
-                ],
-              },
-            },
-          },
-          {
-            $project: {
-              _id: 1,
-            },
-          },
-        ],
-        as: "accessibleAuthor",
-      },
-    },
-
-    {
-      $match: {
-        "accessibleAuthor.0": {
-          $exists: true,
-        },
-      },
-    },
-
-    {
-      $lookup: {
-        from: "categories",
-        let: {
-          categoryId: "$categoryId",
-        },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ["$_id", "$$categoryId"] },
-                  { $eq: ["$isActive", true] },
-                ],
-              },
-            },
-          },
-          {
-            $project: {
-              _id: 1,
-            },
-          },
-        ],
-        as: "accessibleCategory",
-      },
-    },
-
-    {
-      $match: {
-        "accessibleCategory.0": {
-          $exists: true,
-        },
-      },
-    },
-
-    {
-      $project: {
-        accessibleAuthor: 0,
-        accessibleCategory: 0,
-      },
-    },
+    ...buildRecipeAccessibilityStages(),
   ];
 
-  const aggregate = Recipe.aggregate(pipeline);
+  const query = Recipe.aggregate(pipeline);
 
-  if (session) {
-    aggregate.session(session);
-  }
-
-  return aggregate;
+  return applySession(query, session);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -599,23 +468,31 @@ export function findAccessibleRecipesByIds(recipeIds, session) {
 /**
  * Increment or decrement a Recipe statistic.
  */
-export function incrementStatCount(recipeId, stat, amount = 1, session) {
+export function updateStatCountByDelta(recipeId, stat, delta = 1, session) {
   if (!Object.values(RECIPE_STATS).includes(stat)) {
     throw new Error("Invalid recipe stat.");
   }
 
-  if (!Number.isInteger(amount) || amount === 0) {
-    throw new Error("Recipe stat amount must be a non-zero integer.");
+  if (!Number.isInteger(delta) || delta === 0) {
+    throw new Error("Recipe stat delta must be a non-zero integer.");
+  }
+
+  const filter = {
+    _id: recipeId,
+    deletedAt: null,
+  };
+
+  if (delta < 0) {
+    filter[stat] = {
+      $gte: Math.abs(delta),
+    };
   }
 
   const query = Recipe.findOneAndUpdate(
-    {
-      _id: recipeId,
-      deletedAt: null,
-    },
+    filter,
     {
       $inc: {
-        [stat]: amount,
+        [stat]: delta,
       },
     },
     {
@@ -626,19 +503,23 @@ export function incrementStatCount(recipeId, stat, amount = 1, session) {
 
   return applySession(query, session);
 }
-
 /**
  * Increment Recipe view count.
  */
 export function incrementViewCount(recipeId, amount = 1, session) {
-  return incrementStatCount(recipeId, RECIPE_STATS.VIEW_COUNT, amount, session);
+  return updateStatCountByDelta(
+    recipeId,
+    RECIPE_STATS.VIEW_COUNT,
+    amount,
+    session
+  );
 }
 
 /**
  * Increment Recipe rating count.
  */
 export function incrementRatingCount(recipeId, amount = 1, session) {
-  return incrementStatCount(
+  return updateStatCountByDelta(
     recipeId,
     RECIPE_STATS.RATING_COUNT,
     amount,
@@ -650,7 +531,7 @@ export function incrementRatingCount(recipeId, amount = 1, session) {
  * Increment Recipe comment count.
  */
 export function incrementCommentCount(recipeId, amount = 1, session) {
-  return incrementStatCount(
+  return updateStatCountByDelta(
     recipeId,
     RECIPE_STATS.COMMENT_COUNT,
     amount,

@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 
@@ -106,52 +107,32 @@ function getAuthSecret() {
   return secret;
 }
 
-/**
- * Create a short-lived signed password-reset token.
- *
- * The token contains:
- * - email
- * - verification code document ID
- * - expiration time
- */
-function createPasswordResetToken({ email, verificationCodeId, expiresAt }) {
-  const payload = JSON.stringify({
-    email,
-    verificationCodeId: verificationCodeId.toString(),
-    expiresAt,
-  });
-
-  const encodedPayload = Buffer.from(payload).toString("base64url");
-
-  const signature = crypto
-    .createHmac("sha256", getAuthSecret())
-    .update(encodedPayload)
-    .digest("base64url");
-
-  return `${encodedPayload}.${signature}`;
-}
-
-/**
- * Verify and decode a password-reset token.
- */
 function verifyPasswordResetToken(token) {
+  const invalidTokenError = () =>
+    new AppError(
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+      "توکن بازنشانی رمز عبور نامعتبر است.",
+      { statusCode: 400 }
+    );
+
+  const expiredTokenError = () =>
+    new AppError(
+      ERROR_CODES.PASSWORD_RESET_CODE_EXPIRED,
+      "توکن بازنشانی رمز عبور منقضی شده است.",
+      { statusCode: 400 }
+    );
+
   if (!token || typeof token !== "string") {
-    throw new AppError(
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "توکن بازنشانی رمز عبور نامعتبر است.",
-      { statusCode: 400 }
-    );
+    throw invalidTokenError();
   }
 
-  const [encodedPayload, signature] = token.split(".");
+  const parts = token.split(".");
 
-  if (!encodedPayload || !signature) {
-    throw new AppError(
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "توکن بازنشانی رمز عبور نامعتبر است.",
-      { statusCode: 400 }
-    );
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw invalidTokenError();
   }
+
+  const [encodedPayload, signature] = parts;
 
   const expectedSignature = crypto
     .createHmac("sha256", getAuthSecret())
@@ -159,18 +140,13 @@ function verifyPasswordResetToken(token) {
     .digest("base64url");
 
   const signatureBuffer = Buffer.from(signature, "utf8");
-
   const expectedBuffer = Buffer.from(expectedSignature, "utf8");
 
   if (
     signatureBuffer.length !== expectedBuffer.length ||
     !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
   ) {
-    throw new AppError(
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "توکن بازنشانی رمز عبور نامعتبر است.",
-      { statusCode: 400 }
-    );
+    throw invalidTokenError();
   }
 
   let payload;
@@ -180,24 +156,36 @@ function verifyPasswordResetToken(token) {
       Buffer.from(encodedPayload, "base64url").toString("utf8")
     );
   } catch {
-    throw new AppError(
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      "توکن بازنشانی رمز عبور نامعتبر است.",
-      { statusCode: 400 }
-    );
+    throw invalidTokenError();
+  }
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw invalidTokenError();
   }
 
   if (
-    !payload.email ||
-    !payload.verificationCodeId ||
-    !payload.expiresAt ||
-    Date.now() >= payload.expiresAt
+    payload.v !== 1 ||
+    payload.purpose !== VERIFICATION_CODE_PURPOSES.PASSWORD_RESET ||
+    typeof payload.userId !== "string" ||
+    typeof payload.sessionVersion !== "number" ||
+    !Number.isSafeInteger(payload.sessionVersion) ||
+    payload.sessionVersion < 0 ||
+    typeof payload.verificationCodeId !== "string" ||
+    typeof payload.expiresAt !== "number" ||
+    !Number.isSafeInteger(payload.expiresAt)
   ) {
-    throw new AppError(
-      ERROR_CODES.PASSWORD_RESET_CODE_EXPIRED,
-      "توکن بازنشانی رمز عبور منقضی شده است.",
-      { statusCode: 400 }
-    );
+    throw invalidTokenError();
+  }
+
+  if (
+    !mongoose.Types.ObjectId.isValid(payload.userId) ||
+    !mongoose.Types.ObjectId.isValid(payload.verificationCodeId)
+  ) {
+    throw invalidTokenError();
+  }
+
+  if (Date.now() >= payload.expiresAt) {
+    throw expiredTokenError();
   }
 
   return payload;
@@ -463,6 +451,16 @@ export async function requestPasswordReset({ email }) {
  * the password is successfully changed.
  */
 export async function verifyPasswordResetCode({ email, code }) {
+  const user = await findUserByEmail(email);
+
+  if (!user || user.accountStatus !== ACCOUNT_STATUSES.ACTIVE) {
+    throw new AppError(
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+      "کد بازنشانی رمز عبور نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
+
   const verificationCode = await findActiveVerificationCode(
     email,
     VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
@@ -490,8 +488,10 @@ export async function verifyPasswordResetCode({ email, code }) {
 
   return {
     resetToken: createPasswordResetToken({
-      email,
-      verificationCodeId: verificationCode._id,
+      purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
+      userId: user._id.toString(),
+      sessionVersion: user.sessionVersion,
+      verificationCodeId: verificationCode._id.toString(),
       expiresAt: expiresAt.getTime(),
     }),
   };
@@ -505,9 +505,9 @@ export async function verifyPasswordResetCode({ email, code }) {
 export async function resetPassword({ resetToken, password }) {
   const payload = verifyPasswordResetToken(resetToken);
 
-  const user = await findUserByIdentifier(payload.email);
+  const user = await findUserByIdWithPassword(payload.userId);
 
-  if (!user || user.deletedAt) {
+  if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
       statusCode: 404,
     });
@@ -521,8 +521,16 @@ export async function resetPassword({ resetToken, password }) {
     );
   }
 
+  if (user.sessionVersion !== payload.sessionVersion) {
+    throw new AppError(
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+      "توکن بازنشانی رمز عبور نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
+
   const verificationCode = await findActiveVerificationCode(
-    payload.email,
+    user.email,
     VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
   );
 
@@ -552,7 +560,7 @@ export async function resetPassword({ resetToken, password }) {
   const updatedUser = await withTransaction(async (session) => {
     const consumedVerification = await consumeVerificationCode({
       verificationCodeId: verificationCode._id,
-      email: payload.email,
+      email: user.email,
       purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
       codeHash: verificationCode.codeHash,
       session,

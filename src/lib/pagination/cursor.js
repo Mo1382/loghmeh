@@ -27,7 +27,11 @@ function getCursorSecret() {
  * domain-specific cursor fields.
  */
 export function encodeCursor(payload) {
-  if (!payload || typeof payload !== "object") {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
     throw new AppError(
       ERROR_CODES.INVALID_CURSOR,
       "داده نشانگر صفحه‌بندی نامعتبر است.",
@@ -36,14 +40,23 @@ export function encodeCursor(payload) {
   }
 
   const finalPayload = {
-    v: CURSOR_VERSION,
     ...payload,
+    v: CURSOR_VERSION,
   };
 
-  const payloadBase64 = Buffer.from(
-    JSON.stringify(finalPayload),
-    "utf8"
-  ).toString("base64url");
+  let payloadBase64;
+
+  try {
+    payloadBase64 = Buffer.from(JSON.stringify(finalPayload), "utf8").toString(
+      "base64url"
+    );
+  } catch {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "داده نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
 
   const signature = crypto
     .createHmac("sha256", getCursorSecret())
@@ -142,10 +155,9 @@ export function decodeCursor(cursor) {
  */
 export function normalizeCreatedAtIdCursor(payload) {
   if (
-    !payload ||
+    payload === null ||
     typeof payload !== "object" ||
-    !payload.createdAt ||
-    !payload.id
+    Array.isArray(payload)
   ) {
     throw new AppError(
       ERROR_CODES.INVALID_CURSOR,
@@ -154,17 +166,36 @@ export function normalizeCreatedAtIdCursor(payload) {
     );
   }
 
-  assertValidObjectId(payload.id, "cursor ID");
-
-  const createdAt = new Date(payload.createdAt);
-
-  if (Number.isNaN(createdAt.getTime())) {
+  if (typeof payload.createdAt !== "string") {
     throw new AppError(
       ERROR_CODES.INVALID_CURSOR,
       "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
       { statusCode: 400 }
     );
   }
+
+  if (typeof payload.id !== "string") {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "شناسه نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
+
+  const createdAt = new Date(payload.createdAt);
+
+  if (
+    Number.isNaN(createdAt.getTime()) ||
+    createdAt.toISOString() !== payload.createdAt
+  ) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
+
+  assertValidObjectId(payload.id, "cursor ID");
 
   return {
     createdAt,

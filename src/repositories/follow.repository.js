@@ -16,15 +16,6 @@ import { applySession } from "@/lib/helpers/apply-session";
  */
 
 /**
- * Find a follow relationship by its ID.
- */
-export function findFollowById(followId, session) {
-  const query = Follow.findById(followId);
-
-  return applySession(query, session);
-}
-
-/**
  * Find a specific follow relationship.
  *
  * Useful for checking whether a user already follows
@@ -81,20 +72,6 @@ export function deleteFollowByFollowerAndFollowing(
     followerId,
     followingId,
   });
-
-  return applySession(query, session);
-}
-
-/**
- * Delete a follow relationship by its ID.
- *
- * Authorization must be handled in the Service layer.
- *
- * Prefer deleteFollowByFollowerAndFollowing()
- * for normal user operations.
- */
-export function deleteFollowById(followId, session) {
-  const query = Follow.findByIdAndDelete(followId);
 
   return applySession(query, session);
 }

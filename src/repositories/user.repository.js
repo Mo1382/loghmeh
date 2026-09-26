@@ -108,6 +108,26 @@ export function findUserById(userId, session) {
   return applySession(query, session);
 }
 
+export function findActiveUserById(userId, session) {
+  const query = User.findOne({
+    _id: userId,
+    accountStatus: ACCOUNT_STATUSES.ACTIVE,
+    deletedAt: null,
+  });
+
+  return applySession(query, session);
+}
+
+export function findActiveUserByUsername(username, session) {
+  const query = User.findOne({
+    username,
+    accountStatus: ACCOUNT_STATUSES.ACTIVE,
+    deletedAt: null,
+  });
+
+  return applySession(query, session);
+}
+
 /**
  * Find a user by ID.
  */
@@ -169,6 +189,7 @@ export function findUserByUsername(username, session) {
 export function findUserByIdentifier(identifier, session) {
   const query = User.findOne({
     $or: [{ email: identifier }, { username: identifier }],
+    deletedAt: null,
   }).select("+password");
 
   return applySession(query, session);
@@ -329,22 +350,6 @@ export function restoreUser(userId, session) {
 }
 
 /**
- * Find multiple users by their IDs.
- *
- * Deleted users are excluded.
- */
-export function findUsersByIds(userIds, session) {
-  const query = User.find({
-    _id: {
-      $in: userIds,
-    },
-    deletedAt: null,
-  });
-
-  return applySession(query, session);
-}
-
-/**
  * Find users using cursor-based loading.
  *
  * Supported sorting:
@@ -368,6 +373,82 @@ export function findUsers({
 }) {
   const queryFilter = {
     ...filter,
+    deletedAt: null,
+  };
+
+  const cursorFilter = buildCursorFilter(sort, cursor);
+
+  if (cursorFilter) {
+    queryFilter.$or = cursorFilter.$or;
+  }
+
+  let sortOption;
+
+  switch (sort) {
+    case USER_SORTS.HIGHEST_RATED:
+      sortOption = {
+        "stats.averageRating": -1,
+        _id: -1,
+      };
+      break;
+
+    case USER_SORTS.MOST_VIEWED:
+      sortOption = {
+        "stats.totalRecipeViews": -1,
+        _id: -1,
+      };
+      break;
+
+    case USER_SORTS.NEWEST:
+      sortOption = {
+        createdAt: -1,
+        _id: -1,
+      };
+      break;
+
+    case USER_SORTS.OLDEST:
+      sortOption = {
+        createdAt: 1,
+        _id: 1,
+      };
+      break;
+
+    default:
+      throw new Error("Invalid user sort.");
+  }
+
+  const query = User.find(queryFilter).sort(sortOption).limit(limit);
+
+  return applySession(query, session);
+}
+
+/**
+ * Find active users using cursor-based loading.
+ *
+ * Only non-deleted and active users are returned.
+ *
+ * Supported sorting:
+ * - HIGHEST_RATED
+ * - MOST_VIEWED
+ * - NEWEST
+ * - OLDEST
+ *
+ * The Service layer is responsible for:
+ * - validating the sort
+ * - decoding the cursor
+ * - creating the next cursor
+ * - calculating hasMore
+ */
+export function findActiveUsers({
+  filter = {},
+  sort = USER_SORTS.MOST_VIEWED,
+  cursor = null,
+  limit = 16,
+  session,
+}) {
+  const queryFilter = {
+    ...filter,
+    accountStatus: ACCOUNT_STATUSES.ACTIVE,
     deletedAt: null,
   };
 

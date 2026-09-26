@@ -24,6 +24,7 @@ import {
   assertCursorOwner,
   assertCursorResource,
 } from "@/lib/pagination/cursor-context";
+import { CURSOR_RESOURCES } from "@/constants/enums";
 
 /**
  * --------------------------------------------------------------------------
@@ -50,7 +51,7 @@ function createNextCursor(bookmarks, userId) {
   }
 
   return encodeCursor({
-    resource: "BOOKMARKS",
+    resource: CURSOR_RESOURCES.BOOKMARKS,
     userId: userId.toString(),
     createdAt: lastBookmark.createdAt.toISOString(),
     id: lastBookmark._id.toString(),
@@ -206,7 +207,7 @@ export async function getUserBookmarks({
   if (cursor) {
     const payload = decodeCursor(cursor);
 
-    assertCursorResource(payload, "BOOKMARKS");
+    assertCursorResource(payload, CURSOR_RESOURCES.BOOKMARKS);
 
     assertCursorOwner(
       payload,

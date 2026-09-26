@@ -2,15 +2,6 @@ import Notification from "@/models/Notification";
 import { applySession } from "@/lib/helpers/apply-session";
 
 /**
- * Find a notification by its ID.
- */
-export function findNotificationById(notificationId, session) {
-  const query = Notification.findById(notificationId);
-
-  return applySession(query, session);
-}
-
-/**
  * Find a notification belonging to a specific user.
  *
  * Useful for retrieving a notification while ensuring
@@ -151,18 +142,6 @@ export function deleteNotificationByUser(notificationId, userId, session) {
     _id: notificationId,
     userId,
   });
-
-  return applySession(query, session);
-}
-
-/**
- * Delete a notification by its ID.
- *
- * Authorization must be handled in the Service layer.
- * Prefer deleteNotificationByUser() for normal user operations.
- */
-export function deleteNotificationById(notificationId, session) {
-  const query = Notification.findByIdAndDelete(notificationId);
 
   return applySession(query, session);
 }

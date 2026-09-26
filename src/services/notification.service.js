@@ -33,7 +33,7 @@ import {
 
 import { findActiveUsersByIds } from "@/repositories/user.repository";
 
-import { NOTIFICATION_TYPES } from "@/constants/enums";
+import { CURSOR_RESOURCES, NOTIFICATION_TYPES } from "@/constants/enums";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
@@ -73,7 +73,8 @@ function normalizeNotificationText(value, fieldName) {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Create the next cursor from the last notification in the current page.
+ * Create the next cursor from the last notification
+ * in the current page.
  */
 function createNextCursor(notification, userId) {
   if (!notification) {
@@ -85,7 +86,7 @@ function createNextCursor(notification, userId) {
   }
 
   return encodeCursor({
-    resource: "NOTIFICATIONS",
+    resource: CURSOR_RESOURCES.NOTIFICATIONS,
     userId: userId.toString(),
     createdAt: notification.createdAt.toISOString(),
     id: notification._id.toString(),
@@ -96,6 +97,20 @@ function createNextCursor(notification, userId) {
 /* Notification Data Helpers                                                  */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Normalize and validate trusted server-side
+ * notification data.
+ *
+ * System-managed fields:
+ * - isRead
+ * - readAt
+ *
+ * Target fields:
+ * - recipeId
+ * - commentId
+ * - replyId
+ * - ticketId
+ */
 function normalizeSystemNotificationData(notificationData) {
   if (
     !notificationData ||
@@ -117,6 +132,7 @@ function normalizeSystemNotificationData(notificationData) {
     message,
     recipeId = null,
     commentId = null,
+    replyId = null,
     ticketId = null,
   } = notificationData;
 
@@ -140,6 +156,10 @@ function normalizeSystemNotificationData(notificationData) {
     assertValidObjectId(commentId, "comment ID");
   }
 
+  if (replyId !== null) {
+    assertValidObjectId(replyId, "reply ID");
+  }
+
   if (ticketId !== null) {
     assertValidObjectId(ticketId, "support ticket ID");
   }
@@ -148,10 +168,14 @@ function normalizeSystemNotificationData(notificationData) {
     userId,
     actorId,
     type,
+
     title: normalizeNotificationText(title, "عنوان"),
+
     message: normalizeNotificationText(message, "متن پیام"),
+
     recipeId,
     commentId,
+    replyId,
     ticketId,
 
     // System-managed fields.
@@ -161,11 +185,12 @@ function normalizeSystemNotificationData(notificationData) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Get Notification                                                           */
+/* Get Notification                                                            */
 /* -------------------------------------------------------------------------- */
 
 export async function getNotificationById(currentUser, notificationId) {
   assertAuthenticated(currentUser);
+
   assertValidObjectId(notificationId, "notification ID");
 
   const notification = await findNotificationByIdAndUser(
@@ -183,7 +208,7 @@ export async function getNotificationById(currentUser, notificationId) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Get Notifications                                                          */
+/* Get Notifications                                                           */
 /* -------------------------------------------------------------------------- */
 
 export async function getNotifications(
@@ -203,7 +228,7 @@ export async function getNotifications(
   if (cursor) {
     const payload = decodeCursor(cursor);
 
-    assertCursorResource(payload, "NOTIFICATIONS");
+    assertCursorResource(payload, CURSOR_RESOURCES.NOTIFICATIONS);
 
     assertCursorOwner(
       payload,
@@ -241,7 +266,7 @@ export async function getNotifications(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Unread Count                                                               */
+/* Unread Count                                                                */
 /* -------------------------------------------------------------------------- */
 
 export async function getUnreadNotificationCount(currentUser) {
@@ -251,14 +276,16 @@ export async function getUnreadNotificationCount(currentUser) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Mark Notification As Read                                                  */
+/* Mark Notification As Read                                                   */
 /* -------------------------------------------------------------------------- */
 
 export async function markNotificationRead(currentUser, notificationId) {
   assertAuthenticated(currentUser);
+
   assertValidObjectId(notificationId, "notification ID");
 
-  // First verify ownership and retrieve the current state.
+  // First verify ownership and retrieve
+  // the current state.
   const notification = await findNotificationByIdAndUser(
     notificationId,
     currentUser._id
@@ -270,10 +297,8 @@ export async function markNotificationRead(currentUser, notificationId) {
     });
   }
 
-  /**
-   * Idempotent behavior:
-   * if already read, preserve the original readAt.
-   */
+  // Idempotent behavior:
+  // preserve the original readAt value.
   if (notification.isRead) {
     return notification;
   }
@@ -293,11 +318,12 @@ export async function markNotificationRead(currentUser, notificationId) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Delete Notification                                                        */
+/* Delete Notification                                                         */
 /* -------------------------------------------------------------------------- */
 
 export async function deleteNotification(currentUser, notificationId) {
   assertAuthenticated(currentUser);
+
   assertValidObjectId(notificationId, "notification ID");
 
   const deletedNotification = await deleteNotificationByUser(
@@ -315,19 +341,22 @@ export async function deleteNotification(currentUser, notificationId) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Internal / System Notification                                             */
+/* Internal / System Notification                                              */
 /* -------------------------------------------------------------------------- */
 
 /**
  * Create a notification for one specific user.
  *
- * This function is intended for trusted server-side
- * services such as:
- * - rating.service.js
- * - comment.service.js
- * - support-ticket.service.js
+ * Intended for trusted server-side services.
  *
- * It must not be exposed directly to an untrusted client.
+ * Supported target fields:
+ * - recipeId
+ * - commentId
+ * - replyId
+ * - ticketId
+ *
+ * This function must not be exposed directly
+ * to an untrusted client.
  */
 export async function createSystemNotification(notificationData, session) {
   const normalizedData = normalizeSystemNotificationData(notificationData);
@@ -336,11 +365,12 @@ export async function createSystemNotification(notificationData, session) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Global / Admin Notification                                                */
+/* Global / Admin Notification                                                 */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Create an announcement notification for multiple active users.
+ * Create an announcement notification for
+ * multiple active users.
  *
  * The function:
  * - requires ADMIN privileges
@@ -398,10 +428,10 @@ export async function createGlobalNotification(
   const notifications = activeUsers.map((user) => ({
     userId: user._id,
 
-    // The administrator creating the announcement.
+    // Administrator creating the announcement.
     actorId: currentUser._id,
 
-    // The type is controlled by the Service.
+    // Type is controlled by the Service.
     type: NOTIFICATION_TYPES.ANNOUNCEMENT,
 
     title: normalizedTitle,
@@ -409,6 +439,7 @@ export async function createGlobalNotification(
 
     recipeId: null,
     commentId: null,
+    replyId: null,
     ticketId: null,
 
     // System-managed fields.

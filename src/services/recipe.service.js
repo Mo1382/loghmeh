@@ -5,11 +5,9 @@ import {
   findDeletedRecipeById,
   findRecipes,
   incrementCommentCount,
-  incrementRatingCount,
   incrementViewCount,
   restoreRecipe as restoreRecipeRepository,
   softDeleteRecipe,
-  updateAverageRating,
   updateRecipeById,
 } from "@/repositories/recipe.repository";
 
@@ -49,7 +47,12 @@ import { pickAllowedFields } from "@/lib/validation/fields";
 
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
-import { ACCOUNT_STATUSES, RECIPE_SORTS, USER_ROLES } from "@/constants/enums";
+import {
+  ACCOUNT_STATUSES,
+  CURSOR_RESOURCES,
+  RECIPE_SORTS,
+  USER_ROLES,
+} from "@/constants/enums";
 
 /* -------------------------------------------------------------------------- */
 /* Constants                                                                  */
@@ -75,7 +78,7 @@ const MUTABLE_RECIPE_FIELDS = [
 ];
 
 /* -------------------------------------------------------------------------- */
-/* Authorization Helpers                                                     */
+/* Authorization Helpers                                                      */
 /* -------------------------------------------------------------------------- */
 
 function assertRecipeOwnerOrAdmin(currentUser, recipe) {
@@ -108,6 +111,16 @@ function slugifyTitle(title) {
     .replace(/^-|-$/g, "");
 }
 
+export function normalizeSlug(slug) {
+  if (typeof slug !== "string") {
+    return null;
+  }
+
+  const normalized = slug.trim().toLowerCase();
+
+  return normalized || null;
+}
+
 function createSlugCandidate(baseSlug, attempt) {
   if (attempt === 0) {
     return baseSlug;
@@ -130,7 +143,7 @@ function isSlugDuplicateError(error) {
  * Cursor payload:
  * {
  *   v: 1,
- *   resource: "RECIPES",
+ *   resource: CURSOR_RESOURCES.RECIPES,
  *   sort: String,
  *   value: Number | Date,
  *   id: String
@@ -140,6 +153,7 @@ function validateRecipeCursor(payload, sort) {
   if (
     !payload ||
     typeof payload !== "object" ||
+    Array.isArray(payload) ||
     payload.sort === undefined ||
     payload.value === undefined ||
     !payload.id
@@ -151,7 +165,7 @@ function validateRecipeCursor(payload, sort) {
     );
   }
 
-  assertCursorResource(payload, "RECIPES");
+  assertCursorResource(payload, CURSOR_RESOURCES.RECIPES);
 
   assertEnum(payload.sort, Object.values(RECIPE_SORTS), {
     errorCode: ERROR_CODES.INVALID_CURSOR,
@@ -255,7 +269,7 @@ function createNextCursor(recipes, sort) {
   }
 
   return encodeCursor({
-    resource: "RECIPES",
+    resource: CURSOR_RESOURCES.RECIPES,
     sort,
     value,
     id: lastRecipe._id.toString(),
@@ -315,9 +329,14 @@ export async function createRecipe(currentUser, recipeData) {
           );
         }
 
+        const sanitizedData = pickAllowedFields(
+          recipeData,
+          MUTABLE_RECIPE_FIELDS
+        );
+
         const recipe = await createRecipeRepository(
           {
-            ...recipeData,
+            ...sanitizedData,
             authorId: author._id,
             slug,
           },
@@ -369,7 +388,15 @@ export async function getRecipeBySlug(slug) {
     );
   }
 
-  const { recipe } = await getAccessibleRecipeBySlug(slug.trim());
+  const normalizedSlug = normalizeSlug(slug);
+
+  if (!normalizedSlug) {
+    throw new AppError(ERROR_CODES.INVALID_REQUEST, "شناسه متنی نامعتبر است.", {
+      statusCode: 400,
+    });
+  }
+
+  const recipe = await getAccessibleRecipeBySlug(normalizedSlug);
 
   return recipe;
 }
@@ -423,11 +450,11 @@ export async function getRecipes({
    *
    * Recipe.deletedAt === null
    * AND Author.deletedAt === null
-   * AND Author.accountStatus === ACCOUNT_STATUSES.ACTIVE
+   * AND Author.accountStatus === ACTIVE
    * AND Category.isActive === true
    *
    * These conditions must be applied inside the repository
-   * BEFORE cursor pagination and limit calculation.
+   * before cursor pagination and limit calculation.
    */
   const recipes = await findRecipes({
     filter: safeFilter,
@@ -554,8 +581,8 @@ export async function deleteRecipe(currentUser, recipeId) {
     /**
      * Only the Recipe is soft-deleted.
      *
-     * Bookmarks, Ratings, Comments, Reactions and all other
-     * relationships are intentionally preserved.
+     * Bookmarks, Ratings, Comments, Reactions and all
+     * other relationships are intentionally preserved.
      */
     const deletedRecipe = await softDeleteRecipe(recipeId, new Date(), session);
 
@@ -648,24 +675,40 @@ export async function incrementRecipeView(recipeId) {
   assertValidObjectId(recipeId, "recipe ID");
 
   /**
-   * A Recipe view is allowed only for an accessible Recipe.
+   * A Recipe view is allowed only for an
+   * accessible Recipe.
    */
   const { recipe } = await getAccessibleRecipe(recipeId);
 
   /**
-   * View counters are atomic and intentionally non-transactional.
+   * Recipe and User view counters must be
+   * updated atomically.
    */
-  const updatedRecipe = await incrementViewCount(recipe._id, 1);
+  return withTransaction(async (session) => {
+    const updated = await incrementViewCount(recipe._id, 1, session);
 
-  if (!updatedRecipe) {
-    throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
+    if (!updated) {
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
+    }
 
-  await incrementTotalRecipeViews(recipe.authorId, 1);
+    const updatedAuthor = await incrementTotalRecipeViews(
+      recipe.authorId,
+      1,
+      session
+    );
 
-  return updatedRecipe;
+    if (!updatedAuthor) {
+      throw new AppError(
+        ERROR_CODES.USER_NOT_FOUND,
+        "کاربر نویسنده پیدا نشد.",
+        { statusCode: 404 }
+      );
+    }
+
+    return updated;
+  });
 }
 
 export async function incrementRecipeCommentCount(
@@ -676,20 +719,4 @@ export async function incrementRecipeCommentCount(
   assertValidObjectId(recipeId, "recipe ID");
 
   return incrementCommentCount(recipeId, amount, session);
-}
-
-export async function incrementRecipeRatingCount(
-  recipeId,
-  amount = 1,
-  session
-) {
-  assertValidObjectId(recipeId, "recipe ID");
-
-  return incrementRatingCount(recipeId, amount, session);
-}
-
-export async function setRecipeAverageRating(recipeId, averageRating, session) {
-  assertValidObjectId(recipeId, "recipe ID");
-
-  return updateAverageRating(recipeId, averageRating, session);
 }

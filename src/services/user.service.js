@@ -3,16 +3,23 @@ import mongoose from "mongoose";
 import { pickAllowedFields } from "@/lib/validation/fields";
 
 import {
+  findActiveUserById,
+  findActiveUserByUsername,
   findUserById,
-  findUserByUsername,
   findUsers,
-  updateUserById,
-  updateAccountStatus,
-  softDeleteUser,
   restoreUser,
+  softDeleteUser,
+  updateAccountStatus,
+  updateUserById,
 } from "@/repositories/user.repository";
 
-import { ACCOUNT_STATUSES, USER_SORTS } from "@/constants/enums";
+import {
+  ACCOUNT_STATUSES,
+  USER_ROLES,
+  USER_SORTS,
+  USER_TITLES,
+  CURSOR_RESOURCES,
+} from "@/constants/enums";
 
 import AppError from "@/lib/errors/AppError";
 
@@ -47,7 +54,7 @@ const MAX_LIST_LIMIT = 50;
  * Cursor payload:
  * {
  *   v: 1,
- *   resource: "USERS",
+ *   resource: CURSOR_RESOURCES.USERS,
  *   sort: String,
  *   value: Number | Date,
  *   id: String
@@ -73,7 +80,7 @@ function validateUserCursor(payload, sort) {
     );
   }
 
-  assertCursorResource(payload, "USERS");
+  assertCursorResource(payload, CURSOR_RESOURCES.USERS);
 
   assertEnum(payload.sort, Object.values(USER_SORTS), {
     errorCode: ERROR_CODES.INVALID_CURSOR,
@@ -173,7 +180,7 @@ function createNextCursor(user, sort) {
   }
 
   return encodeCursor({
-    resource: "USERS",
+    resource: CURSOR_RESOURCES.USERS,
     sort,
     value,
     id: user._id.toString(),
@@ -253,6 +260,63 @@ function assertSelfAccess(currentUserId, targetUserId) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* User Filter Helpers                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Build a safe filter for user queries.
+ *
+ * Only explicitly supported fields are allowed to reach
+ * the User Repository.
+ *
+ * Supported filters:
+ * - role
+ * - title
+ * - accountStatus
+ */
+function buildSafeUserFilter(filter) {
+  if (filter === null || typeof filter !== "object" || Array.isArray(filter)) {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "فیلتر کاربران نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
+
+  const safeFilter = pickAllowedFields(filter, [
+    "role",
+    "title",
+    "accountStatus",
+  ]);
+
+  if (safeFilter.role !== undefined) {
+    assertEnum(safeFilter.role, Object.values(USER_ROLES), {
+      errorCode: ERROR_CODES.INVALID_REQUEST,
+      message: "نقش کاربر نامعتبر است.",
+      statusCode: 400,
+    });
+  }
+
+  if (safeFilter.title !== undefined) {
+    assertEnum(safeFilter.title, Object.values(USER_TITLES), {
+      errorCode: ERROR_CODES.INVALID_REQUEST,
+      message: "عنوان کاربر نامعتبر است.",
+      statusCode: 400,
+    });
+  }
+
+  if (safeFilter.accountStatus !== undefined) {
+    assertEnum(safeFilter.accountStatus, Object.values(ACCOUNT_STATUSES), {
+      errorCode: ERROR_CODES.INVALID_REQUEST,
+      message: "وضعیت حساب کاربری نامعتبر است.",
+      statusCode: 400,
+    });
+  }
+
+  return safeFilter;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Get User                                                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -260,7 +324,9 @@ function assertSelfAccess(currentUserId, targetUserId) {
  * Get a user by ID.
  */
 export async function getUserById(userId) {
-  const user = await findUserById(userId);
+  assertValidObjectId(userId, "user ID");
+
+  const user = await findActiveUserById(userId);
 
   if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -275,7 +341,7 @@ export async function getUserById(userId) {
  * Get a user by username.
  */
 export async function getUserByUsername(username) {
-  const user = await findUserByUsername(username);
+  const user = await findActiveUserByUsername(username);
 
   if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -311,6 +377,8 @@ export async function getUsers({
     statusCode: 400,
   });
 
+  const safeFilter = buildSafeUserFilter(filter);
+
   const normalizedLimit = normalizeLimit(
     limit,
     DEFAULT_LIST_LIMIT,
@@ -323,8 +391,8 @@ export async function getUsers({
     decodedCursor = validateUserCursor(decodeCursor(cursor), sort);
   }
 
-  const users = await findUsers({
-    filter,
+  const users = await findActiveUsers({
+    filter: safeFilter,
     sort,
     cursor: decodedCursor,
     limit: normalizedLimit + 1,
@@ -358,9 +426,12 @@ export async function getUsers({
  * updateUserProfileSchema.
  */
 export async function updateUserProfile(currentUserId, targetUserId, updates) {
+  assertValidObjectId(currentUserId, "user ID");
+  assertValidObjectId(targetUserId, "user ID");
+
   assertSelfAccess(currentUserId, targetUserId);
 
-  const user = await findUserById(targetUserId);
+  const user = await findActiveUserById(targetUserId);
 
   if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -368,7 +439,21 @@ export async function updateUserProfile(currentUserId, targetUserId, updates) {
     });
   }
 
-  const updatedUser = await updateUserById(targetUserId, updates);
+  const sanitizedUpdates = pickAllowedFields(updates, [
+    "avatar",
+    "bio",
+    "socialLinks",
+  ]);
+
+  if (Object.keys(sanitizedUpdates).length === 0) {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "حداقل یک فیلد برای ویرایش باید ارسال شود.",
+      { statusCode: 400 }
+    );
+  }
+
+  const updatedUser = await updateUserById(targetUserId, sanitizedUpdates);
 
   if (!updatedUser) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -394,6 +479,8 @@ export async function changeAccountStatus(
   accountStatus
 ) {
   assertAdmin(currentUser);
+
+  assertValidObjectId(targetUserId, "user ID");
 
   assertEnum(accountStatus, Object.values(ACCOUNT_STATUSES), {
     errorCode: ERROR_CODES.INVALID_REQUEST,
@@ -451,6 +538,8 @@ export async function deleteUser(currentUser, targetUserId) {
     );
   }
 
+  assertValidObjectId(targetUserId, "user ID");
+
   const user = await findUserById(targetUserId);
 
   if (!user) {
@@ -483,6 +572,8 @@ export async function deleteUser(currentUser, targetUserId) {
  */
 export async function restoreDeletedUser(currentUser, targetUserId) {
   assertAdmin(currentUser);
+
+  assertValidObjectId(targetUserId, "user ID");
 
   const restoredUser = await restoreUser(targetUserId);
 

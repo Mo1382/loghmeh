@@ -1,21 +1,41 @@
 import Reaction from "@/models/Reaction";
+
 import { applySession } from "@/lib/helpers/apply-session";
-import { REACTION_TYPES } from "@/constants/enums";
 
 /**
- * Find a reaction by its ID.
+ * --------------------------------------------------------------------------
+ * Helpers
+ * --------------------------------------------------------------------------
  */
-export function findReactionById(reactionId, session) {
-  const query = Reaction.findById(reactionId);
 
-  return applySession(query, session);
+/**
+ * Ensure that a reaction targets exactly one resource.
+ *
+ * Comment reaction:
+ *   commentId = ObjectId
+ *   replyId   = null
+ *
+ * Reply reaction:
+ *   commentId = null
+ *   replyId   = ObjectId
+ */
+function assertSingleReactionTarget({ commentId, replyId }) {
+  const hasComment = commentId != null;
+  const hasReply = replyId != null;
+
+  if (hasComment === hasReply) {
+    throw new Error("A reaction must target exactly one comment or reply.");
+  }
 }
 
 /**
- * Find a user's reaction for a specific comment.
- *
- * Useful for checking whether the user has already
- * reacted to the comment.
+ * --------------------------------------------------------------------------
+ * Read
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Find a user's reaction for a top-level comment.
  */
 export function findReactionByUserAndComment(userId, commentId, session) {
   const query = Reaction.findOne({
@@ -27,12 +47,34 @@ export function findReactionByUserAndComment(userId, commentId, session) {
 }
 
 /**
+ * Find a user's reaction for an embedded reply.
+ */
+export function findReactionByUserAndReply(userId, replyId, session) {
+  const query = Reaction.findOne({
+    userId,
+    replyId,
+  });
+
+  return applySession(query, session);
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Create
+ * --------------------------------------------------------------------------
+ */
+
+/**
  * Create a reaction.
  *
- * userId is obtained from the authenticated user.
- * commentId is obtained from the route/context.
+ * Exactly one of commentId or replyId must be provided.
+ *
+ * Duplicate reactions are prevented by the corresponding
+ * unique partial index on the Reaction model.
  */
 export function createReaction(reactionData, session) {
+  assertSingleReactionTarget(reactionData);
+
   if (session) {
     return Reaction.create([reactionData], { session }).then(
       ([reaction]) => reaction
@@ -43,14 +85,15 @@ export function createReaction(reactionData, session) {
 }
 
 /**
- * Update the type of an existing reaction.
- *
- * Useful when a user switches:
- * LIKE -> DISLIKE
- * or
- * DISLIKE -> LIKE
+ * --------------------------------------------------------------------------
+ * Update
+ * --------------------------------------------------------------------------
  */
-export function updateReactionType(userId, commentId, type, session) {
+
+/**
+ * Update the type of a reaction belonging to a top-level comment.
+ */
+export function updateReactionTypeByComment(userId, commentId, type, session) {
   const query = Reaction.findOneAndUpdate(
     {
       userId,
@@ -71,7 +114,36 @@ export function updateReactionType(userId, commentId, type, session) {
 }
 
 /**
- * Delete a user's reaction from a specific comment.
+ * Update the type of a reaction belonging to an embedded reply.
+ */
+export function updateReactionTypeByReply(userId, replyId, type, session) {
+  const query = Reaction.findOneAndUpdate(
+    {
+      userId,
+      replyId,
+    },
+    {
+      $set: {
+        type,
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  return applySession(query, session);
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Delete
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Delete a user's reaction from a top-level comment.
  */
 export function deleteReactionByUserAndComment(userId, commentId, session) {
   const query = Reaction.findOneAndDelete({
@@ -83,60 +155,13 @@ export function deleteReactionByUserAndComment(userId, commentId, session) {
 }
 
 /**
- * Delete a reaction by its ID.
- *
- * Authorization must be handled in the Service layer.
- * Prefer deleteReactionByUserAndComment() for normal
- * user operations.
+ * Delete a user's reaction from an embedded reply.
  */
-export function deleteReactionById(reactionId, session) {
-  const query = Reaction.findByIdAndDelete(reactionId);
-
-  return applySession(query, session);
-}
-
-/**
- * Calculate reaction counts for a comment.
- *
- * Returns:
- * {
- *   likeCount,
- *   dislikeCount
- * }
- *
- * The Service layer can use these values to update
- * the denormalized Comment fields.
- */
-export function calculateCommentReactionStats(commentId, session) {
-  const query = Reaction.aggregate([
-    {
-      $match: {
-        commentId,
-      },
-    },
-    {
-      $group: {
-        _id: null,
-        likeCount: {
-          $sum: {
-            $cond: [{ $eq: ["$type", REACTION_TYPES.LIKE] }, 1, 0],
-          },
-        },
-        dislikeCount: {
-          $sum: {
-            $cond: [{ $eq: ["$type", REACTION_TYPES.DISLIKE] }, 1, 0],
-          },
-        },
-      },
-    },
-    {
-      $project: {
-        _id: 0,
-        likeCount: 1,
-        dislikeCount: 1,
-      },
-    },
-  ]);
+export function deleteReactionByUserAndReply(userId, replyId, session) {
+  const query = Reaction.findOneAndDelete({
+    userId,
+    replyId,
+  });
 
   return applySession(query, session);
 }

@@ -1,5 +1,6 @@
-import { DIFFICULTIES, INGREDIENT_UNITS } from "@/constants/enums";
 import mongoose from "mongoose";
+
+import { DIFFICULTIES, INGREDIENT_UNITS } from "@/constants/enums";
 
 const ingredientSchema = new mongoose.Schema(
   {
@@ -7,12 +8,12 @@ const ingredientSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: 100,
     },
 
     quantity: {
       type: Number,
       default: null,
-      // min: 0,
       validate: {
         validator: (value) => value === null || value > 0,
         message: "Quantity must be greater than 0",
@@ -40,12 +41,14 @@ const stepSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: 100,
     },
 
     description: {
       type: String,
       required: true,
       trim: true,
+      maxlength: 2000,
     },
   },
   { _id: false }
@@ -61,6 +64,12 @@ const recipeStatsSchema = new mongoose.Schema(
     },
 
     ratingCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    ratingSum: {
       type: Number,
       default: 0,
       min: 0,
@@ -166,21 +175,27 @@ const recipeSchema = new mongoose.Schema(
     ingredients: {
       type: [ingredientSchema],
       required: true,
-      validate: {
-        validator: (items) => items.length >= 1,
-        message: "A recipe must contain at least one ingredient.",
-      },
+      validate: [
+        {
+          validator: (items) => items.length >= 1 && items.length <= 100,
+          message: "A recipe must contain between 1 and 100 ingredients.",
+        },
+      ],
     },
 
     steps: {
       type: [stepSchema],
       required: true,
-      validate: {
-        validator: (items) =>
-          items.length >= 1 &&
-          items.every((step, index) => step.order === index + 1),
-        message: "Cooking steps must start at 1 and be sequential.",
-      },
+      validate: [
+        {
+          validator: (items) =>
+            items.length >= 1 &&
+            items.length <= 100 &&
+            items.every((step, index) => step.order === index + 1),
+          message:
+            "A recipe must contain between 1 and 100 cooking steps, with sequential ordering.",
+        },
+      ],
     },
 
     calories: {
@@ -205,22 +220,42 @@ const recipeSchema = new mongoose.Schema(
 );
 
 // Indexes
-recipeSchema.index({ authorId: 1, createdAt: -1 });
 
-recipeSchema.index({ categoryId: 1, createdAt: -1 });
+recipeSchema.index({
+  authorId: 1,
+  createdAt: -1,
+});
+
+recipeSchema.index({
+  categoryId: 1,
+  createdAt: -1,
+});
 
 recipeSchema.index({
   categoryId: 1,
   "stats.viewCount": -1,
 });
 
-recipeSchema.index({ slug: 1 }, { unique: true });
+recipeSchema.index(
+  {
+    slug: 1,
+  },
+  {
+    unique: true,
+  }
+);
 
-recipeSchema.index({ "stats.averageRating": -1 });
+recipeSchema.index({
+  "stats.averageRating": -1,
+});
 
-recipeSchema.index({ "stats.viewCount": -1 });
+recipeSchema.index({
+  "stats.viewCount": -1,
+});
 
-recipeSchema.index({ createdAt: -1 });
+recipeSchema.index({
+  createdAt: -1,
+});
 
 const Recipe = mongoose.models.Recipe || mongoose.model("Recipe", recipeSchema);
 

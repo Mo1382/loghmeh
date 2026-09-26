@@ -13,7 +13,11 @@ import {
   findUserById,
 } from "@/repositories/user.repository";
 
-import { ACCOUNT_STATUSES, FOLLOW_LIST_TYPES } from "@/constants/enums";
+import {
+  ACCOUNT_STATUSES,
+  CURSOR_RESOURCES,
+  FOLLOW_LIST_TYPES,
+} from "@/constants/enums";
 import { ERROR_CODES } from "@/constants/error-codes";
 
 import { assertAuthenticated } from "@/lib/auth/guards";
@@ -82,7 +86,7 @@ function assertNotSelfFollow(currentUser, targetUserId) {
  * included in the current page.
  *
  * Cursor context:
- * - resource: FOLLOWS
+ * - resource: CURSOR_RESOURCES.FOLLOWS
  * - userId: the user whose following/follower list is being requested
  * - listType: FOLLOWING or FOLLOWERS
  */
@@ -98,7 +102,7 @@ function createNextCursor({ follows, userId, listType }) {
   }
 
   return encodeCursor({
-    resource: "FOLLOWS",
+    resource: CURSOR_RESOURCES.FOLLOWS,
     userId: userId.toString(),
     listType,
     createdAt: lastFollow.createdAt.toISOString(),
@@ -110,12 +114,12 @@ function createNextCursor({ follows, userId, listType }) {
  * Validate and normalize a Follow cursor.
  *
  * The cursor must belong to:
- * - the FOLLOWS resource,
+ * - the CURSOR_RESOURCES.FOLLOWS resource,
  * - the requested user,
  * - the requested list type.
  */
 function normalizeFollowCursor(payload, expectedUserId, expectedListType) {
-  assertCursorResource(payload, "FOLLOWS");
+  assertCursorResource(payload, CURSOR_RESOURCES.FOLLOWS);
 
   assertCursorOwner(
     payload,

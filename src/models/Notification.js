@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+
 import { NOTIFICATION_TYPES } from "@/constants/enums";
 
 const notificationSchema = new mongoose.Schema(
@@ -41,9 +42,16 @@ const notificationSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Parent Comment.
     commentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Comment",
+      default: null,
+    },
+
+    // Embedded Reply.
+    replyId: {
+      type: mongoose.Schema.Types.ObjectId,
       default: null,
     },
 
@@ -65,13 +73,26 @@ const notificationSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: { createdAt: true, updatedAt: false },
+    timestamps: {
+      createdAt: true,
+      updatedAt: false,
+    },
   }
 );
 
-// Indexes
-notificationSchema.index({ userId: 1, createdAt: -1 });
-notificationSchema.index({ userId: 1, isRead: 1 });
+/* -------------------------------------------------------------------------- */
+/* Indexes                                                                    */
+/* -------------------------------------------------------------------------- */
+
+notificationSchema.index({
+  userId: 1,
+  createdAt: -1,
+});
+
+notificationSchema.index({
+  userId: 1,
+  isRead: 1,
+});
 
 const Notification =
   mongoose.models.Notification ||

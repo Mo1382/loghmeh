@@ -2,15 +2,6 @@ import Bookmark from "@/models/Bookmark";
 import { applySession } from "@/lib/helpers/apply-session";
 
 /**
- * Find a bookmark by its ID.
- */
-export function findBookmarkById(bookmarkId, session) {
-  const query = Bookmark.findById(bookmarkId);
-
-  return applySession(query, session);
-}
-
-/**
  * Find a bookmark created by a specific user
  * for a specific recipe.
  *
@@ -51,17 +42,6 @@ export function deleteBookmarkByUserAndRecipe(userId, recipeId, session) {
     userId,
     recipeId,
   });
-
-  return applySession(query, session);
-}
-
-/**
- * Delete a bookmark by its ID.
- *
- * Authorization must be handled in the Service layer.
- */
-export function deleteBookmarkById(bookmarkId, session) {
-  const query = Bookmark.findByIdAndDelete(bookmarkId);
 
   return applySession(query, session);
 }
@@ -111,20 +91,6 @@ export function findBookmarksByUser({
       _id: -1,
     })
     .limit(limit);
-
-  return applySession(query, session);
-}
-
-/**
- * Count bookmarks for a specific recipe.
- *
- * Useful when recalculating or verifying
- * Recipe.stats.bookmarkCount.
- */
-export function countBookmarksByRecipe(recipeId, session) {
-  const query = Bookmark.countDocuments({
-    recipeId,
-  });
 
   return applySession(query, session);
 }

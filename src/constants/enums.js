@@ -27,7 +27,7 @@ export const ACCOUNT_STATUSES = {
 
 export const USER_ROLES = { USER: "USER", ADMIN: "ADMIN" };
 
-const USER_TITLES = {
+export const USER_TITLES = {
   USER: "USER",
   COOK: "COOK",
   HEAD_CHEF: "HEAD_CHEF",
@@ -63,6 +63,18 @@ export const TICKET_STATUSES = {
   IN_PROGRESS: "IN_PROGRESS",
   RESOLVED: "RESOLVED",
   CLOSED: "CLOSED",
+};
+
+const MAX_COMMENT_REPLIES = 50;
+
+export const CURSOR_RESOURCES = {
+  USERS: "USERS",
+  RECIPES: "RECIPES",
+  FOLLOWS: "FOLLOWS",
+  COMMENTS: "COMMENTS",
+  BOOKMARKS: "BOOKMARKS",
+  NOTIFICATIONS: "NOTIFICATIONS",
+  SUPPORT_TICKETS: "SUPPORT_TICKETS",
 };
 
 // List sorting and aggregate-statistic keys

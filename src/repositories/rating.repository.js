@@ -2,15 +2,6 @@ import Rating from "@/models/Rating";
 import { applySession } from "@/lib/helpers/apply-session";
 
 /**
- * Find a rating by ID.
- */
-export function findRatingById(ratingId, session) {
-  const query = Rating.findById(ratingId);
-
-  return applySession(query, session);
-}
-
-/**
  * Find a user's rating for a specific recipe.
  *
  * Useful for checking whether the user has already rated
@@ -60,47 +51,6 @@ export function updateRatingByUserAndRecipe(userId, recipeId, value, session) {
       runValidators: true,
     }
   );
-
-  return applySession(query, session);
-}
-
-/**
- * Update a rating by its ID.
- */
-export function updateRatingById(ratingId, value, session) {
-  const query = Rating.findByIdAndUpdate(
-    ratingId,
-    {
-      $set: {
-        value,
-      },
-    },
-    {
-      new: true,
-      runValidators: true,
-    }
-  );
-
-  return applySession(query, session);
-}
-
-/**
- * Delete a rating by user and recipe.
- */
-export function deleteRatingByUserAndRecipe(userId, recipeId, session) {
-  const query = Rating.findOneAndDelete({
-    userId,
-    recipeId,
-  });
-
-  return applySession(query, session);
-}
-
-/**
- * Delete a rating by ID.
- */
-export function deleteRatingById(ratingId, session) {
-  const query = Rating.findByIdAndDelete(ratingId);
 
   return applySession(query, session);
 }

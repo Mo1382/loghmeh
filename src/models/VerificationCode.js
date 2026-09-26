@@ -35,7 +35,7 @@ const verificationCodeSchema = new mongoose.Schema(
 );
 
 // Indexes
-verificationCodeSchema.index({ email: 1, purpose: 1 });
+verificationCodeSchema.index({ email: 1, purpose: 1 }, { unique: true });
 verificationCodeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 const VerificationCode =

@@ -1,15 +1,31 @@
 import Comment from "@/models/Comment";
+
 import { COMMENT_STATS } from "@/constants/enums";
+
+import { COMMENT_LIMITS } from "@/constants/comment";
+
 import { applySession } from "@/lib/helpers/apply-session";
 
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function assertValidReactionDeltas(likeDelta, dislikeDelta) {
+  if (!Number.isInteger(likeDelta) || !Number.isInteger(dislikeDelta)) {
+    throw new Error("Reaction count deltas must be integers.");
+  }
+
+  if (likeDelta === 0 && dislikeDelta === 0) {
+    throw new Error("At least one reaction count delta must be non-zero.");
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Read                                                                       */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Allowed comment statistics that can be updated using $inc.
- *
- * Using a fixed list prevents arbitrary fields from being
- * modified through the generic comment-stat update function.
- */
-/**
- * Find a comment by its ID.
+ * Find an active comment by its ID.
  */
 export function findCommentById(commentId, session) {
   const query = Comment.findOne({
@@ -21,9 +37,7 @@ export function findCommentById(commentId, session) {
 }
 
 /**
- * Find a soft-deleted comment by ID.
- *
- * Used by the Admin Panel when restoring a comment.
+ * Find a soft-deleted comment by its ID.
  */
 export function findDeletedCommentById(commentId, session) {
   const query = Comment.findOne({
@@ -37,24 +51,8 @@ export function findDeletedCommentById(commentId, session) {
 }
 
 /**
- * Find a comment by its ID and author.
- *
- * Useful for operations that belong specifically
- * to the comment author.
- */
-export function findCommentByIdAndAuthor(commentId, authorId, session) {
-  const query = Comment.findOne({
-    _id: commentId,
-    authorId,
-    deletedAt: null,
-  });
-
-  return applySession(query, session);
-}
-
-/**
  * Find comments for a specific recipe using
- * cursor-based loading.
+ * cursor-based pagination.
  *
  * Sort order:
  * - createdAt DESC
@@ -104,10 +102,25 @@ export function findCommentsByRecipe({
 }
 
 /**
+ * Find an active comment containing a specific reply.
+ */
+export function findCommentByReplyId(replyId, session) {
+  const query = Comment.findOne({
+    "replies._id": replyId,
+    deletedAt: null,
+  });
+
+  return applySession(query, session);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Create                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
  * Create a comment.
  *
- * authorId is obtained from the authenticated user.
- * recipeId is obtained from the route/context.
+ * authorId and recipeId are supplied by the Service layer.
  */
 export function createComment(commentData, session) {
   if (session) {
@@ -119,16 +132,35 @@ export function createComment(commentData, session) {
   return Comment.create(commentData);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Reply                                                                       */
+/* -------------------------------------------------------------------------- */
+
 /**
  * Add an admin or recipe-owner reply to a comment.
  *
- * Replies are embedded inside the comment document.
+ * Replies are embedded inside the Comment document.
+ *
+ * The maximum number of replies is enforced atomically
+ * so concurrent requests cannot exceed the configured limit.
+ *
+ * Authorization is handled in the Service layer.
  */
 export function addCommentReply(commentId, replyData, session) {
   const query = Comment.findOneAndUpdate(
     {
       _id: commentId,
       deletedAt: null,
+      $expr: {
+        $lt: [
+          {
+            $size: {
+              $ifNull: ["$replies", []],
+            },
+          },
+          COMMENT_LIMITS.MAX_REPLIES,
+        ],
+      },
     },
     {
       $push: {
@@ -143,6 +175,37 @@ export function addCommentReply(commentId, replyData, session) {
 
   return applySession(query, session);
 }
+
+/**
+ * Delete an embedded reply by its ID.
+ *
+ * Authorization is handled in the Service layer.
+ */
+export function deleteCommentReplyById(replyId, session) {
+  const query = Comment.findOneAndUpdate(
+    {
+      "replies._id": replyId,
+      deletedAt: null,
+    },
+    {
+      $pull: {
+        replies: {
+          _id: replyId,
+        },
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  return applySession(query, session);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Delete / Restore                                                           */
+/* -------------------------------------------------------------------------- */
 
 /**
  * Soft-delete a comment.
@@ -194,22 +257,63 @@ export function restoreComment(commentId, session) {
   return applySession(query, session);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Statistics / Counters                                                      */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Increment a comment's reaction statistic.
+ * Atomically update a top-level Comment's
+ * reaction counters.
+ *
+ * Used by normal Reaction mutations.
  */
-export function incrementCommentStat(commentId, stat, amount = 1, session) {
-  if (!Object.values(COMMENT_STATS).includes(stat)) {
-    throw new Error("Invalid comment stat.");
-  }
+export function updateReactionCountDeltas(
+  commentId,
+  likeDelta,
+  dislikeDelta,
+  session
+) {
+  assertValidReactionDeltas(likeDelta, dislikeDelta);
 
   const query = Comment.findOneAndUpdate(
     {
       _id: commentId,
       deletedAt: null,
+      $expr: {
+        $and: [
+          {
+            $gte: [
+              {
+                $add: [
+                  {
+                    $ifNull: ["$likeCount", 0],
+                  },
+                  likeDelta,
+                ],
+              },
+              0,
+            ],
+          },
+          {
+            $gte: [
+              {
+                $add: [
+                  {
+                    $ifNull: ["$dislikeCount", 0],
+                  },
+                  dislikeDelta,
+                ],
+              },
+              0,
+            ],
+          },
+        ],
+      },
     },
     {
       $inc: {
-        [stat]: amount,
+        likeCount: likeDelta,
+        dislikeCount: dislikeDelta,
       },
     },
     {
@@ -222,94 +326,91 @@ export function incrementCommentStat(commentId, stat, amount = 1, session) {
 }
 
 /**
- * Increment a comment's like count.
- */
-export function incrementLikeCount(commentId, amount = 1, session) {
-  return incrementCommentStat(
-    commentId,
-    COMMENT_STATS.LIKE_COUNT,
-    amount,
-    session
-  );
-}
-
-/**
- * Increment a comment's dislike count.
- */
-export function incrementDislikeCount(commentId, amount = 1, session) {
-  return incrementCommentStat(
-    commentId,
-    COMMENT_STATS.DISLIKE_COUNT,
-    amount,
-    session
-  );
-}
-
-/**
- * Update a comment's reaction statistics.
+ * Atomically update an embedded Reply's
+ * reaction counters.
  *
- * Used when recalculating denormalized reaction counts
- * from the Reaction collection.
+ * commentId identifies the parent Comment.
+ * replyId identifies the embedded Reply.
  */
-export function updateReactionCounts(
+export function updateReplyReactionCountDeltas(
   commentId,
-  likeCount,
-  dislikeCount,
+  replyId,
+  likeDelta,
+  dislikeDelta,
   session
 ) {
+  assertValidReactionDeltas(likeDelta, dislikeDelta);
+
   const query = Comment.findOneAndUpdate(
     {
       _id: commentId,
       deletedAt: null,
-    },
-    {
-      $set: {
-        likeCount,
-        dislikeCount,
+      "replies._id": replyId,
+      $expr: {
+        $and: [
+          {
+            $gte: [
+              {
+                $add: [
+                  {
+                    $ifNull: [
+                      {
+                        $getField: {
+                          field: "likeCount",
+                          input: {
+                            $arrayElemAt: [
+                              "$replies",
+                              {
+                                $indexOfArray: ["$replies._id", replyId],
+                              },
+                            ],
+                          },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                  likeDelta,
+                ],
+              },
+              0,
+            ],
+          },
+          {
+            $gte: [
+              {
+                $add: [
+                  {
+                    $ifNull: [
+                      {
+                        $getField: {
+                          field: "dislikeCount",
+                          input: {
+                            $arrayElemAt: [
+                              "$replies",
+                              {
+                                $indexOfArray: ["$replies._id", replyId],
+                              },
+                            ],
+                          },
+                        },
+                      },
+                      0,
+                    ],
+                  },
+                  dislikeDelta,
+                ],
+              },
+              0,
+            ],
+          },
+        ],
       },
     },
     {
-      new: true,
-      runValidators: true,
-    }
-  );
-
-  return applySession(query, session);
-}
-
-/**
- * Find an active comment containing a specific reply.
- *
- * The Service layer uses the returned comment to:
- * - identify the reply author
- * - perform authorization
- * - retrieve the reply before deletion
- */
-export function findCommentByReplyId(replyId, session) {
-  const query = Comment.findOne({
-    "replies._id": replyId,
-    deletedAt: null,
-  });
-
-  return applySession(query, session);
-}
-
-/**
- * Delete an embedded reply by its ID.
- *
- * Authorization is intentionally handled by the Service layer.
- */
-export function deleteCommentReplyById(replyId, session) {
-  const query = Comment.findOneAndUpdate(
-    {
-      "replies._id": replyId,
-      deletedAt: null,
-    },
-    {
-      $pull: {
-        replies: {
-          _id: replyId,
-        },
+      $inc: {
+        "replies.$.likeCount": likeDelta,
+        "replies.$.dislikeCount": dislikeDelta,
       },
     },
     {

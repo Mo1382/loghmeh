@@ -39,18 +39,6 @@ export function findCategoryBySlug(slug, session) {
 }
 
 /**
- * Find an active category by slug.
- */
-export function findActiveCategoryBySlug(slug, session) {
-  const query = Category.findOne({
-    slug,
-    isActive: true,
-  });
-
-  return applySession(query, session);
-}
-
-/**
  * Find a category by name.
  *
  * Includes both active and inactive categories.
@@ -59,20 +47,6 @@ export function findActiveCategoryBySlug(slug, session) {
 export function findCategoryByName(name, session) {
   const query = Category.findOne({
     name,
-  });
-
-  return applySession(query, session);
-}
-
-/**
- * Find an active category by name.
- *
- * Useful when resolving a category from user-facing input.
- */
-export function findActiveCategoryByName(name, session) {
-  const query = Category.findOne({
-    name,
-    isActive: true,
   });
 
   return applySession(query, session);
@@ -161,18 +135,6 @@ export function setCategoryActive(categoryId, isActive, session) {
       runValidators: true,
     }
   );
-
-  return applySession(query, session);
-}
-
-/**
- * Permanently delete a category.
- *
- * The Service layer must first verify that the category
- * can safely be deleted according to business rules.
- */
-export function deleteCategoryById(categoryId, session) {
-  const query = Category.findByIdAndDelete(categoryId);
 
   return applySession(query, session);
 }

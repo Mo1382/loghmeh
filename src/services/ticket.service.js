@@ -17,7 +17,7 @@ import {
   assertCursorResource,
 } from "@/lib/pagination/cursor-context";
 
-import { TICKET_STATUSES } from "@/constants/enums";
+import { CURSOR_RESOURCES, TICKET_STATUSES } from "@/constants/enums";
 
 import { normalizeLimit } from "@/lib/pagination/limit";
 
@@ -90,7 +90,7 @@ function createNextCursor(ticket, userId) {
   }
 
   return encodeCursor({
-    resource: "SUPPORT_TICKETS",
+    resource: CURSOR_RESOURCES.SUPPORT_TICKETS,
     userId: userId.toString(),
     createdAt: ticket.createdAt.toISOString(),
     id: ticket._id.toString(),
@@ -156,7 +156,7 @@ export async function getUserTickets(
   if (cursor) {
     const payload = decodeCursor(cursor);
 
-    assertCursorResource(payload, "SUPPORT_TICKETS");
+    assertCursorResource(payload, CURSOR_RESOURCES.SUPPORT_TICKETS);
 
     assertCursorOwner(
       payload,

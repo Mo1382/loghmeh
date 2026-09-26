@@ -56,7 +56,11 @@ const caloriesSchema = z.number().min(0, "کالری نمی‌تواند منف�
 
 const ingredientSchema = z
   .object({
-    name: z.string().trim().min(1, "نام ماده اولیه الزامی است."),
+    name: z
+      .string()
+      .trim()
+      .min(1, "نام ماده اولیه الزامی است.")
+      .max(100, "نام ماده اولیه نباید بیشتر از 100 کاراکتر باشد."),
 
     quantity: z
       .number()
@@ -66,7 +70,7 @@ const ingredientSchema = z
       .nullable()
       .optional(),
 
-    unit: z.enum(INGREDIENT_UNITS).trim().min(1, "واحد ماده اولیه الزامی است."),
+    unit: z.enum(INGREDIENT_UNITS),
   })
   .strict()
   .superRefine((data, ctx) => {
@@ -93,7 +97,8 @@ const ingredientSchema = z
 
 const ingredientsSchema = z
   .array(ingredientSchema)
-  .min(1, "دستور غذا باید حداقل یک ماده اولیه داشته باشد.");
+  .min(1, "دستور غذا باید حداقل یک ماده اولیه داشته باشد.")
+  .max(100, "دستور غذا نمی‌تواند بیشتر از 100 ماده اولیه داشته باشد.");
 
 /**
  * Cooking step
@@ -103,12 +108,19 @@ const stepSchema = z
   .object({
     order: z.number().int().min(1, "ترتیب مرحله باید از ۱ شروع شود."),
 
-    title: z.string().trim().min(1, "عنوان مرحله الزامی است."),
+    title: z
+      .string()
+      .trim()
+      .min(1, "عنوان مرحله الزامی است.")
+      .max(100, "عنوان مرحله نباید بیشتر از 100 کاراکتر باشد."),
 
-    description: z.string().trim().min(1, "توضیحات مرحله الزامی است."),
+    description: z
+      .string()
+      .trim()
+      .min(1, "توضیحات مرحله الزامی است.")
+      .max(2000, "توضیحات مرحله نباید بیشتر از 2000 کاراکتر باشد."),
   })
   .strict();
-
 /**
  * Cooking steps
  */
@@ -116,14 +128,12 @@ const stepSchema = z
 const stepsSchema = z
   .array(stepSchema)
   .min(1, "دستور غذا باید حداقل یک مرحله پخت داشته باشد.")
+  .max(
+    MAX_STEPS,
+    `دستور غذا نمی‌تواند بیشتر از ${MAX_STEPS} مرحله پخت داشته باشد.`
+  )
   .superRefine((steps, ctx) => {
-    const orders = steps.map((step) => step.order);
-
-    const expectedOrders = steps.map((_, index) => index + 1);
-
-    const isSequential = orders.every(
-      (order, index) => order === expectedOrders[index]
-    );
+    const isSequential = steps.every((step, index) => step.order === index + 1);
 
     if (!isSequential) {
       ctx.addIssue({

@@ -12,7 +12,12 @@ import {
 
 import { incrementCommentCount } from "@/repositories/recipe.repository";
 
-import { NOTIFICATION_TYPES, USER_ROLES } from "@/constants/enums";
+import {
+  NOTIFICATION_TYPES,
+  USER_ROLES,
+  MAX_COMMENT_REPLIES,
+  CURSOR_RESOURCES,
+} from "@/constants/enums";
 import { ERROR_CODES } from "@/constants/error-codes";
 import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
 import AppError from "@/lib/errors/AppError";
@@ -174,7 +179,7 @@ function createNextCursor(comments, recipeId) {
   }
 
   return encodeCursor({
-    resource: "COMMENTS",
+    resource: CURSOR_RESOURCES.COMMENTS,
     recipeId: recipeId.toString(),
     createdAt: lastComment.createdAt.toISOString(),
     id: lastComment._id.toString(),
@@ -233,7 +238,7 @@ export async function getCommentsByRecipe({
   if (cursor) {
     const payload = decodeCursor(cursor);
 
-    assertCursorResource(payload, "COMMENTS");
+    assertCursorResource(payload, CURSOR_RESOURCES.COMMENTS);
 
     assertCursorOwner(
       payload,
@@ -339,6 +344,7 @@ export async function createComment(currentUser, recipeId, text) {
  * Only the Recipe owner or an administrator
  * may reply.
  */
+
 export async function createCommentReply(currentUser, commentId, text) {
   assertAuthenticated(currentUser);
 
@@ -353,6 +359,14 @@ export async function createCommentReply(currentUser, commentId, text) {
       throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "نظر پیدا نشد.", {
         statusCode: 404,
       });
+    }
+
+    if ((comment.replies?.length ?? 0) >= COMMENT_LIMITS.MAX_REPLIES) {
+      throw new AppError(
+        ERROR_CODES.COMMENT_REPLY_LIMIT_REACHED,
+        "این نظر به حداکثر تعداد پاسخ مجاز رسیده است.",
+        { statusCode: 409 }
+      );
     }
 
     const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
@@ -370,9 +384,9 @@ export async function createCommentReply(currentUser, commentId, text) {
 
     if (!updatedComment) {
       throw new AppError(
-        ERROR_CODES.COMMENT_NOT_FOUND,
-        "پاسخ به نظر اضافه نشد.",
-        { statusCode: 404 }
+        ERROR_CODES.COMMENT_REPLY_LIMIT_REACHED,
+        "این نظر به حداکثر تعداد پاسخ مجاز رسیده است.",
+        { statusCode: 409 }
       );
     }
 

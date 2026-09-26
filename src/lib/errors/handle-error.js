@@ -5,37 +5,26 @@ import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
 
 /**
- * Convert application errors into a consistent response.
+ * Convert errors into a consistent internal error response.
  *
- * Expected response shape:
- * {
- *   success: false,
- *   error: {
- *     code,
- *     message
- *   }
- * }
+ * The boundary layer is responsible for applying `statusCode`.
  */
 export function handleError(error) {
-  /**
-   * Expected application/domain error.
-   */
   if (error instanceof AppError) {
     return {
+      statusCode: error.statusCode ?? 500,
       success: false,
       error: {
         code: error.code,
         message: error.message,
-        ...(error.details ? { details: error.details } : {}),
+        details: error.details ?? null,
       },
     };
   }
 
-  /**
-   * Zod validation error.
-   */
   if (error instanceof ZodError) {
     return {
+      statusCode: 400,
       success: false,
       error: {
         code: ERROR_CODES.INVALID_REQUEST,
@@ -45,60 +34,51 @@ export function handleError(error) {
     };
   }
 
-  /**
-   * MongoDB duplicate key error.
-   *
-   * Example:
-   * E11000 duplicate key error
-   */
   if (error?.code === 11000) {
     return {
+      statusCode: 409,
       success: false,
       error: {
         code: ERROR_CODES.DUPLICATE_RESOURCE,
         message: "این منبع از قبل وجود دارد.",
+        details: null,
       },
     };
   }
 
-  /**
-   * Mongoose validation error.
-   */
   if (error instanceof mongoose.Error.ValidationError) {
     return {
+      statusCode: 400,
       success: false,
       error: {
         code: ERROR_CODES.INVALID_REQUEST,
         message: "داده‌های ارسال‌شده نامعتبر هستند.",
+        details: null,
       },
     };
   }
 
-  /**
-   * Invalid ObjectId / Mongoose cast error.
-   */
   if (error instanceof mongoose.Error.CastError) {
     return {
+      statusCode: 400,
       success: false,
       error: {
         code: ERROR_CODES.INVALID_REQUEST,
         message: "درخواست نامعتبر است.",
+        details: null,
       },
     };
   }
 
-  /**
-   * Unexpected error.
-   *
-   * Do not expose internal error details to the client.
-   */
   console.error(error);
 
   return {
+    statusCode: 500,
     success: false,
     error: {
       code: ERROR_CODES.INTERNAL_SERVER_ERROR,
       message: "خطای غیرمنتظره‌ای رخ داد.",
+      details: null,
     },
   };
 }
