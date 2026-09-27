@@ -322,7 +322,7 @@ export async function createCategory(currentUser, categoryData) {
  */
 
 export async function updateCategory(currentUser, categoryId, updates) {
-  assertAdmin(currentUser);
+  await assertAdmin(currentUser);
 
   assertValidObjectId(categoryId, "category ID");
 
@@ -332,7 +332,9 @@ export async function updateCategory(currentUser, categoryId, updates) {
     throw new AppError(
       ERROR_CODES.INVALID_REQUEST,
       "هیچ فیلد معتبری برای دسته‌بندی ارائه نشده است.",
-      { statusCode: 400 }
+      {
+        statusCode: 400,
+      }
     );
   }
 
@@ -370,8 +372,9 @@ export async function updateCategory(currentUser, categoryId, updates) {
     updatedCategory = await updateCategoryById(categoryId, sanitizedUpdates);
   } catch (error) {
     /**
-     * Protect against a concurrent update creating
-     * the same unique name or slug.
+     * The database unique indexes remain the
+     * final protection against concurrent
+     * duplicate name/slug updates.
      */
     throwCategoryDuplicateError(error);
   }

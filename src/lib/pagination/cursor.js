@@ -5,7 +5,7 @@ import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
-const CURSOR_VERSION = 1;
+import { CURSOR_VERSION } from "@/constants/enums";
 
 /**
  * Get the secret used to sign cursors.
@@ -72,23 +72,45 @@ export function encodeCursor(payload) {
  * This function only validates the signature and cursor version.
  * Domain-specific validation belongs to the corresponding Service.
  */
+
+/**
+ * Create a fresh INVALID_CURSOR error.
+ *
+ * A factory is used instead of a shared Error instance so
+ * every failure receives its own AppError object.
+ */
+function createInvalidCursorError() {
+  return new AppError(
+    ERROR_CODES.INVALID_CURSOR,
+    "نشانگر صفحه‌بندی نامعتبر است.",
+    { statusCode: 400 }
+  );
+}
+
 export function decodeCursor(cursor) {
+  /**
+   * An omitted cursor represents the first page.
+   */
   if (cursor === null || cursor === undefined || cursor === "") {
     return null;
   }
 
+  /**
+   * Cursor must always be a string once provided.
+   */
   if (typeof cursor !== "string") {
-    throw invalidCursor;
+    throw createInvalidCursorError();
   }
 
   const parts = cursor.split(".");
 
-  if (parts.length !== 2) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
+  /**
+   * Cursor format:
+   *
+   * payloadBase64.signatureBase64
+   */
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw createInvalidCursorError();
   }
 
   const [payloadBase64, signatureBase64] = parts;
@@ -104,22 +126,17 @@ export function decodeCursor(cursor) {
 
     providedSignature = Buffer.from(signatureBase64, "base64url");
   } catch {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
+    throw createInvalidCursorError();
   }
 
+  /**
+   * Verify the HMAC signature using a timing-safe comparison.
+   */
   if (
     providedSignature.length !== expectedSignature.length ||
     !crypto.timingSafeEqual(providedSignature, expectedSignature)
   ) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
+    throw createInvalidCursorError();
   }
 
   let payload;
@@ -129,19 +146,20 @@ export function decodeCursor(cursor) {
       Buffer.from(payloadBase64, "base64url").toString("utf8")
     );
   } catch {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
+    throw createInvalidCursorError();
   }
 
-  if (!payload || typeof payload !== "object" || payload.v !== CURSOR_VERSION) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CURSOR,
-      "نشانگر صفحه‌بندی نامعتبر است.",
-      { statusCode: 400 }
-    );
+  /**
+   * The decoded value must be a valid cursor payload
+   * for the currently supported cursor version.
+   */
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload) ||
+    payload.v !== CURSOR_VERSION
+  ) {
+    throw createInvalidCursorError();
   }
 
   return payload;

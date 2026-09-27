@@ -13,12 +13,7 @@ const replySchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: 1000,
-    },
-
-    deletedAt: {
-      type: Date,
-      default: null,
+      maxlength: MAX_COMMENT_LENGTH,
     },
 
     likeCount: {
@@ -31,6 +26,11 @@ const replySchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
     },
   },
   {

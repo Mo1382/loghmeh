@@ -120,6 +120,15 @@ function assertCanReplyToComment(user, recipe) {
   }
 }
 
+function toPublicComment(comment) {
+  const data = comment.toObject ? comment.toObject() : { ...comment };
+
+  return {
+    ...data,
+    replies: (data.replies ?? []).filter((reply) => reply.deletedAt === null),
+  };
+}
+
 /**
  * --------------------------------------------------------------------------
  * Validation / Normalization
@@ -217,7 +226,7 @@ export async function getCommentById(commentId) {
    */
   await getAccessibleRecipe(comment.recipeId);
 
-  return comment;
+  return toPublicComment(comment);
 }
 
 /**
@@ -273,7 +282,7 @@ export async function getCommentsByRecipe({
   const nextCursor = hasMore ? createNextCursor(items, recipeId) : null;
 
   return {
-    items,
+    items: items.map(toPublicComment),
     nextCursor,
     hasMore,
   };
@@ -303,7 +312,7 @@ export async function createComment(currentUser, recipeId, text) {
      * Re-check the current account inside the transaction
      * so the mutation uses a fresh active user.
      */
-    const user = await requireActiveAuthenticatedUser(currentUser);
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     /**
      * Only active/accessibile Recipes can receive comments.
@@ -373,7 +382,7 @@ export async function createCommentReply(currentUser, commentId, text) {
   const normalizedText = normalizeCommentText(text);
 
   return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser);
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     /**
      * The parent Comment must still be active.
@@ -469,7 +478,7 @@ export async function deleteComment(currentUser, commentId) {
   assertValidObjectId(commentId, "comment ID");
 
   return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser);
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     const comment = await findCommentById(commentId, session);
 
@@ -605,15 +614,8 @@ export async function deleteCommentReply(currentUser, replyId) {
   assertValidObjectId(replyId, "reply ID");
 
   return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser);
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
 
-    /**
-     * Find the active parent Comment containing
-     * the requested Reply.
-     *
-     * The parent Recipe does not need to be accessible
-     * for this owner/admin deletion operation.
-     */
     const comment = await findCommentByReplyId(replyId, session);
 
     if (!comment) {
@@ -622,12 +624,9 @@ export async function deleteCommentReply(currentUser, replyId) {
       });
     }
 
-    /**
-     * Find the actual embedded Reply before
-     * deleting it so authorization can be checked.
-     */
     const reply = comment.replies?.find(
-      (item) => item._id?.toString() === replyId.toString()
+      (item) =>
+        item._id?.toString() === replyId.toString() && item.deletedAt === null
     );
 
     if (!reply) {
@@ -638,10 +637,13 @@ export async function deleteCommentReply(currentUser, replyId) {
 
     assertReplyOwnerOrAdmin(user, reply);
 
-    /**
-     * Delete the embedded Reply.
-     */
-    const updatedComment = await deleteCommentReplyById(replyId, session);
+    const deletedAt = new Date();
+
+    const updatedComment = await softDeleteCommentReplyById(
+      replyId,
+      deletedAt,
+      session
+    );
 
     if (!updatedComment) {
       throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "پاسخ حذف نشد.", {
@@ -649,12 +651,61 @@ export async function deleteCommentReply(currentUser, replyId) {
       });
     }
 
-    /**
-     * Return the deleted Reply itself.
-     *
-     * The repository returns the updated parent Comment,
-     * while the service already has the deleted Reply.
-     */
-    return reply;
+    const deletedReply = updatedComment.replies?.find(
+      (item) => item._id?.toString() === replyId.toString()
+    );
+
+    if (!deletedReply) {
+      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "پاسخ حذف نشد.", {
+        statusCode: 404,
+      });
+    }
+
+    return deletedReply;
+  });
+}
+
+export async function restoreCommentReply(currentUser, replyId) {
+  assertValidObjectId(replyId, "reply ID");
+
+  return withTransaction(async (session) => {
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
+
+    assertAdmin(user);
+
+    const comment = await findDeletedCommentByReplyId(replyId, session);
+
+    if (!comment) {
+      throw new AppError(
+        ERROR_CODES.COMMENT_NOT_FOUND,
+        "پاسخ حذف‌شده پیدا نشد.",
+        { statusCode: 404 }
+      );
+    }
+
+    const restoredComment = await restoreCommentReplyById(replyId, session);
+
+    if (!restoredComment) {
+      throw new AppError(
+        ERROR_CODES.COMMENT_NOT_FOUND,
+        "بازیابی پاسخ ممکن نبود.",
+        { statusCode: 404 }
+      );
+    }
+
+    const restoredReply = restoredComment.replies?.find(
+      (item) =>
+        item._id?.toString() === replyId.toString() && item.deletedAt === null
+    );
+
+    if (!restoredReply) {
+      throw new AppError(
+        ERROR_CODES.COMMENT_NOT_FOUND,
+        "بازیابی پاسخ ممکن نبود.",
+        { statusCode: 404 }
+      );
+    }
+
+    return restoredReply;
   });
 }

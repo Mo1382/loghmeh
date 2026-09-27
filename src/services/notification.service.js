@@ -79,6 +79,161 @@ function normalizeNotificationText(value, fieldName) {
 }
 
 /**
+ * Assert that a target ID exists.
+ */
+function assertRequiredNotificationId(value, fieldName) {
+  if (value === null || value === undefined) {
+    throw new AppError(
+      ERROR_CODES.INVALID_NOTIFICATION_DATA,
+      `${fieldName} برای این نوع اعلان الزامی است.`,
+      { statusCode: 400 }
+    );
+  }
+
+  assertValidObjectId(value, fieldName);
+}
+
+/**
+ * Assert that a target field is absent.
+ *
+ * null is considered absent and is the canonical value
+ * used by this Service for unused target fields.
+ */
+function assertNotificationFieldAbsent(value, fieldName) {
+  if (value !== null && value !== undefined) {
+    throw new AppError(
+      ERROR_CODES.INVALID_NOTIFICATION_DATA,
+      `${fieldName} نباید برای این نوع اعلان وجود داشته باشد.`,
+      { statusCode: 400 }
+    );
+  }
+}
+
+/**
+ * Validate semantic requirements for each notification type.
+ *
+ * Every supported notification type must have an explicit
+ * contract here. This prevents a newly introduced enum value
+ * from silently bypassing target validation.
+ */
+function assertNotificationSemanticContract({
+  type,
+  actorId,
+  recipeId,
+  commentId,
+  replyId,
+  ticketId,
+}) {
+  switch (type) {
+    /**
+     * Global administrator announcement.
+     *
+     * Target-specific domain fields are forbidden.
+     */
+    case NOTIFICATION_TYPES.ANNOUNCEMENT:
+      assertRequiredNotificationId(actorId, "actor ID");
+
+      assertNotificationFieldAbsent(recipeId, "recipe ID");
+
+      assertNotificationFieldAbsent(commentId, "comment ID");
+
+      assertNotificationFieldAbsent(replyId, "reply ID");
+
+      assertNotificationFieldAbsent(ticketId, "support ticket ID");
+
+      return;
+
+    /**
+     * A user commented on the Recipe.
+     */
+    case NOTIFICATION_TYPES.RECIPE_COMMENTED:
+      assertRequiredNotificationId(actorId, "actor ID");
+
+      assertRequiredNotificationId(recipeId, "recipe ID");
+
+      assertRequiredNotificationId(commentId, "comment ID");
+
+      assertNotificationFieldAbsent(replyId, "reply ID");
+
+      assertNotificationFieldAbsent(ticketId, "support ticket ID");
+
+      return;
+
+    /**
+     * A user rated the Recipe.
+     */
+    case NOTIFICATION_TYPES.RECIPE_RATED:
+      assertRequiredNotificationId(actorId, "actor ID");
+
+      assertRequiredNotificationId(recipeId, "recipe ID");
+
+      assertNotificationFieldAbsent(commentId, "comment ID");
+
+      assertNotificationFieldAbsent(replyId, "reply ID");
+
+      assertNotificationFieldAbsent(ticketId, "support ticket ID");
+
+      return;
+
+    /**
+     * The Recipe owner/administrator replied to
+     * a user's top-level Comment.
+     */
+    case NOTIFICATION_TYPES.COMMENT_REPLIED:
+      assertRequiredNotificationId(actorId, "actor ID");
+
+      assertRequiredNotificationId(recipeId, "recipe ID");
+
+      assertRequiredNotificationId(commentId, "comment ID");
+
+      assertRequiredNotificationId(replyId, "reply ID");
+
+      assertNotificationFieldAbsent(ticketId, "support ticket ID");
+
+      return;
+
+    /**
+     * A Comment or one of its Replies received
+     * a LIKE/DISLIKE.
+     *
+     * commentId is always present because Reply is
+     * embedded inside the parent Comment.
+     *
+     * replyId is present only when the reacted target
+     * is an embedded Reply.
+     */
+    case NOTIFICATION_TYPES.COMMENT_LIKED:
+    case NOTIFICATION_TYPES.COMMENT_DISLIKED:
+      assertRequiredNotificationId(actorId, "actor ID");
+
+      assertRequiredNotificationId(recipeId, "recipe ID");
+
+      assertRequiredNotificationId(commentId, "comment ID");
+
+      if (replyId !== null) {
+        assertValidObjectId(replyId, "reply ID");
+      }
+
+      assertNotificationFieldAbsent(ticketId, "support ticket ID");
+
+      return;
+
+    default:
+      /**
+       * Fail closed.
+       *
+       * Every new Notification type must define its
+       * semantic contract before it can be persisted.
+       */
+      throw new AppError(
+        ERROR_CODES.INVALID_NOTIFICATION_TYPE,
+        "برای این نوع اعلان قرارداد معنایی تعریف نشده است.",
+        { statusCode: 400 }
+      );
+  }
+}
+
+/**
  * --------------------------------------------------------------------------
  * Cursor Helpers
  * --------------------------------------------------------------------------
@@ -89,11 +244,7 @@ function normalizeNotificationText(value, fieldName) {
  * in the current page.
  */
 function createNextCursor(notification, userId) {
-  if (!notification) {
-    return null;
-  }
-
-  if (!notification.createdAt || !notification._id) {
+  if (!notification?.createdAt || !notification?._id) {
     return null;
   }
 
@@ -150,6 +301,9 @@ function normalizeSystemNotificationData(notificationData) {
     ticketId = null,
   } = notificationData;
 
+  /**
+   * Structural validation.
+   */
   assertValidObjectId(userId, "user ID");
 
   assertEnum(type, Object.values(NOTIFICATION_TYPES), {
@@ -178,12 +332,30 @@ function normalizeSystemNotificationData(notificationData) {
     assertValidObjectId(ticketId, "support ticket ID");
   }
 
+  /**
+   * Semantic validation.
+   *
+   * This verifies that the IDs above make sense
+   * for the selected notification type.
+   */
+  assertNotificationSemanticContract({
+    type,
+    actorId,
+    recipeId,
+    commentId,
+    replyId,
+    ticketId,
+  });
+
   return {
     userId,
     actorId,
     type,
+
     title: normalizeNotificationText(title, "عنوان"),
+
     message: normalizeNotificationText(message, "متن پیام"),
+
     recipeId,
     commentId,
     replyId,
@@ -376,11 +548,7 @@ export async function deleteNotification(currentUser, notificationId) {
  *
  * Intended for trusted server-side services only.
  *
- * Supported target fields:
- * - recipeId
- * - commentId
- * - replyId
- * - ticketId
+ * Semantic validation is performed before persistence.
  *
  * This function must not be exposed directly
  * to an untrusted client.
@@ -415,12 +583,10 @@ export async function createGlobalNotification(
   session
 ) {
   /**
-   * Fetch the current account from the database first.
-   *
-   * This prevents a stale client/session object from
-   * being trusted for an administrative mutation.
+   * Pass the transaction session to the Guard when
+   * this function itself is called inside a transaction.
    */
-  const admin = await requireActiveAuthenticatedUser(currentUser);
+  const admin = await requireActiveAuthenticatedUser(currentUser, session);
 
   assertAdmin(admin);
 
@@ -446,9 +612,6 @@ export async function createGlobalNotification(
 
   /**
    * Validate every ID before calling toString().
-   *
-   * This prevents malformed values such as null or
-   * arbitrary objects from becoming unexpected 500 errors.
    */
   const normalizedRecipientIds = recipientUserIds.map((userId) => {
     assertValidObjectId(userId, "recipient user ID");
@@ -460,7 +623,7 @@ export async function createGlobalNotification(
 
   /**
    * Only currently ACTIVE, non-deleted users
-   * can receive public/system announcements.
+   * can receive announcements.
    */
   const activeUsers = await findActiveUsersByIds(uniqueRecipientIds, session);
 
@@ -474,11 +637,8 @@ export async function createGlobalNotification(
 
   const notifications = activeUsers.map((user) => ({
     userId: user._id,
-
-    // Administrator creating the announcement.
     actorId: admin._id,
 
-    // Type is controlled by the Service.
     type: NOTIFICATION_TYPES.ANNOUNCEMENT,
 
     title: normalizedTitle,

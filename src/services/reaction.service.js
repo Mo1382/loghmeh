@@ -302,7 +302,7 @@ export async function createReaction(currentUser, targetType, targetId, type) {
      * the transaction so the mutation uses a fresh
      * ACTIVE user.
      */
-    const user = await requireActiveAuthenticatedUser(currentUser);
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     const context = await getActiveReactionTargetContext(
       targetType,
@@ -447,7 +447,7 @@ export async function updateReaction(currentUser, targetType, targetId, type) {
   assertValidReactionType(type);
 
   return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser);
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     const context = await getActiveReactionTargetContext(
       targetType,
@@ -579,7 +579,7 @@ export async function deleteReaction(currentUser, targetType, targetId) {
   assertValidObjectId(targetId, "reaction target ID");
 
   return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser);
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     const context = await getActiveReactionTargetContext(
       targetType,

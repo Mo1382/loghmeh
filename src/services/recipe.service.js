@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import {
   createRecipe as createRecipeRepository,
   findDeletedRecipeById,
-  findRecipeById,
+  findNonDeletedRecipeById,
   findRecipes,
   incrementCommentCount,
   incrementViewCount,
@@ -13,7 +13,7 @@ import {
 } from "@/repositories/recipe.repository";
 
 import {
-  findUserById,
+  findNonDeletedUserById,
   incrementRecipeCount,
   incrementTotalRecipeViews,
 } from "@/repositories/user.repository";
@@ -357,7 +357,7 @@ export async function createRecipe(currentUser, recipeData) {
          * the transaction so a stale authentication
          * object is not trusted for the mutation.
          */
-        const user = await requireActiveAuthenticatedUser(currentUser);
+        const user = await requireActiveAuthenticatedUser(currentUser, session);
 
         const category = await findActiveCategoryById(
           sanitizedData.categoryId,
@@ -473,16 +473,35 @@ export async function getRecipeBySlug(slug) {
  * Get Recipes
  * --------------------------------------------------------------------------
  */
-
 export async function getRecipes({
   filter = {},
   sort = RECIPE_SORTS.NEWEST,
   cursor = null,
   limit = DEFAULT_LIST_LIMIT,
 } = {}) {
-  const finalSort = sort || RECIPE_SORTS.NEWEST;
+  /**
+   * The external input contract should already have been
+   * validated by recipeListFilterSchema.strict().
+   *
+   * The allowlist below remains as a defensive Service-layer
+   * boundary so that only supported query fields can reach
+   * the Repository.
+   */
+  const safeFilter = {};
 
-  const normalizedSort = assertEnum(finalSort, Object.values(RECIPE_SORTS), {
+  if (filter.categoryId !== undefined) {
+    assertValidObjectId(filter.categoryId, "category ID");
+
+    safeFilter.categoryId = filter.categoryId;
+  }
+
+  if (filter.authorId !== undefined) {
+    assertValidObjectId(filter.authorId, "author ID");
+
+    safeFilter.authorId = filter.authorId;
+  }
+
+  const normalizedSort = assertEnum(sort, Object.values(RECIPE_SORTS), {
     errorCode: ERROR_CODES.INVALID_REQUEST,
     message: "ترتیب مرتب‌سازی دستورهای پخت نامعتبر است.",
     statusCode: 400,
@@ -500,20 +519,6 @@ export async function getRecipes({
     decodedCursor = validateRecipeCursor(decodeCursor(cursor), normalizedSort);
   }
 
-  const safeFilter = {};
-
-  if (filter.categoryId !== undefined) {
-    assertValidObjectId(filter.categoryId, "category ID");
-
-    safeFilter.categoryId = filter.categoryId;
-  }
-
-  if (filter.authorId !== undefined) {
-    assertValidObjectId(filter.authorId, "author ID");
-
-    safeFilter.authorId = filter.authorId;
-  }
-
   /**
    * findRecipes() is responsible for returning only
    * publicly accessible Recipes:
@@ -522,8 +527,8 @@ export async function getRecipes({
    * - Author is ACTIVE and non-deleted
    * - Category is active
    *
-   * These accessibility constraints must be applied
-   * in the repository before pagination.
+   * These constraints must be applied in the Repository
+   * before cursor pagination and limit calculation.
    */
   const recipes = await findRecipes({
     filter: safeFilter,
@@ -601,7 +606,7 @@ export async function updateRecipe(currentUser, recipeId, updates) {
      * even when their author or category is no longer
      * publicly accessible.
      */
-    const recipe = await findRecipeById(recipeId, session);
+    const recipe = await findNonDeletedRecipeById(recipeId, session);
 
     if (!recipe) {
       throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
@@ -700,7 +705,7 @@ export async function deleteRecipe(currentUser, recipeId) {
      * Recipe if its Category becomes inactive, and
      * administrators have full Recipe access.
      */
-    const recipe = await findRecipeById(recipeId, session);
+    const recipe = await findNonDeletedRecipeById(recipeId, session);
 
     if (!recipe) {
       throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
@@ -729,7 +734,7 @@ export async function deleteRecipe(currentUser, recipeId) {
      * case the author's internal counters are not a
      * reason to fail the Recipe deletion.
      */
-    const author = await findUserById(recipe.authorId, session);
+    const author = await findNonDeletedUserById(recipe.authorId, session);
 
     if (author) {
       const updatedAuthor = await incrementRecipeCount(
@@ -809,7 +814,7 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
      * The author must currently be ACTIVE
      * and non-deleted.
      */
-    const author = await findUserById(recipe.authorId, session);
+    const author = await findNonDeletedUserById(recipe.authorId, session);
 
     if (!author || author.accountStatus !== ACCOUNT_STATUSES.ACTIVE) {
       throw new AppError(
@@ -901,13 +906,11 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
 export async function incrementRecipeView(recipeId) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  /**
-   * Resolve the current publicly accessible state
-   * before opening the transaction.
-   */
   const { recipe } = await getAccessibleRecipe(recipeId);
 
   return withTransaction(async (session) => {
+    const { recipe } = await getAccessibleRecipe(recipeId);
+
     const updatedRecipe = await incrementViewCount(recipe._id, 1, session);
 
     if (!updatedRecipe) {

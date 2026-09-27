@@ -19,37 +19,30 @@ export function assertAuthenticated(currentUser) {
   return currentUser;
 }
 
-export async function requireActiveAuthenticatedUser(currentUser) {
-  requireActiveAuthenticatedUser(currentUser);
-
+export async function requireActiveAuthenticatedUser(currentUser, session) {
+  assertAuthenticated(currentUser);
   assertValidObjectId(currentUser._id, "user ID");
-
-  const user = await findActiveUserById(currentUser._id);
-
+  const user = await findActiveUserById(currentUser._id, session);
   if (!user) {
     throw new AppError(ERROR_CODES.FORBIDDEN, "حساب کاربری شما فعال نیست.", {
       statusCode: 403,
     });
   }
-
   return user;
 }
 
 /**
  * Ensure a user has administrator privileges.
  */
-export function assertAdmin(currentUser) {
-  requireActiveAuthenticatedUser(currentUser);
+export async function assertAdmin(currentUser, session) {
+  const user = await requireActiveAuthenticatedUser(currentUser, session);
 
-  if (currentUser.role !== USER_ROLES.ADMIN) {
+  if (user.role !== USER_ROLES.ADMIN) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
-      "شما مجوز انجام اینکار را ندارید.",
-      {
-        statusCode: 403,
-      }
+      "شما مجوز انجام این کار را ندارید.",
+      { statusCode: 403 }
     );
   }
-
-  return currentUser;
+  return user;
 }

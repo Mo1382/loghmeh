@@ -21,7 +21,10 @@ const emailSchema = z
   .email("لطفاً یک نشانی ایمیل معتبر وارد کنید.")
   .transform((value) => value.toLowerCase());
 
-const passwordSchema = z.string().min(8, "رمز عبور باید حداقل ۸ کاراکتر باشد.");
+const passwordSchema = z
+  .string()
+  .min(8, "رمز عبور باید حداقل ۸ کاراکتر باشد.")
+  .max(128);
 
 const bioSchema = z
   .string()

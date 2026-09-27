@@ -99,7 +99,7 @@ function buildCursorFilter(sort, cursor) {
 /**
  * Find a user by ID.
  */
-export function findUserById(userId, session) {
+export function findNonDeletedUserById(userId, session) {
   const query = User.findOne({
     _id: userId,
     deletedAt: null,
@@ -373,7 +373,7 @@ export function restoreUser(userId, session) {
  * - creating the next cursor
  * - calculating hasMore
  */
-export function findUsers({
+export function findNonDeletedUsers({
   filter = {},
   sort = USER_SORTS.MOST_VIEWED,
   cursor = null,

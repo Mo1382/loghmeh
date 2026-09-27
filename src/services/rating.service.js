@@ -133,7 +133,7 @@ export async function createRating(currentUser, recipeId, value) {
   assertValidRatingValue(value);
 
   return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser);
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     /**
      * Only accessible Recipes can be rated.
@@ -241,7 +241,7 @@ export async function updateRating(currentUser, recipeId, value) {
   assertValidRatingValue(value);
 
   return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser);
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     /**
      * Only accessible Recipes can have their

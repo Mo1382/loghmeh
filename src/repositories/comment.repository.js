@@ -99,18 +99,6 @@ export function findCommentsByRecipe({
   return applySession(query, session);
 }
 
-/**
- * Find an active comment containing a specific reply.
- */
-export function findCommentByReplyId(replyId, session) {
-  const query = Comment.findOne({
-    "replies._id": replyId,
-    deletedAt: null,
-  });
-
-  return applySession(query, session);
-}
-
 /* -------------------------------------------------------------------------- */
 /* Create                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -149,11 +137,25 @@ export function addCommentReply(commentId, replyData, session) {
     {
       _id: commentId,
       deletedAt: null,
+
       $expr: {
         $lt: [
           {
             $size: {
-              $ifNull: ["$replies", []],
+              $filter: {
+                input: {
+                  $ifNull: ["$replies", []],
+                },
+                as: "reply",
+                cond: {
+                  $eq: [
+                    {
+                      $ifNull: ["$$reply.deletedAt", null],
+                    },
+                    null,
+                  ],
+                },
+              },
             },
           },
           MAX_COMMENT_REPLIES,
@@ -179,17 +181,51 @@ export function addCommentReply(commentId, replyData, session) {
  *
  * Authorization is handled in the Service layer.
  */
-export function deleteCommentReplyById(replyId, session) {
+export function softDeleteCommentReplyById(
+  replyId,
+  deletedAt = new Date(),
+  session
+) {
   const query = Comment.findOneAndUpdate(
     {
-      "replies._id": replyId,
       deletedAt: null,
+      replies: {
+        $elemMatch: {
+          _id: replyId,
+          deletedAt: null,
+        },
+      },
     },
     {
-      $pull: {
-        replies: {
+      $set: {
+        "replies.$.deletedAt": deletedAt,
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  return applySession(query, session);
+}
+
+export function restoreCommentReplyById(replyId, session) {
+  const query = Comment.findOneAndUpdate(
+    {
+      deletedAt: null,
+      replies: {
+        $elemMatch: {
           _id: replyId,
+          deletedAt: {
+            $ne: null,
+          },
         },
+      },
+    },
+    {
+      $set: {
+        "replies.$.deletedAt": null,
       },
     },
     {
@@ -416,6 +452,39 @@ export function updateReplyReactionCountDeltas(
       runValidators: true,
     }
   );
+
+  return applySession(query, session);
+}
+
+export function findCommentByReplyId(replyId, session) {
+  const query = Comment.findOne({
+    _id: {
+      $exists: true,
+    },
+    deletedAt: null,
+    replies: {
+      $elemMatch: {
+        _id: replyId,
+        deletedAt: null,
+      },
+    },
+  });
+
+  return applySession(query, session);
+}
+
+export function findDeletedCommentByReplyId(replyId, session) {
+  const query = Comment.findOne({
+    deletedAt: null,
+    replies: {
+      $elemMatch: {
+        _id: replyId,
+        deletedAt: {
+          $ne: null,
+        },
+      },
+    },
+  });
 
   return applySession(query, session);
 }

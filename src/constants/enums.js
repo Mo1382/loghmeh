@@ -16,6 +16,8 @@ export const INGREDIENT_UNITS = [
   "برش",
 ];
 
+export const CURSOR_VERSION = 1;
+
 export const DIFFICULTIES = ["آسان", "متوسط", "سخت"];
 
 // Account identity and access

@@ -1,9 +1,6 @@
-/**
- * Normalize a pagination limit.
- *
- * Invalid, non-positive, or non-integer values fall back
- * to the provided default.
- */
+import AppError from "@/lib/errors/AppError";
+import { ERROR_CODES } from "@/constants/error-codes";
+
 export function normalizeLimit(limit, defaultLimit = 16, maxLimit = 50) {
   if (!Number.isInteger(defaultLimit) || defaultLimit <= 0) {
     throw new TypeError("defaultLimit باید یک عدد صحیح مثبت باشد.");

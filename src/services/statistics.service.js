@@ -6,7 +6,7 @@ import { withTransaction } from "@/lib/transaction";
 
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
-import { findRecipeById } from "@/repositories/recipe.repository";
+import { findNonDeletedRecipeById } from "@/repositories/recipe.repository";
 
 import {
   getRatingStatsByRecipeId,
@@ -179,7 +179,7 @@ export async function reconcileRecipeStatistics(recipeId) {
      * Only an existing non-deleted Recipe is
      * considered a valid reconciliation target.
      */
-    const recipe = await findRecipeById(recipeId, session);
+    const recipe = await findNonDeletedRecipeById(recipeId, session);
 
     if (!recipe) {
       throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {

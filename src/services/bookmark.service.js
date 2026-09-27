@@ -2,10 +2,8 @@ import {
   createBookmark as createBookmarkRepository,
   deleteBookmarkByUserAndRecipe,
   findBookmarkByUserAndRecipe,
-  findBookmarksByUser,
+  findAccessibleBookmarksByUser,
 } from "@/repositories/bookmark.repository";
-
-import { findAccessibleRecipesByIds } from "@/repositories/recipe.repository";
 
 import { getAccessibleRecipe } from "@/lib/helpers/recipe-access";
 
@@ -42,25 +40,25 @@ const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
 
 /**
- * Create the next cursor from the last bookmark
+ * --------------------------------------------------------------------------
+ * Cursor
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Create the next cursor from the last Bookmark
  * included in the current page.
  */
-function createNextCursor(bookmarks, userId) {
-  if (!bookmarks.length) {
-    return null;
-  }
-
-  const lastBookmark = bookmarks[bookmarks.length - 1];
-
-  if (!lastBookmark.createdAt || !lastBookmark._id) {
+function createNextCursor(bookmark, userId) {
+  if (!bookmark?.createdAt || !bookmark?._id) {
     return null;
   }
 
   return encodeCursor({
     resource: CURSOR_RESOURCES.BOOKMARKS,
     userId: userId.toString(),
-    createdAt: lastBookmark.createdAt.toISOString(),
-    id: lastBookmark._id.toString(),
+    createdAt: bookmark.createdAt.toISOString(),
+    id: bookmark._id.toString(),
   });
 }
 
@@ -71,7 +69,12 @@ function createNextCursor(bookmarks, userId) {
  */
 
 /**
- * Create a bookmark for the current user.
+ * Create a Bookmark for the current user.
+ *
+ * A Bookmark may only be created for an accessible Recipe.
+ *
+ * The database unique index remains the final protection
+ * against concurrent duplicate requests.
  */
 export async function createBookmark(currentUser, recipeId) {
   const user = await requireActiveAuthenticatedUser(currentUser);
@@ -79,14 +82,15 @@ export async function createBookmark(currentUser, recipeId) {
   assertValidObjectId(recipeId, "recipe ID");
 
   /**
-   * A bookmark may only be created for an accessible Recipe.
+   * Only accessible Recipes may be bookmarked.
    */
   await getAccessibleRecipe(recipeId);
 
   /**
-   * The pre-check improves the normal error path.
-   * The unique database index remains the final protection
-   * against concurrent duplicate requests.
+   * Fast duplicate pre-check.
+   *
+   * The unique { userId, recipeId } index remains
+   * the final protection against concurrent requests.
    */
   const existingBookmark = await findBookmarkByUserAndRecipe(
     user._id,
@@ -108,8 +112,8 @@ export async function createBookmark(currentUser, recipeId) {
     });
   } catch (error) {
     /**
-     * Handle a duplicate-key race against the unique
-     * { userId, recipeId } index.
+     * Handle a duplicate-key race against the
+     * unique { userId, recipeId } index.
      */
     if (error?.code === 11000) {
       throw new AppError(
@@ -130,11 +134,12 @@ export async function createBookmark(currentUser, recipeId) {
  */
 
 /**
- * Remove the current user's bookmark from a recipe.
+ * Remove the current user's Bookmark from a Recipe.
  *
- * The Recipe itself does not need to remain accessible here.
- * A user should still be able to remove their own stale bookmark
- * after a Recipe becomes deleted or otherwise inaccessible.
+ * The Recipe does not need to remain accessible.
+ *
+ * This allows stale Bookmarks to be removed even after
+ * the Recipe is deleted or becomes otherwise inaccessible.
  */
 export async function deleteBookmark(currentUser, recipeId) {
   const user = await requireActiveAuthenticatedUser(currentUser);
@@ -175,8 +180,8 @@ export async function getUserBookmark(currentUser, recipeId) {
   assertValidObjectId(recipeId, "recipe ID");
 
   /**
-   * Visibility/accessibility is required for reading
-   * the bookmark state of a Recipe.
+   * Reading Bookmark state for a Recipe requires
+   * the Recipe to be currently accessible.
    */
   await getAccessibleRecipe(recipeId);
 
@@ -193,10 +198,17 @@ export async function getUserBookmark(currentUser, recipeId) {
  * Get the current user's bookmarked Recipes
  * using cursor-based pagination.
  *
- * Only accessible Recipes are returned.
+ * IMPORTANT:
  *
- * Bookmark pagination remains based on the Bookmark collection,
- * while inaccessible Recipes are filtered after that query.
+ * Pagination is performed by the Repository over
+ * accessible Bookmark/Recipe pairs.
+ *
+ * Therefore:
+ *
+ * limit = number of visible Recipes requested
+ * hasMore = whether another visible Recipe exists
+ *
+ * Inaccessible Recipes do not consume page slots.
  */
 export async function getUserBookmarks({
   currentUser,
@@ -211,7 +223,7 @@ export async function getUserBookmarks({
     MAX_LIST_LIMIT
   );
 
-  let decodedCursor = null;
+  let normalizedCursor = null;
 
   if (cursor) {
     const payload = decodeCursor(cursor);
@@ -225,26 +237,27 @@ export async function getUserBookmarks({
       "نشانگر صفحه‌بندی متعلق به این کاربر نیست."
     );
 
-    decodedCursor = normalizeCreatedAtIdCursor(payload);
+    normalizedCursor = normalizeCreatedAtIdCursor(payload);
   }
 
   /**
-   * Fetch one extra bookmark to determine whether
-   * another page exists.
+   * Fetch only accessible Bookmarks and their
+   * corresponding Recipes.
+   *
+   * Fetch one extra visible Bookmark to determine
+   * whether another visible page exists.
    */
-  const bookmarks = await findBookmarksByUser({
+  const records = await findAccessibleBookmarksByUser({
     userId: user._id,
-    cursor: decodedCursor,
+    cursor: normalizedCursor,
     limit: normalizedLimit + 1,
   });
 
-  const hasMore = bookmarks.length > normalizedLimit;
+  const hasMore = records.length > normalizedLimit;
 
-  const pageBookmarks = hasMore
-    ? bookmarks.slice(0, normalizedLimit)
-    : bookmarks;
+  const pageRecords = hasMore ? records.slice(0, normalizedLimit) : records;
 
-  if (!pageBookmarks.length) {
+  if (!pageRecords.length) {
     return {
       items: [],
       nextCursor: null,
@@ -252,28 +265,23 @@ export async function getUserBookmarks({
     };
   }
 
-  const recipeIds = pageBookmarks.map((bookmark) => bookmark.recipeId);
-
   /**
-   * Resolve only Recipes that are currently accessible.
-   */
-  const recipes = await findAccessibleRecipesByIds(recipeIds);
-
-  /**
-   * MongoDB $in does not guarantee the same order
-   * as the Bookmark query.
+   * The Repository preserves Bookmark order.
    *
-   * Rebuild the original Bookmark order.
+   * Each record contains:
+   *
+   * {
+   *   bookmark,
+   *   recipe
+   * }
    */
-  const recipesById = new Map(
-    recipes.map((recipe) => [recipe._id.toString(), recipe])
-  );
+  const items = pageRecords.map((record) => record.recipe);
 
-  const items = pageBookmarks
-    .map((bookmark) => recipesById.get(bookmark.recipeId.toString()))
-    .filter(Boolean);
+  const lastRecord = pageRecords[pageRecords.length - 1];
 
-  const nextCursor = hasMore ? createNextCursor(pageBookmarks, user._id) : null;
+  const nextCursor = hasMore
+    ? createNextCursor(lastRecord.bookmark, user._id)
+    : null;
 
   return {
     items,

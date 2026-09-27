@@ -6,7 +6,7 @@ import {
   findActiveUserById,
   findActiveUserByUsername,
   findActiveUsers,
-  findUserById,
+  findNonDeletedUserById,
   restoreUser,
   softDeleteUser,
   updateAccountStatus,
@@ -505,7 +505,7 @@ export async function changeAccountStatus(
     );
   }
 
-  const user = await findUserById(targetUserId);
+  const user = await findNonDeletedUserById(targetUserId);
 
   if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -563,7 +563,7 @@ export async function deleteUser(currentUser, targetUserId) {
     );
   }
 
-  const user = await findUserById(targetUserId);
+  const user = await findNonDeletedUserById(targetUserId);
 
   if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {

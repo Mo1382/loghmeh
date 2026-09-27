@@ -1,36 +1,26 @@
 import Category from "@/models/Category";
 import Recipe from "@/models/Recipe";
 import User from "@/models/User";
-import { RECIPE_SORTS, RECIPE_STATS } from "@/constants/enums";
-import { ACCOUNT_STATUSES } from "@/constants/enums";
+
+import {
+  RECIPE_SORTS,
+  RECIPE_STATS,
+  ACCOUNT_STATUSES,
+} from "@/constants/enums";
+
 import { applySession } from "@/lib/helpers/apply-session";
 
-/* -------------------------------------------------------------------------- */
-/* Sorting                                                                    */
-/* -------------------------------------------------------------------------- */
-
 /**
- * Supported recipe sorting modes.
- *
- * The Service layer is responsible for deciding which
- * sorting modes are allowed for each use case.
+ * --------------------------------------------------------------------------
+ * Query Helpers
+ * --------------------------------------------------------------------------
  */
-/* -------------------------------------------------------------------------- */
-/* Statistics                                                                 */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Allowed recipe statistic fields.
- */
-/* -------------------------------------------------------------------------- */
-/* Query Helpers                                                              */
-/* -------------------------------------------------------------------------- */
 
 /**
  * Build the cursor condition for the selected sort.
  *
- * The Recipe _id is used as a stable tie-breaker when multiple
- * recipes have the same sort value.
+ * The Recipe _id is used as a stable tie-breaker when
+ * multiple Recipes have the same sort value.
  */
 function buildCursorFilter(sort, cursor) {
   if (!cursor) {
@@ -114,18 +104,68 @@ function buildCursorFilter(sort, cursor) {
 }
 
 /**
- * Build MongoDB lookup stages required to determine whether
+ * Build the MongoDB sort option for the selected Recipe sort.
+ */
+function buildRecipeSortOption(sort) {
+  switch (sort) {
+    case RECIPE_SORTS.NEWEST:
+      return {
+        createdAt: -1,
+        _id: -1,
+      };
+
+    case RECIPE_SORTS.OLDEST:
+      return {
+        createdAt: 1,
+        _id: 1,
+      };
+
+    case RECIPE_SORTS.MOST_VIEWED:
+      return {
+        "stats.viewCount": -1,
+        _id: -1,
+      };
+
+    case RECIPE_SORTS.HIGHEST_RATED:
+      return {
+        "stats.averageRating": -1,
+        _id: -1,
+      };
+
+    default:
+      throw new Error(`Unsupported recipe sort: ${sort}`);
+  }
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Accessibility
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Build the lookup stages required to determine whether
  * a Recipe is publicly accessible.
  *
  * A Recipe is accessible only when:
- * - the Recipe is not deleted
- * - its author exists
- * - its author is ACTIVE
- * - its author is not deleted
- * - its category exists
- * - its category is active
  *
- * These stages are intended to run BEFORE pagination.
+ * - Recipe.deletedAt === null
+ * - Author exists
+ * - Author is ACTIVE
+ * - Author is non-deleted
+ * - Category exists
+ * - Category is active
+ *
+ * IMPORTANT:
+ *
+ * These stages only determine accessibility.
+ * Authorization remains the responsibility of the Service layer.
+ *
+ * The same stages are reused by:
+ * - findRecipes()
+ * - findAccessibleRecipeById()
+ * - findAccessibleRecipeBySlug()
+ * - findAccessibleRecipesByIds()
  */
 function buildRecipeAccessibilityStages() {
   return [
@@ -134,6 +174,7 @@ function buildRecipeAccessibilityStages() {
         from: User.collection.name,
         localField: "authorId",
         foreignField: "_id",
+
         pipeline: [
           {
             $match: {
@@ -147,14 +188,17 @@ function buildRecipeAccessibilityStages() {
             },
           },
         ],
+
         as: "accessibleAuthor",
       },
     },
+
     {
       $lookup: {
         from: Category.collection.name,
         localField: "categoryId",
         foreignField: "_id",
+
         pipeline: [
           {
             $match: {
@@ -167,15 +211,23 @@ function buildRecipeAccessibilityStages() {
             },
           },
         ],
+
         as: "accessibleCategory",
       },
     },
+
     {
       $match: {
-        "accessibleAuthor.0": { $exists: true },
-        "accessibleCategory.0": { $exists: true },
+        "accessibleAuthor.0": {
+          $exists: true,
+        },
+
+        "accessibleCategory.0": {
+          $exists: true,
+        },
       },
     },
+
     {
       $project: {
         accessibleAuthor: 0,
@@ -185,19 +237,16 @@ function buildRecipeAccessibilityStages() {
   ];
 }
 
-/* -------------------------------------------------------------------------- */
-/* Find Recipes                                                               */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Find Recipes
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Find recipes with cursor-based infinite loading.
+ * Find publicly accessible Recipes with cursor-based pagination.
  *
- * Accessibility filtering is performed BEFORE sorting and pagination:
- *
- * Recipe.deletedAt === null
- * AND Author.accountStatus === ACCOUNT_STATUSES.ACTIVE
- * AND Author.deletedAt === null
- * AND Category.isActive === true
+ * Accessibility filtering is performed before sorting and limiting.
  */
 export function findRecipes({
   filter = {},
@@ -212,41 +261,6 @@ export function findRecipes({
   };
 
   const cursorFilter = buildCursorFilter(sort, cursor);
-
-  let sortOption;
-
-  switch (sort) {
-    case RECIPE_SORTS.NEWEST:
-      sortOption = {
-        createdAt: -1,
-        _id: -1,
-      };
-      break;
-
-    case RECIPE_SORTS.OLDEST:
-      sortOption = {
-        createdAt: 1,
-        _id: 1,
-      };
-      break;
-
-    case RECIPE_SORTS.MOST_VIEWED:
-      sortOption = {
-        "stats.viewCount": -1,
-        _id: -1,
-      };
-      break;
-
-    case RECIPE_SORTS.HIGHEST_RATED:
-      sortOption = {
-        "stats.averageRating": -1,
-        _id: -1,
-      };
-      break;
-
-    default:
-      throw new Error(`Unsupported recipe sort: ${sort}`);
-  }
 
   const pipeline = [
     {
@@ -263,7 +277,7 @@ export function findRecipes({
   pipeline.push(...buildRecipeAccessibilityStages());
 
   pipeline.push({
-    $sort: sortOption,
+    $sort: buildRecipeSortOption(sort),
   });
 
   pipeline.push({
@@ -275,19 +289,24 @@ export function findRecipes({
   return applySession(query, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Find Single Recipe                                                         */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Find Single Recipe
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Find a Recipe by ID.
+ * Find a non-deleted Recipe by ID.
  *
- * Soft-deleted Recipes are excluded.
+ * Persistence primitive only.
  *
- * Author and Category accessibility are intentionally checked
- * by the Service layer for single-Recipe operations.
+ * This method does NOT verify:
+ * - Author accessibility
+ * - Category accessibility
+ * - Public visibility
+ * - Authorization
  */
-export function findRecipeById(recipeId, session) {
+export function findNonDeletedRecipeById(recipeId, session) {
   const query = Recipe.findOne({
     _id: recipeId,
     deletedAt: null,
@@ -297,7 +316,37 @@ export function findRecipeById(recipeId, session) {
 }
 
 /**
- * Find a deleted Recipe by ID.
+ * Find a publicly accessible Recipe by ID.
+ *
+ * Accessibility policy is enforced inside the Repository.
+ */
+export async function findAccessibleRecipeById(recipeId, session) {
+  const pipeline = [
+    {
+      $match: {
+        _id: recipeId,
+        deletedAt: null,
+      },
+    },
+
+    ...buildRecipeAccessibilityStages(),
+
+    {
+      $limit: 1,
+    },
+  ];
+
+  const query = Recipe.aggregate(pipeline);
+
+  const recipes = await applySession(query, session);
+
+  return recipes[0] ?? null;
+}
+
+/**
+ * Find a soft-deleted Recipe by ID.
+ *
+ * Persistence primitive only.
  */
 export function findDeletedRecipeById(recipeId, session) {
   const query = Recipe.findOne({
@@ -311,11 +360,17 @@ export function findDeletedRecipeById(recipeId, session) {
 }
 
 /**
- * Find a Recipe by slug.
+ * Find a non-deleted Recipe by slug.
  *
- * Soft-deleted Recipes are excluded.
+ * Persistence primitive only.
+ *
+ * Does NOT verify:
+ * - Author accessibility
+ * - Category accessibility
+ * - Public visibility
+ * - Authorization
  */
-export function findRecipeBySlug(slug, session) {
+export function findNonDeletedRecipeBySlug(slug, session) {
   const query = Recipe.findOne({
     slug,
     deletedAt: null,
@@ -324,16 +379,45 @@ export function findRecipeBySlug(slug, session) {
   return applySession(query, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Create                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * Find a publicly accessible Recipe by slug.
+ *
+ * Accessibility policy is enforced inside the Repository.
+ */
+export async function findAccessibleRecipeBySlug(slug, session) {
+  const pipeline = [
+    {
+      $match: {
+        slug,
+        deletedAt: null,
+      },
+    },
+
+    ...buildRecipeAccessibilityStages(),
+
+    {
+      $limit: 1,
+    },
+  ];
+
+  const query = Recipe.aggregate(pipeline);
+
+  const recipes = await applySession(query, session);
+
+  return recipes[0] ?? null;
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Create
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Create a Recipe.
  *
- * authorId is determined by the Service layer.
- * slug is generated by the Service layer.
- * stats and timestamps are system-managed.
+ * authorId and slug are supplied by the Service layer.
+ * Stats, deletedAt and timestamps are system-managed.
  */
 export function createRecipe(recipeData, session) {
   if (session) {
@@ -352,17 +436,16 @@ export function createRecipe(recipeData, session) {
   return Recipe.create(recipeData);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Update                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Update
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Update a Recipe by ID.
+ * Update a non-deleted Recipe by ID.
  *
- * Only explicitly provided fields are updated.
- * The Recipe itself must not be soft-deleted.
- *
- * Authorization and Author/Category accessibility are handled
+ * Authorization and business rules are handled
  * by the Service layer.
  */
 export function updateRecipeById(recipeId, updates, session) {
@@ -371,9 +454,11 @@ export function updateRecipeById(recipeId, updates, session) {
       _id: recipeId,
       deletedAt: null,
     },
+
     {
       $set: updates,
     },
+
     {
       new: true,
       runValidators: true,
@@ -383,16 +468,17 @@ export function updateRecipeById(recipeId, updates, session) {
   return applySession(query, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Soft Delete / Restore                                                      */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Soft Delete / Restore
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Soft-delete a Recipe.
  *
- * Soft deletion only changes deletedAt.
- * Related Bookmarks, Ratings, Comments, Reactions and
- * other relationships are preserved.
+ * Related Bookmarks, Ratings, Comments, Reactions
+ * and other relationship documents are preserved.
  */
 export function softDeleteRecipe(recipeId, deletedAt = new Date(), session) {
   const query = Recipe.findOneAndUpdate(
@@ -400,11 +486,13 @@ export function softDeleteRecipe(recipeId, deletedAt = new Date(), session) {
       _id: recipeId,
       deletedAt: null,
     },
+
     {
       $set: {
         deletedAt,
       },
     },
+
     {
       new: true,
       runValidators: true,
@@ -425,11 +513,13 @@ export function restoreRecipe(recipeId, session) {
         $ne: null,
       },
     },
+
     {
       $set: {
         deletedAt: null,
       },
     },
+
     {
       new: true,
       runValidators: true,
@@ -439,10 +529,22 @@ export function restoreRecipe(recipeId, session) {
   return applySession(query, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Find Multiple Recipes                                                      */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Find Multiple Accessible Recipes
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Find publicly accessible Recipes by IDs.
+ *
+ * Accessibility filtering is performed inside
+ * the Repository.
+ *
+ * MongoDB does not guarantee that the order of $in
+ * results matches the input ID order. Callers that need
+ * the original order must rebuild it explicitly.
+ */
 export function findAccessibleRecipesByIds(recipeIds, session) {
   const pipeline = [
     {
@@ -453,6 +555,7 @@ export function findAccessibleRecipesByIds(recipeIds, session) {
         deletedAt: null,
       },
     },
+
     ...buildRecipeAccessibilityStages(),
   ];
 
@@ -461,12 +564,17 @@ export function findAccessibleRecipesByIds(recipeIds, session) {
   return applySession(query, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Statistics                                                                 */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Statistics / Counters
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Increment or decrement a Recipe statistic.
+ *
+ * Negative deltas are guarded atomically so that
+ * counters cannot become negative.
  */
 export function updateStatCountByDelta(recipeId, stat, delta = 1, session) {
   if (!Object.values(RECIPE_STATS).includes(stat)) {
@@ -490,11 +598,13 @@ export function updateStatCountByDelta(recipeId, stat, delta = 1, session) {
 
   const query = Recipe.findOneAndUpdate(
     filter,
+
     {
       $inc: {
         [stat]: delta,
       },
     },
+
     {
       new: true,
       runValidators: true,
@@ -503,6 +613,7 @@ export function updateStatCountByDelta(recipeId, stat, delta = 1, session) {
 
   return applySession(query, session);
 }
+
 /**
  * Increment Recipe view count.
  */
@@ -516,19 +627,7 @@ export function incrementViewCount(recipeId, amount = 1, session) {
 }
 
 /**
- * Increment Recipe rating count.
- */
-export function incrementRatingCount(recipeId, amount = 1, session) {
-  return updateStatCountByDelta(
-    recipeId,
-    RECIPE_STATS.RATING_COUNT,
-    amount,
-    session
-  );
-}
-
-/**
- * Increment Recipe comment count.
+ * Increment Recipe top-level comment count.
  */
 export function incrementCommentCount(recipeId, amount = 1, session) {
   return updateStatCountByDelta(
@@ -540,34 +639,42 @@ export function incrementCommentCount(recipeId, amount = 1, session) {
 }
 
 /**
- * Update Recipe average rating.
+ * --------------------------------------------------------------------------
+ * Rating Statistics
+ * --------------------------------------------------------------------------
  */
-export function updateAverageRating(recipeId, averageRating, session) {
-  const query = Recipe.findOneAndUpdate(
-    {
-      _id: recipeId,
-      deletedAt: null,
-    },
-    {
-      $set: {
-        "stats.averageRating": averageRating,
-      },
-    },
-    {
-      new: true,
-      runValidators: true,
-    }
-  );
 
-  return applySession(query, session);
-}
-
+/**
+ * Atomically update the denormalized Recipe rating statistics.
+ *
+ * Source of truth:
+ * Rating collection.
+ *
+ * Projection:
+ * - stats.ratingCount
+ * - stats.ratingSum
+ * - stats.averageRating
+ *
+ * ratingCountDelta may be zero when an existing Rating
+ * changes its value.
+ */
 export function updateRatingStatsDeltas(
   recipeId,
   ratingCountDelta,
   ratingSumDelta,
   session
 ) {
+  if (
+    !Number.isInteger(ratingCountDelta) ||
+    !Number.isInteger(ratingSumDelta)
+  ) {
+    throw new Error("Rating statistic deltas must be integers.");
+  }
+
+  if (ratingCountDelta === 0 && ratingSumDelta === 0) {
+    throw new Error("At least one rating statistic delta must be non-zero.");
+  }
+
   const currentCount = {
     $ifNull: ["$stats.ratingCount", 0],
   };
@@ -588,6 +695,11 @@ export function updateRatingStatsDeltas(
     {
       _id: recipeId,
       deletedAt: null,
+
+      /**
+       * Prevent the denormalized counters from
+       * becoming negative.
+       */
       $expr: {
         $and: [
           {
@@ -599,14 +711,20 @@ export function updateRatingStatsDeltas(
         ],
       },
     },
+
     [
       {
         $set: {
           "stats.ratingCount": nextCount,
+
           "stats.ratingSum": nextSum,
+
           "stats.averageRating": {
             $cond: [
-              { $gt: [nextCount, 0] },
+              {
+                $gt: [nextCount, 0],
+              },
+
               {
                 $round: [
                   {
@@ -615,12 +733,14 @@ export function updateRatingStatsDeltas(
                   2,
                 ],
               },
+
               0,
             ],
           },
         },
       },
     ],
+
     {
       new: true,
     }
