@@ -1,8 +1,6 @@
 import Comment from "@/models/Comment";
 
-import { COMMENT_STATS } from "@/constants/enums";
-
-import { COMMENT_LIMITS } from "@/constants/comment";
+import { MAX_COMMENT_REPLIES } from "@/constants/enums";
 
 import { applySession } from "@/lib/helpers/apply-session";
 
@@ -158,7 +156,7 @@ export function addCommentReply(commentId, replyData, session) {
               $ifNull: ["$replies", []],
             },
           },
-          COMMENT_LIMITS.MAX_REPLIES,
+          MAX_COMMENT_REPLIES,
         ],
       },
     },

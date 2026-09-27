@@ -1,4 +1,8 @@
-import { DIFFICULTIES, INGREDIENT_UNITS } from "@/constants/enums";
+import {
+  DIFFICULTIES,
+  INGREDIENT_UNITS,
+  RECIPE_LIMITS,
+} from "@/constants/enums";
 import { z } from "zod";
 
 /**
@@ -98,7 +102,10 @@ const ingredientSchema = z
 const ingredientsSchema = z
   .array(ingredientSchema)
   .min(1, "دستور غذا باید حداقل یک ماده اولیه داشته باشد.")
-  .max(100, "دستور غذا نمی‌تواند بیشتر از 100 ماده اولیه داشته باشد.");
+  .max(
+    RECIPE_LIMITS.MAX_INGREDIENTS,
+    `دستور غذا نمی‌تواند بیشتر از ${RECIPE_LIMITS.MAX_INGREDIENTS} ماده اولیه داشته باشد.`
+  );
 
 /**
  * Cooking step
@@ -129,8 +136,8 @@ const stepsSchema = z
   .array(stepSchema)
   .min(1, "دستور غذا باید حداقل یک مرحله پخت داشته باشد.")
   .max(
-    MAX_STEPS,
-    `دستور غذا نمی‌تواند بیشتر از ${MAX_STEPS} مرحله پخت داشته باشد.`
+    RECIPE_LIMITS.MAX_STEPS,
+    `دستور غذا نمی‌تواند بیشتر از ${RECIPE_LIMITS.MAX_STEPS} مرحله پخت داشته باشد.`
   )
   .superRefine((steps, ctx) => {
     const isSequential = steps.every((step, index) => step.order === index + 1);

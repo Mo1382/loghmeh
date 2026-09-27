@@ -1,6 +1,10 @@
 import mongoose from "mongoose";
 
-import { DIFFICULTIES, INGREDIENT_UNITS } from "@/constants/enums";
+import {
+  DIFFICULTIES,
+  INGREDIENT_UNITS,
+  RECIPE_LIMITS,
+} from "@/constants/enums";
 
 const ingredientSchema = new mongoose.Schema(
   {
@@ -16,7 +20,7 @@ const ingredientSchema = new mongoose.Schema(
       default: null,
       validate: {
         validator: (value) => value === null || value > 0,
-        message: "Quantity must be greater than 0",
+        message: "Quantity must be greater than 0.",
       },
     },
 
@@ -28,6 +32,24 @@ const ingredientSchema = new mongoose.Schema(
   },
   { _id: false }
 );
+
+ingredientSchema.pre("validate", function (next) {
+  if (this.unit === "به مقدار کافی") {
+    if (this.quantity !== null) {
+      this.invalidate(
+        "quantity",
+        "Quantity must be null when the unit is 'به مقدار کافی'."
+      );
+    }
+  } else if (this.quantity === null) {
+    this.invalidate(
+      "quantity",
+      "Quantity is required when the unit is not 'به مقدار کافی'."
+    );
+  }
+
+  next();
+});
 
 const stepSchema = new mongoose.Schema(
   {
@@ -145,6 +167,10 @@ const recipeSchema = new mongoose.Schema(
       type: Number,
       required: true,
       min: 1,
+      validate: {
+        validator: (value) => Number.isInteger(value),
+        message: "Preparation time must be a positive integer.",
+      },
     },
 
     defaultServings: {
@@ -152,9 +178,12 @@ const recipeSchema = new mongoose.Schema(
       required: true,
       min: 1,
       max: 100,
+      validate: {
+        validator: Number.isInteger,
+        message: "Default servings must be an integer.",
+      },
       default: 1,
     },
-
     image: {
       type: String,
       required: true,
@@ -177,8 +206,9 @@ const recipeSchema = new mongoose.Schema(
       required: true,
       validate: [
         {
-          validator: (items) => items.length >= 1 && items.length <= 100,
-          message: "A recipe must contain between 1 and 100 ingredients.",
+          validator: (items) =>
+            items.length >= 1 && items.length <= RECIPE_LIMITS.MAX_INGREDIENTS,
+          message: `A recipe must contain between 1 and ${RECIPE_LIMITS.MAX_INGREDIENTS} ingredients.`,
         },
       ],
     },
@@ -190,10 +220,9 @@ const recipeSchema = new mongoose.Schema(
         {
           validator: (items) =>
             items.length >= 1 &&
-            items.length <= 100 &&
+            items.length <= RECIPE_LIMITS.MAX_STEPS &&
             items.every((step, index) => step.order === index + 1),
-          message:
-            "A recipe must contain between 1 and 100 cooking steps, with sequential ordering.",
+          message: `A recipe must contain between 1 and ${RECIPE_LIMITS.MAX_STEPS} cooking steps, with sequential ordering.`,
         },
       ],
     },

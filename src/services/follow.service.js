@@ -8,19 +8,14 @@ import {
   findFollowingByUser,
 } from "@/repositories/follow.repository";
 
-import {
-  findActiveUsersByIds,
-  findUserById,
-} from "@/repositories/user.repository";
+import { findActiveUserById } from "@/repositories/user.repository";
 
-import {
-  ACCOUNT_STATUSES,
-  CURSOR_RESOURCES,
-  FOLLOW_LIST_TYPES,
-} from "@/constants/enums";
+import { CURSOR_RESOURCES, FOLLOW_LIST_TYPES } from "@/constants/enums";
+
 import { ERROR_CODES } from "@/constants/error-codes";
 
-import { assertAuthenticated } from "@/lib/auth/guards";
+import { requireActiveAuthenticatedUser } from "@/lib/auth/guards";
+
 import AppError from "@/lib/errors/AppError";
 
 import {
@@ -30,42 +25,31 @@ import {
 } from "@/lib/pagination/cursor";
 
 import { normalizeLimit } from "@/lib/pagination/limit";
+
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
 import {
-  assertCursorResource,
   assertCursorOwner,
+  assertCursorResource,
 } from "@/lib/pagination/cursor-context";
 
-/* -------------------------------------------------------------------------- */
-/* Constants                                                                  */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Constants
+ * --------------------------------------------------------------------------
+ */
 
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
 
-/* -------------------------------------------------------------------------- */
-/* Authentication / Validation                                                */
-/* -------------------------------------------------------------------------- */
-
 /**
- * Ensure that a user account is active.
- *
- * Soft-deleted, suspended, and deactivated accounts
- * are not considered active.
+ * --------------------------------------------------------------------------
+ * Validation
+ * --------------------------------------------------------------------------
  */
-function assertActiveUser(user, message = "حساب کاربری فعال نیست.") {
-  if (
-    !user ||
-    user.accountStatus !== ACCOUNT_STATUSES.ACTIVE ||
-    user.deletedAt
-  ) {
-    throw new AppError(ERROR_CODES.FORBIDDEN, message, { statusCode: 403 });
-  }
-}
 
 /**
- * Ensure the current user is not following themselves.
+ * Ensure that the current user cannot follow themselves.
  */
 function assertNotSelfFollow(currentUser, targetUserId) {
   if (currentUser._id?.toString() === targetUserId.toString()) {
@@ -77,9 +61,11 @@ function assertNotSelfFollow(currentUser, targetUserId) {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Cursor                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Cursor
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Create the next cursor from the last Follow
@@ -87,7 +73,7 @@ function assertNotSelfFollow(currentUser, targetUserId) {
  *
  * Cursor context:
  * - resource: CURSOR_RESOURCES.FOLLOWS
- * - userId: the user whose following/follower list is being requested
+ * - userId: the user whose list is being requested
  * - listType: FOLLOWING or FOLLOWERS
  */
 function createNextCursor({ follows, userId, listType }) {
@@ -114,9 +100,9 @@ function createNextCursor({ follows, userId, listType }) {
  * Validate and normalize a Follow cursor.
  *
  * The cursor must belong to:
- * - the CURSOR_RESOURCES.FOLLOWS resource,
- * - the requested user,
- * - the requested list type.
+ * - the Follow resource
+ * - the requested user
+ * - the requested list type
  */
 function normalizeFollowCursor(payload, expectedUserId, expectedListType) {
   assertCursorResource(payload, CURSOR_RESOURCES.FOLLOWS);
@@ -139,73 +125,50 @@ function normalizeFollowCursor(payload, expectedUserId, expectedListType) {
   return normalizeCreatedAtIdCursor(payload);
 }
 
-/* -------------------------------------------------------------------------- */
-/* User mapping                                                               */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * User mapping
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Convert Follow documents into active User documents
- * while preserving the original Follow order.
+ * Convert Follow documents into users while preserving
+ * the original Follow order.
  *
- * For:
- * - FOLLOWING -> use followingId
- * - FOLLOWERS -> use followerId
- *
- * Suspended, deactivated, and soft-deleted users
- * are excluded from the result.
+ * The Follow repository is responsible for joining only
+ * ACTIVE, non-deleted users.
  */
-async function mapFollowsToUsers(follows, listType) {
-  if (!follows.length) {
-    return [];
-  }
-
-  const userIds = follows.map((follow) =>
-    listType === FOLLOW_LIST_TYPES.FOLLOWING
-      ? follow.followingId
-      : follow.followerId
-  );
-
-  const users = await findActiveUsersByIds(userIds);
-
-  const usersById = new Map(users.map((user) => [user._id.toString(), user]));
-
+function mapFollowsToUsers(follows, listType) {
   return follows
-    .map((follow) => {
-      const userId =
-        listType === FOLLOW_LIST_TYPES.FOLLOWING
-          ? follow.followingId
-          : follow.followerId;
-
-      return usersById.get(userId.toString());
-    })
+    .map((follow) =>
+      listType === FOLLOW_LIST_TYPES.FOLLOWING
+        ? follow.followingUser
+        : follow.followerUser
+    )
     .filter(Boolean);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Create                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Create
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Follow another user.
  */
 export async function createFollow(currentUser, targetUserId) {
-  assertAuthenticated(currentUser);
+  const authenticatedUser = await requireActiveAuthenticatedUser(currentUser);
 
   assertValidObjectId(targetUserId, "target user ID");
 
-  assertNotSelfFollow(currentUser, targetUserId);
+  assertNotSelfFollow(authenticatedUser, targetUserId);
 
-  const authenticatedUser = await findUserById(currentUser._id);
-
-  if (!authenticatedUser) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
-
-  assertActiveUser(authenticatedUser, "حساب کاربری شما فعال نیست.");
-
-  const targetUser = await findUserById(targetUserId);
+  /**
+   * Public follow relationships may only target
+   * currently active, non-deleted users.
+   */
+  const targetUser = await findActiveUserById(targetUserId);
 
   if (!targetUser) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر هدف پیدا نشد.", {
@@ -213,13 +176,10 @@ export async function createFollow(currentUser, targetUserId) {
     });
   }
 
-  assertActiveUser(targetUser, "حساب کاربری هدف فعال نیست.");
-
   /**
-   * The existence check provides a clear business-level error.
-   *
-   * The unique MongoDB index remains the final protection
-   * against concurrent duplicate Follow creation.
+   * This pre-check improves the normal error path.
+   * The unique database index remains the final
+   * protection against concurrent duplicate requests.
    */
   const existingFollow = await findFollowByFollowerAndFollowing(
     authenticatedUser._id,
@@ -240,6 +200,10 @@ export async function createFollow(currentUser, targetUserId) {
       followingId: targetUser._id,
     });
   } catch (error) {
+    /**
+     * Handle a duplicate-key race against the
+     * unique { followerId, followingId } index.
+     */
     if (error?.code === 11000) {
       throw new AppError(
         ERROR_CODES.FOLLOW_ALREADY_EXISTS,
@@ -252,9 +216,11 @@ export async function createFollow(currentUser, targetUserId) {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Delete                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Delete
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Unfollow another user.
@@ -263,22 +229,18 @@ export async function createFollow(currentUser, targetUserId) {
  * they are the follower.
  */
 export async function deleteFollow(currentUser, targetUserId) {
-  assertAuthenticated(currentUser);
+  const authenticatedUser = await requireActiveAuthenticatedUser(currentUser);
 
   assertValidObjectId(targetUserId, "target user ID");
 
-  assertNotSelfFollow(currentUser, targetUserId);
+  assertNotSelfFollow(authenticatedUser, targetUserId);
 
-  const authenticatedUser = await findUserById(currentUser._id);
-
-  if (!authenticatedUser) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
-
-  assertActiveUser(authenticatedUser, "حساب کاربری شما فعال نیست.");
-
+  /**
+   * Do not require the target user to remain active here.
+   *
+   * An existing Follow should still be removable if the
+   * target account was later suspended, deactivated, or deleted.
+   */
   const existingFollow = await findFollowByFollowerAndFollowing(
     authenticatedUser._id,
     targetUserId
@@ -308,24 +270,25 @@ export async function deleteFollow(currentUser, targetUserId) {
   return deletedFollow;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Follow status                                                              */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Follow status
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Check whether the current user follows a target user.
+ *
+ * The target user must currently be ACTIVE and non-deleted.
  */
 export async function isFollowing(currentUser, targetUserId) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   assertValidObjectId(targetUserId, "target user ID");
 
-  assertNotSelfFollow(currentUser, targetUserId);
+  assertNotSelfFollow(user, targetUserId);
 
-  /**
-   * The target account must exist.
-   */
-  const targetUser = await findUserById(targetUserId);
+  const targetUser = await findActiveUserById(targetUserId);
 
   if (!targetUser) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر هدف پیدا نشد.", {
@@ -334,25 +297,34 @@ export async function isFollowing(currentUser, targetUserId) {
   }
 
   const follow = await findFollowByFollowerAndFollowing(
-    currentUser._id,
-    targetUserId
+    user._id,
+    targetUser._id
   );
 
   return Boolean(follow);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Counts                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Counts
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Get the number of users a specific user follows
  * and the number of their followers.
+ *
+ * The repository count methods must count only
+ * relationships involving ACTIVE, non-deleted users.
  */
 export async function getFollowCounts(userId) {
   assertValidObjectId(userId, "user ID");
 
-  const user = await findUserById(userId);
+  /**
+   * Public user visibility:
+   * ACTIVE + non-deleted.
+   */
+  const user = await findActiveUserById(userId);
 
   if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -361,8 +333,8 @@ export async function getFollowCounts(userId) {
   }
 
   const [following, followers] = await Promise.all([
-    countFollowingByUser(userId),
-    countFollowersByUser(userId),
+    countFollowingByUser(user._id),
+    countFollowersByUser(user._id),
   ]);
 
   return {
@@ -371,14 +343,18 @@ export async function getFollowCounts(userId) {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Following list                                                             */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Following list
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Get the users followed by a specific user.
  *
  * Uses cursor-based pagination.
+ *
+ * Only ACTIVE, non-deleted users are exposed.
  */
 export async function getFollowing({
   userId,
@@ -388,10 +364,10 @@ export async function getFollowing({
   assertValidObjectId(userId, "user ID");
 
   /**
-   * Make sure the requested user exists
-   * and is not soft-deleted.
+   * Public follow lists are available only for
+   * currently active, non-deleted users.
    */
-  const user = await findUserById(userId);
+  const user = await findActiveUserById(userId);
 
   if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -407,22 +383,22 @@ export async function getFollowing({
 
   let decodedCursor = null;
 
-  /**
-   * An empty cursor means the first page.
-   */
   if (cursor) {
     decodedCursor = normalizeFollowCursor(
       decodeCursor(cursor),
-      userId,
+      user._id,
       FOLLOW_LIST_TYPES.FOLLOWING
     );
   }
 
   /**
    * Fetch one extra Follow to determine hasMore.
+   *
+   * The repository filters out inaccessible users
+   * before applying the final limit.
    */
   const follows = await findFollowingByUser({
-    followerId: userId,
+    followerId: user._id,
     cursor: decodedCursor,
     limit: normalizedLimit + 1,
   });
@@ -431,15 +407,12 @@ export async function getFollowing({
 
   const pageFollows = hasMore ? follows.slice(0, normalizedLimit) : follows;
 
-  const items = await mapFollowsToUsers(
-    pageFollows,
-    FOLLOW_LIST_TYPES.FOLLOWING
-  );
+  const items = mapFollowsToUsers(pageFollows, FOLLOW_LIST_TYPES.FOLLOWING);
 
   const nextCursor = hasMore
     ? createNextCursor({
         follows: pageFollows,
-        userId,
+        userId: user._id,
         listType: FOLLOW_LIST_TYPES.FOLLOWING,
       })
     : null;
@@ -451,14 +424,18 @@ export async function getFollowing({
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Followers list                                                             */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Followers list
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Get the users who follow a specific user.
  *
  * Uses cursor-based pagination.
+ *
+ * Only ACTIVE, non-deleted users are exposed.
  */
 export async function getFollowers({
   userId,
@@ -468,10 +445,10 @@ export async function getFollowers({
   assertValidObjectId(userId, "user ID");
 
   /**
-   * Make sure the requested user exists
-   * and is not soft-deleted.
+   * Public follow lists are available only for
+   * currently active, non-deleted users.
    */
-  const user = await findUserById(userId);
+  const user = await findActiveUserById(userId);
 
   if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -487,22 +464,22 @@ export async function getFollowers({
 
   let decodedCursor = null;
 
-  /**
-   * An empty cursor means the first page.
-   */
   if (cursor) {
     decodedCursor = normalizeFollowCursor(
       decodeCursor(cursor),
-      userId,
+      user._id,
       FOLLOW_LIST_TYPES.FOLLOWERS
     );
   }
 
   /**
    * Fetch one extra Follow to determine hasMore.
+   *
+   * The repository filters out inaccessible users
+   * before applying the final limit.
    */
   const follows = await findFollowersByUser({
-    followingId: userId,
+    followingId: user._id,
     cursor: decodedCursor,
     limit: normalizedLimit + 1,
   });
@@ -511,15 +488,12 @@ export async function getFollowers({
 
   const pageFollows = hasMore ? follows.slice(0, normalizedLimit) : follows;
 
-  const items = await mapFollowsToUsers(
-    pageFollows,
-    FOLLOW_LIST_TYPES.FOLLOWERS
-  );
+  const items = mapFollowsToUsers(pageFollows, FOLLOW_LIST_TYPES.FOLLOWERS);
 
   const nextCursor = hasMore
     ? createNextCursor({
         follows: pageFollows,
-        userId,
+        userId: user._id,
         listType: FOLLOW_LIST_TYPES.FOLLOWERS,
       })
     : null;

@@ -19,7 +19,7 @@ import { createSystemNotification } from "@/services/notification.service";
 
 import { ERROR_CODES } from "@/constants/error-codes";
 
-import { assertAuthenticated } from "@/lib/auth/guards";
+import { requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 
 import AppError from "@/lib/errors/AppError";
 
@@ -50,16 +50,34 @@ const REACTION_TARGET_TYPES = Object.freeze({
  * --------------------------------------------------------------------------
  */
 
+/**
+ * Get the notification type corresponding to the
+ * selected Reaction type.
+ */
 function getReactionNotificationType(type) {
   return type === REACTION_TYPES.LIKE
     ? NOTIFICATION_TYPES.COMMENT_LIKED
     : NOTIFICATION_TYPES.COMMENT_DISLIKED;
 }
 
+/**
+ * Ensure the Reaction target type is valid.
+ */
 function assertValidReactionTargetType(targetType) {
   assertEnum(targetType, Object.values(REACTION_TARGET_TYPES), {
     errorCode: ERROR_CODES.INVALID_REQUEST,
     message: "نوع هدف واکنش نامعتبر است.",
+    statusCode: 400,
+  });
+}
+
+/**
+ * Ensure the Reaction type is valid.
+ */
+function assertValidReactionType(type) {
+  assertEnum(type, Object.values(REACTION_TYPES), {
+    errorCode: ERROR_CODES.INVALID_REQUEST,
+    message: "نوع واکنش نامعتبر است.",
     statusCode: 400,
   });
 }
@@ -71,7 +89,7 @@ function assertValidReactionTargetType(targetType) {
  */
 
 /**
- * Find an active comment and its active parent recipe.
+ * Find an active Comment and its accessible parent Recipe.
  *
  * User-facing Reaction operations on a top-level Comment
  * require both the Comment and its Recipe to be active.
@@ -85,7 +103,7 @@ async function getActiveCommentContext(commentId, session) {
     });
   }
 
-  const recipe = await getAccessibleRecipe(comment.recipeId, session);
+  const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
 
   return {
     comment,
@@ -101,7 +119,7 @@ async function getActiveCommentContext(commentId, session) {
 
 /**
  * Find an active embedded Reply, its parent Comment,
- * and its active parent Recipe.
+ * and its accessible parent Recipe.
  */
 async function getActiveReplyContext(replyId, session) {
   const comment = await findCommentByReplyId(replyId, session);
@@ -122,7 +140,7 @@ async function getActiveReplyContext(replyId, session) {
     });
   }
 
-  const recipe = await getAccessibleRecipe(comment.recipeId, session);
+  const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
 
   return {
     comment,
@@ -137,9 +155,14 @@ async function getActiveReplyContext(replyId, session) {
  * --------------------------------------------------------------------------
  */
 
+/**
+ * Resolve and validate a Reaction target.
+ *
+ * Returns the target itself together with its
+ * parent Comment and Recipe.
+ */
 async function getActiveReactionTargetContext(targetType, targetId, session) {
   assertValidReactionTargetType(targetType);
-
   assertValidObjectId(targetId, "reaction target ID");
 
   if (targetType === REACTION_TARGET_TYPES.COMMENT) {
@@ -172,25 +195,85 @@ async function getActiveReactionTargetContext(targetType, targetId, session) {
 
 /**
  * --------------------------------------------------------------------------
+ * Reaction Repository Helpers
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Find the current user's Reaction for a target.
+ */
+function findUserReaction(userId, targetType, targetId, session) {
+  if (targetType === REACTION_TARGET_TYPES.COMMENT) {
+    return findReactionByUserAndComment(userId, targetId, session);
+  }
+
+  return findReactionByUserAndReply(userId, targetId, session);
+}
+
+/**
+ * Delete the current user's Reaction for a target.
+ */
+function deleteUserReaction(userId, targetType, targetId, session) {
+  if (targetType === REACTION_TARGET_TYPES.COMMENT) {
+    return deleteReactionByUserAndComment(userId, targetId, session);
+  }
+
+  return deleteReactionByUserAndReply(userId, targetId, session);
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Reaction Counter Helpers
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Apply Reaction counter deltas to the target.
+ */
+function updateTargetReactionCounts({
+  targetType,
+  comment,
+  reply,
+  targetId,
+  likeDelta,
+  dislikeDelta,
+  session,
+}) {
+  if (targetType === REACTION_TARGET_TYPES.COMMENT) {
+    return updateReactionCountDeltas(
+      comment._id,
+      likeDelta,
+      dislikeDelta,
+      session
+    );
+  }
+
+  return updateReplyReactionCountDeltas(
+    comment._id,
+    reply._id,
+    likeDelta,
+    dislikeDelta,
+    session
+  );
+}
+
+/**
+ * --------------------------------------------------------------------------
  * Read
  * --------------------------------------------------------------------------
  */
 
 /**
- * Get the current user's reaction for a Comment or Reply.
+ * Get the current user's Reaction for a Comment or Reply.
  *
  * Returns null when the user has not reacted yet.
  */
 export async function getUserReaction(currentUser, targetType, targetId) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   const context = await getActiveReactionTargetContext(targetType, targetId);
 
-  if (context.targetType === REACTION_TARGET_TYPES.COMMENT) {
-    return findReactionByUserAndComment(currentUser._id, targetId);
-  }
-
-  return findReactionByUserAndReply(currentUser._id, targetId);
+  return findUserReaction(user._id, context.targetType, targetId);
 }
 
 /**
@@ -207,19 +290,20 @@ export async function getUserReaction(currentUser, targetType, targetId) {
  * in the same transaction.
  */
 export async function createReaction(currentUser, targetType, targetId, type) {
-  assertAuthenticated(currentUser);
-
   assertValidReactionTargetType(targetType);
 
   assertValidObjectId(targetId, "reaction target ID");
 
-  assertEnum(type, Object.values(REACTION_TYPES), {
-    errorCode: ERROR_CODES.INVALID_REQUEST,
-    message: "نوع واکنش نامعتبر است.",
-    statusCode: 400,
-  });
+  assertValidReactionType(type);
 
   return withTransaction(async (session) => {
+    /**
+     * Resolve the current account again inside
+     * the transaction so the mutation uses a fresh
+     * ACTIVE user.
+     */
+    const user = await requireActiveAuthenticatedUser(currentUser);
+
     const context = await getActiveReactionTargetContext(
       targetType,
       targetId,
@@ -228,10 +312,18 @@ export async function createReaction(currentUser, targetType, targetId, type) {
 
     const { comment, reply, recipe } = context;
 
-    const existingReaction =
-      targetType === REACTION_TARGET_TYPES.COMMENT
-        ? await findReactionByUserAndComment(currentUser._id, targetId, session)
-        : await findReactionByUserAndReply(currentUser._id, targetId, session);
+    /**
+     * Pre-check for the normal duplicate path.
+     *
+     * The unique database index remains the final
+     * protection against concurrent duplicates.
+     */
+    const existingReaction = await findUserReaction(
+      user._id,
+      targetType,
+      targetId,
+      session
+    );
 
     if (existingReaction) {
       throw new AppError(
@@ -247,20 +339,22 @@ export async function createReaction(currentUser, targetType, targetId, type) {
       reaction = await createReactionRepository(
         targetType === REACTION_TARGET_TYPES.COMMENT
           ? {
-              userId: currentUser._id,
+              userId: user._id,
               commentId: targetId,
               type,
             }
           : {
-              userId: currentUser._id,
+              userId: user._id,
               replyId: targetId,
               type,
             },
         session
       );
     } catch (error) {
-      // Final protection against concurrent duplicate
-      // reactions via the corresponding unique index.
+      /**
+       * Final protection against concurrent duplicate
+       * reactions via the corresponding unique index.
+       */
       if (error?.code === 11000) {
         throw new AppError(
           ERROR_CODES.REACTION_ALREADY_EXISTS,
@@ -276,24 +370,15 @@ export async function createReaction(currentUser, targetType, targetId, type) {
 
     const dislikeDelta = type === REACTION_TYPES.DISLIKE ? 1 : 0;
 
-    let updatedTarget;
-
-    if (targetType === REACTION_TARGET_TYPES.COMMENT) {
-      updatedTarget = await updateReactionCountDeltas(
-        comment._id,
-        likeDelta,
-        dislikeDelta,
-        session
-      );
-    } else {
-      updatedTarget = await updateReplyReactionCountDeltas(
-        comment._id,
-        reply._id,
-        likeDelta,
-        dislikeDelta,
-        session
-      );
-    }
+    const updatedTarget = await updateTargetReactionCounts({
+      targetType,
+      comment,
+      reply,
+      targetId,
+      likeDelta,
+      dislikeDelta,
+      session,
+    });
 
     if (!updatedTarget) {
       throw new AppError(
@@ -308,22 +393,25 @@ export async function createReaction(currentUser, targetType, targetId, type) {
         ? comment.authorId
         : reply.authorId;
 
-    const isTargetOwner =
-      targetAuthorId.toString() === currentUser._id.toString();
+    const isTargetOwner = targetAuthorId.toString() === user._id.toString();
 
+    /**
+     * Do not notify the actor about their own Reaction.
+     */
     if (!isTargetOwner) {
       await createSystemNotification(
         {
           userId: targetAuthorId,
-          actorId: currentUser._id,
+          actorId: user._id,
           type: getReactionNotificationType(type),
           title: type === REACTION_TYPES.LIKE ? "لایک جدید" : "دیس‌لایک جدید",
           message:
             type === REACTION_TYPES.LIKE
-              ? `${currentUser.username} مورد شما را پسندید.`
-              : `${currentUser.username} مورد شما را نپسندید.`,
+              ? `${user.username} مورد شما را پسندید.`
+              : `${user.username} مورد شما را نپسندید.`,
           recipeId: recipe._id,
           commentId: comment._id,
+
           ...(targetType === REACTION_TARGET_TYPES.REPLY
             ? {
                 replyId: reply._id,
@@ -352,19 +440,15 @@ export async function createReaction(currentUser, targetType, targetId, type) {
  * the current type.
  */
 export async function updateReaction(currentUser, targetType, targetId, type) {
-  assertAuthenticated(currentUser);
-
   assertValidReactionTargetType(targetType);
 
   assertValidObjectId(targetId, "reaction target ID");
 
-  assertEnum(type, Object.values(REACTION_TYPES), {
-    errorCode: ERROR_CODES.INVALID_REQUEST,
-    message: "نوع واکنش نامعتبر است.",
-    statusCode: 400,
-  });
+  assertValidReactionType(type);
 
   return withTransaction(async (session) => {
+    const user = await requireActiveAuthenticatedUser(currentUser);
+
     const context = await getActiveReactionTargetContext(
       targetType,
       targetId,
@@ -373,10 +457,12 @@ export async function updateReaction(currentUser, targetType, targetId, type) {
 
     const { comment, reply, recipe } = context;
 
-    const existingReaction =
-      targetType === REACTION_TARGET_TYPES.COMMENT
-        ? await findReactionByUserAndComment(currentUser._id, targetId, session)
-        : await findReactionByUserAndReply(currentUser._id, targetId, session);
+    const existingReaction = await findUserReaction(
+      user._id,
+      targetType,
+      targetId,
+      session
+    );
 
     if (!existingReaction) {
       throw new AppError(ERROR_CODES.REACTION_NOT_FOUND, "واکنش پیدا نشد.", {
@@ -384,26 +470,19 @@ export async function updateReaction(currentUser, targetType, targetId, type) {
       });
     }
 
-    // Nothing changes when the selected reaction
-    // type is already active.
+    /**
+     * Idempotent behavior:
+     * nothing changes when the selected type
+     * is already active.
+     */
     if (existingReaction.type === type) {
       return existingReaction;
     }
 
     const updatedReaction =
       targetType === REACTION_TARGET_TYPES.COMMENT
-        ? await updateReactionTypeByComment(
-            currentUser._id,
-            targetId,
-            type,
-            session
-          )
-        : await updateReactionTypeByReply(
-            currentUser._id,
-            targetId,
-            type,
-            session
-          );
+        ? await updateReactionTypeByComment(user._id, targetId, type, session)
+        : await updateReactionTypeByReply(user._id, targetId, type, session);
 
     if (!updatedReaction) {
       throw new AppError(
@@ -413,29 +492,27 @@ export async function updateReaction(currentUser, targetType, targetId, type) {
       );
     }
 
+    /**
+     * Move one Reaction from its previous type
+     * to the new type.
+     *
+     * LIKE    -> DISLIKE : (-1, +1)
+     * DISLIKE -> LIKE    : (+1, -1)
+     */
     const likeDelta = existingReaction.type === REACTION_TYPES.LIKE ? -1 : 1;
 
     const dislikeDelta =
       existingReaction.type === REACTION_TYPES.DISLIKE ? -1 : 1;
 
-    let updatedTarget;
-
-    if (targetType === REACTION_TARGET_TYPES.COMMENT) {
-      updatedTarget = await updateReactionCountDeltas(
-        comment._id,
-        likeDelta,
-        dislikeDelta,
-        session
-      );
-    } else {
-      updatedTarget = await updateReplyReactionCountDeltas(
-        comment._id,
-        reply._id,
-        likeDelta,
-        dislikeDelta,
-        session
-      );
-    }
+    const updatedTarget = await updateTargetReactionCounts({
+      targetType,
+      comment,
+      reply,
+      targetId,
+      likeDelta,
+      dislikeDelta,
+      session,
+    });
 
     if (!updatedTarget) {
       throw new AppError(
@@ -450,22 +527,25 @@ export async function updateReaction(currentUser, targetType, targetId, type) {
         ? comment.authorId
         : reply.authorId;
 
-    const isTargetOwner =
-      targetAuthorId.toString() === currentUser._id.toString();
+    const isTargetOwner = targetAuthorId.toString() === user._id.toString();
 
+    /**
+     * Notify only when the Reaction actually changed.
+     */
     if (!isTargetOwner) {
       await createSystemNotification(
         {
           userId: targetAuthorId,
-          actorId: currentUser._id,
+          actorId: user._id,
           type: getReactionNotificationType(type),
           title: type === REACTION_TYPES.LIKE ? "لایک جدید" : "دیس‌لایک جدید",
           message:
             type === REACTION_TYPES.LIKE
-              ? `${currentUser.username} مورد شما را پسندید.`
-              : `${currentUser.username} مورد شما را نپسندید.`,
+              ? `${user.username} مورد شما را پسندید.`
+              : `${user.username} مورد شما را نپسندید.`,
           recipeId: recipe._id,
           commentId: comment._id,
+
           ...(targetType === REACTION_TARGET_TYPES.REPLY
             ? {
                 replyId: reply._id,
@@ -494,13 +574,13 @@ export async function updateReaction(currentUser, targetType, targetId, type) {
  * atomically in the same transaction.
  */
 export async function deleteReaction(currentUser, targetType, targetId) {
-  assertAuthenticated(currentUser);
-
   assertValidReactionTargetType(targetType);
 
   assertValidObjectId(targetId, "reaction target ID");
 
   return withTransaction(async (session) => {
+    const user = await requireActiveAuthenticatedUser(currentUser);
+
     const context = await getActiveReactionTargetContext(
       targetType,
       targetId,
@@ -509,10 +589,12 @@ export async function deleteReaction(currentUser, targetType, targetId) {
 
     const { comment, reply } = context;
 
-    const existingReaction =
-      targetType === REACTION_TARGET_TYPES.COMMENT
-        ? await findReactionByUserAndComment(currentUser._id, targetId, session)
-        : await findReactionByUserAndReply(currentUser._id, targetId, session);
+    const existingReaction = await findUserReaction(
+      user._id,
+      targetType,
+      targetId,
+      session
+    );
 
     if (!existingReaction) {
       throw new AppError(ERROR_CODES.REACTION_NOT_FOUND, "واکنش پیدا نشد.", {
@@ -520,18 +602,12 @@ export async function deleteReaction(currentUser, targetType, targetId) {
       });
     }
 
-    const deletedReaction =
-      targetType === REACTION_TARGET_TYPES.COMMENT
-        ? await deleteReactionByUserAndComment(
-            currentUser._id,
-            targetId,
-            session
-          )
-        : await deleteReactionByUserAndReply(
-            currentUser._id,
-            targetId,
-            session
-          );
+    const deletedReaction = await deleteUserReaction(
+      user._id,
+      targetType,
+      targetId,
+      session
+    );
 
     if (!deletedReaction) {
       throw new AppError(ERROR_CODES.REACTION_NOT_FOUND, "واکنش حذف نشد.", {
@@ -544,24 +620,15 @@ export async function deleteReaction(currentUser, targetType, targetId) {
     const dislikeDelta =
       existingReaction.type === REACTION_TYPES.DISLIKE ? -1 : 0;
 
-    let updatedTarget;
-
-    if (targetType === REACTION_TARGET_TYPES.COMMENT) {
-      updatedTarget = await updateReactionCountDeltas(
-        comment._id,
-        likeDelta,
-        dislikeDelta,
-        session
-      );
-    } else {
-      updatedTarget = await updateReplyReactionCountDeltas(
-        comment._id,
-        reply._id,
-        likeDelta,
-        dislikeDelta,
-        session
-      );
-    }
+    const updatedTarget = await updateTargetReactionCounts({
+      targetType,
+      comment,
+      reply,
+      targetId,
+      likeDelta,
+      dislikeDelta,
+      session,
+    });
 
     if (!updatedTarget) {
       throw new AppError(

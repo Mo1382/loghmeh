@@ -1,13 +1,27 @@
 import mongoose from "mongoose";
 
-import { ERROR_CODES } from "@/constants/error-codes";
 import AppError from "@/lib/errors/AppError";
 
-/**
- * Ensure that a value is a valid MongoDB ObjectId.
- */
+import { ERROR_CODES } from "@/constants/error-codes";
+
+export function assertValidObjectIdString(id, fieldName = "ID") {
+  if (typeof id !== "string" || !/^[0-9a-fA-F]{24}$/.test(id)) {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      `شناسه ${fieldName} نامعتبر است.`,
+      { statusCode: 400 }
+    );
+  }
+
+  return id;
+}
+
 export function assertValidObjectId(id, fieldName = "ID") {
-  if (!mongoose.isValidObjectId(id)) {
+  const isValid =
+    id instanceof mongoose.Types.ObjectId ||
+    (typeof id === "string" && /^[0-9a-fA-F]{24}$/.test(id));
+
+  if (!isValid) {
     throw new AppError(
       ERROR_CODES.INVALID_REQUEST,
       `شناسه ${fieldName} نامعتبر است.`,

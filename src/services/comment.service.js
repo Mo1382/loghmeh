@@ -18,24 +18,33 @@ import {
   MAX_COMMENT_REPLIES,
   CURSOR_RESOURCES,
 } from "@/constants/enums";
+
 import { ERROR_CODES } from "@/constants/error-codes";
-import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+
+import { assertAdmin, requireActiveAuthenticatedUser } from "@/lib/auth/guards";
+
 import AppError from "@/lib/errors/AppError";
+
 import { getAccessibleRecipe } from "@/lib/helpers/recipe-access";
+
 import {
   decodeCursor,
   encodeCursor,
   normalizeCreatedAtIdCursor,
 } from "@/lib/pagination/cursor";
+
 import { normalizeLimit } from "@/lib/pagination/limit";
+
 import { withTransaction } from "@/lib/transaction";
+
 import { assertValidObjectId } from "@/lib/validation/object-id";
-import { createSystemNotification } from "./notification.service";
 
 import {
   assertCursorOwner,
   assertCursorResource,
 } from "@/lib/pagination/cursor-context";
+
+import { createSystemNotification } from "./notification.service";
 
 /**
  * --------------------------------------------------------------------------
@@ -45,7 +54,6 @@ import {
 
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
-
 const MAX_COMMENT_LENGTH = 1000;
 
 /**
@@ -55,35 +63,33 @@ const MAX_COMMENT_LENGTH = 1000;
  */
 
 /**
- * Ensure the current user is the comment owner
+ * Ensure the authenticated user is the comment owner
  * or an administrator.
+ *
+ * The user must already be authenticated and active.
  */
-function assertCommentOwnerOrAdmin(currentUser, comment) {
-  assertAuthenticated(currentUser);
+function assertCommentOwnerOrAdmin(user, comment) {
+  const isOwner = comment.authorId?.toString() === user._id?.toString();
 
-  const isOwner = comment.authorId?.toString() === currentUser._id?.toString();
-
-  const isAdmin = currentUser.role === USER_ROLES.ADMIN;
+  const isAdmin = user.role === USER_ROLES.ADMIN;
 
   if (!isOwner && !isAdmin) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
-      "شما اجازه ویرایش این نظر را ندارید.",
+      "شما اجازه حذف این نظر را ندارید.",
       { statusCode: 403 }
     );
   }
 }
 
 /**
- * Ensure the current user is the reply owner
+ * Ensure the authenticated user is the reply owner
  * or an administrator.
  */
-function assertReplyOwnerOrAdmin(currentUser, reply) {
-  assertAuthenticated(currentUser);
+function assertReplyOwnerOrAdmin(user, reply) {
+  const isOwner = reply.authorId?.toString() === user._id?.toString();
 
-  const isOwner = reply.authorId?.toString() === currentUser._id?.toString();
-
-  const isAdmin = currentUser.role === USER_ROLES.ADMIN;
+  const isAdmin = user.role === USER_ROLES.ADMIN;
 
   if (!isOwner && !isAdmin) {
     throw new AppError(
@@ -95,18 +101,15 @@ function assertReplyOwnerOrAdmin(currentUser, reply) {
 }
 
 /**
- * Ensure the current user can reply to a comment.
+ * Ensure the authenticated user can provide an official
+ * reply to a Recipe comment.
  *
- * Only the recipe owner or an administrator
- * may provide an official reply.
+ * Only the Recipe owner or an administrator may reply.
  */
-function assertCanReplyToComment(currentUser, recipe) {
-  assertAuthenticated(currentUser);
+function assertCanReplyToComment(user, recipe) {
+  const isRecipeOwner = recipe.authorId?.toString() === user._id?.toString();
 
-  const isRecipeOwner =
-    recipe.authorId?.toString() === currentUser._id?.toString();
-
-  const isAdmin = currentUser.role === USER_ROLES.ADMIN;
+  const isAdmin = user.role === USER_ROLES.ADMIN;
 
   if (!isRecipeOwner && !isAdmin) {
     throw new AppError(
@@ -193,10 +196,9 @@ function createNextCursor(comments, recipeId) {
  */
 
 /**
- * Get a comment by ID.
+ * Get an active comment by ID.
  *
- * The comment itself must be active and its parent
- * Recipe must also be active.
+ * The parent Recipe must also be accessible.
  */
 export async function getCommentById(commentId) {
   assertValidObjectId(commentId, "comment ID");
@@ -209,7 +211,11 @@ export async function getCommentById(commentId) {
     });
   }
 
-  const { recipe } = await getAccessibleRecipe(comment.recipeId);
+  /**
+   * The comment is only publicly readable when its
+   * parent Recipe is currently accessible.
+   */
+  await getAccessibleRecipe(comment.recipeId);
 
   return comment;
 }
@@ -225,6 +231,10 @@ export async function getCommentsByRecipe({
 } = {}) {
   assertValidObjectId(recipeId, "recipe ID");
 
+  /**
+   * Only comments belonging to an accessible Recipe
+   * should be publicly returned.
+   */
   await getAccessibleRecipe(recipeId);
 
   const normalizedLimit = normalizeLimit(
@@ -277,23 +287,32 @@ export async function getCommentsByRecipe({
 
 /**
  * Create a new top-level comment.
+ *
+ * Only active authenticated users can create comments.
+ *
+ * Recipe.stats.commentCount is updated atomically
+ * with the Comment creation.
  */
 export async function createComment(currentUser, recipeId, text) {
-  assertAuthenticated(currentUser);
-
   assertValidObjectId(recipeId, "recipe ID");
 
   const normalizedText = normalizeCommentText(text);
 
   return withTransaction(async (session) => {
     /**
-     * Only active recipes can receive comments.
+     * Re-check the current account inside the transaction
+     * so the mutation uses a fresh active user.
+     */
+    const user = await requireActiveAuthenticatedUser(currentUser);
+
+    /**
+     * Only active/accessibile Recipes can receive comments.
      */
     const { recipe } = await getAccessibleRecipe(recipeId, session);
 
     const comment = await createCommentRepository(
       {
-        authorId: currentUser._id,
+        authorId: user._id,
         recipeId,
         text: normalizedText,
       },
@@ -314,20 +333,25 @@ export async function createComment(currentUser, recipeId, text) {
       );
     }
 
-    if (recipe.authorId.toString() !== currentUser._id.toString()) {
+    /**
+     * Do not notify the Recipe owner about their
+     * own comment.
+     */
+    if (recipe.authorId.toString() !== user._id.toString()) {
       await createSystemNotification(
         {
           userId: recipe.authorId,
-          actorId: currentUser._id,
+          actorId: user._id,
           type: NOTIFICATION_TYPES.RECIPE_COMMENTED,
           title: "نظر جدید برای دستور پخت شما",
-          message: `${currentUser.username} روی دستور پخت شما نظر گذاشت.`,
+          message: `${user.username} روی دستور پخت شما نظر گذاشت.`,
           recipeId: recipe._id,
           commentId: comment._id,
         },
         session
       );
     }
+
     return comment;
   });
 }
@@ -341,18 +365,19 @@ export async function createComment(currentUser, recipeId, text) {
 /**
  * Create an official reply to a comment.
  *
- * Only the Recipe owner or an administrator
- * may reply.
+ * Only the Recipe owner or an administrator may reply.
  */
-
 export async function createCommentReply(currentUser, commentId, text) {
-  assertAuthenticated(currentUser);
-
   assertValidObjectId(commentId, "comment ID");
 
   const normalizedText = normalizeCommentText(text);
 
   return withTransaction(async (session) => {
+    const user = await requireActiveAuthenticatedUser(currentUser);
+
+    /**
+     * The parent Comment must still be active.
+     */
     const comment = await findCommentById(commentId, session);
 
     if (!comment) {
@@ -361,7 +386,13 @@ export async function createCommentReply(currentUser, commentId, text) {
       });
     }
 
-    if ((comment.replies?.length ?? 0) >= COMMENT_LIMITS.MAX_REPLIES) {
+    /**
+     * Fast business-rule check.
+     *
+     * addCommentReply must still enforce the maximum
+     * atomically at the repository/database level.
+     */
+    if ((comment.replies?.length ?? 0) >= MAX_COMMENT_REPLIES) {
       throw new AppError(
         ERROR_CODES.COMMENT_REPLY_LIMIT_REACHED,
         "این نظر به حداکثر تعداد پاسخ مجاز رسیده است.",
@@ -369,14 +400,18 @@ export async function createCommentReply(currentUser, commentId, text) {
       );
     }
 
+    /**
+     * Replying is allowed only when the parent Recipe
+     * is accessible.
+     */
     const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
 
-    assertCanReplyToComment(currentUser, recipe);
+    assertCanReplyToComment(user, recipe);
 
     const updatedComment = await addCommentReply(
       commentId,
       {
-        authorId: currentUser._id,
+        authorId: user._id,
         text: normalizedText,
       },
       session
@@ -390,14 +425,18 @@ export async function createCommentReply(currentUser, commentId, text) {
       );
     }
 
-    if (comment.authorId.toString() !== currentUser._id.toString()) {
+    /**
+     * Do not notify the comment author when the
+     * Recipe owner is replying to their own comment.
+     */
+    if (comment.authorId.toString() !== user._id.toString()) {
       await createSystemNotification(
         {
           userId: comment.authorId,
-          actorId: currentUser._id,
+          actorId: user._id,
           type: NOTIFICATION_TYPES.COMMENT_REPLIED,
           title: "پاسخ جدید به نظر شما",
-          message: `${currentUser.username} به نظر شما پاسخ داد.`,
+          message: `${user.username} به نظر شما پاسخ داد.`,
           recipeId: recipe._id,
           commentId: comment._id,
         },
@@ -416,17 +455,22 @@ export async function createCommentReply(currentUser, commentId, text) {
  */
 
 /**
- * Soft-delete a comment.
+ * Soft-delete a top-level comment.
  *
- * Only the comment author or an administrator
- * can delete it.
+ * Only the comment author or an administrator can delete it.
+ *
+ * Deleting the Comment also decrements
+ * Recipe.stats.commentCount atomically.
+ *
+ * The parent Recipe does not need to remain publicly accessible
+ * for the author/admin to remove an existing comment.
  */
 export async function deleteComment(currentUser, commentId) {
-  assertAuthenticated(currentUser);
-
   assertValidObjectId(commentId, "comment ID");
 
   return withTransaction(async (session) => {
+    const user = await requireActiveAuthenticatedUser(currentUser);
+
     const comment = await findCommentById(commentId, session);
 
     if (!comment) {
@@ -435,9 +479,7 @@ export async function deleteComment(currentUser, commentId) {
       });
     }
 
-    assertCommentOwnerOrAdmin(currentUser, comment);
-
-    const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
+    assertCommentOwnerOrAdmin(user, comment);
 
     const deletedComment = await softDeleteComment(
       commentId,
@@ -451,6 +493,10 @@ export async function deleteComment(currentUser, commentId) {
       });
     }
 
+    /**
+     * Only a successful top-level Comment deletion
+     * decrements the counter.
+     */
     const updatedRecipe = await incrementCommentCount(
       comment.recipeId,
       -1,
@@ -480,7 +526,7 @@ export async function deleteComment(currentUser, commentId) {
  *
  * This operation is intended for the Admin Panel.
  *
- * The parent Recipe must still be active.
+ * The parent Recipe must still be accessible.
  */
 export async function restoreComment(currentUser, commentId) {
   assertAdmin(currentUser);
@@ -502,7 +548,11 @@ export async function restoreComment(currentUser, commentId) {
       );
     }
 
-    const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
+    /**
+     * The Recipe must still be accessible before
+     * the Comment becomes active again.
+     */
+    await getAccessibleRecipe(comment.recipeId, session);
 
     const restoredComment = await restoreCommentRepository(commentId, session);
 
@@ -516,7 +566,7 @@ export async function restoreComment(currentUser, commentId) {
 
     /**
      * deleteComment() previously decreased this
-     * counter, so restoring the comment must increase it.
+     * counter, so restoring the Comment must increase it.
      */
     const updatedRecipe = await incrementCommentCount(
       comment.recipeId,
@@ -545,21 +595,24 @@ export async function restoreComment(currentUser, commentId) {
 /**
  * Delete an embedded reply.
  *
- * The reply author or any administrator can delete it.
+ * Only the reply author or an administrator can delete it.
  *
- * Deleting a reply does not change
- * Recipe.stats.commentCount because replies are
+ * Deleting a Reply does not change
+ * Recipe.stats.commentCount because Replies are
  * embedded inside the parent Comment.
  */
 export async function deleteCommentReply(currentUser, replyId) {
-  assertAuthenticated(currentUser);
-
   assertValidObjectId(replyId, "reply ID");
 
   return withTransaction(async (session) => {
+    const user = await requireActiveAuthenticatedUser(currentUser);
+
     /**
      * Find the active parent Comment containing
-     * the requested reply.
+     * the requested Reply.
+     *
+     * The parent Recipe does not need to be accessible
+     * for this owner/admin deletion operation.
      */
     const comment = await findCommentByReplyId(replyId, session);
 
@@ -571,7 +624,7 @@ export async function deleteCommentReply(currentUser, replyId) {
 
     /**
      * Find the actual embedded Reply before
-     * deleting it so that authorization can be checked.
+     * deleting it so authorization can be checked.
      */
     const reply = comment.replies?.find(
       (item) => item._id?.toString() === replyId.toString()
@@ -583,14 +636,10 @@ export async function deleteCommentReply(currentUser, replyId) {
       });
     }
 
-    /**
-     * Only the reply author or an administrator
-     * may delete the reply.
-     */
-    assertReplyOwnerOrAdmin(currentUser, reply);
+    assertReplyOwnerOrAdmin(user, reply);
 
     /**
-     * Delete the embedded reply.
+     * Delete the embedded Reply.
      */
     const updatedComment = await deleteCommentReplyById(replyId, session);
 
@@ -601,8 +650,10 @@ export async function deleteCommentReply(currentUser, replyId) {
     }
 
     /**
-     * Return the deleted reply itself because
-     * the repository returns the updated parent Comment.
+     * Return the deleted Reply itself.
+     *
+     * The repository returns the updated parent Comment,
+     * while the service already has the deleted Reply.
      */
     return reply;
   });

@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import {
   createRecipe as createRecipeRepository,
   findDeletedRecipeById,
+  findRecipeById,
   findRecipes,
   incrementCommentCount,
   incrementViewCount,
@@ -29,7 +30,7 @@ import {
 
 import { ERROR_CODES } from "@/constants/error-codes";
 
-import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+import { assertAdmin, requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 
 import AppError from "@/lib/errors/AppError";
 
@@ -54,16 +55,18 @@ import {
   USER_ROLES,
 } from "@/constants/enums";
 
-/* -------------------------------------------------------------------------- */
-/* Constants                                                                  */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Constants
+ * --------------------------------------------------------------------------
+ */
 
 const DEFAULT_LIST_LIMIT = 16;
 const HOME_LIST_LIMIT = 12;
 const MAX_LIST_LIMIT = 50;
 const MAX_SLUG_RETRIES = 10;
 
-const MUTABLE_RECIPE_FIELDS = [
+const MUTABLE_RECIPE_FIELDS = Object.freeze([
   "categoryId",
   "title",
   "description",
@@ -75,18 +78,25 @@ const MUTABLE_RECIPE_FIELDS = [
   "ingredients",
   "steps",
   "calories",
-];
+]);
 
-/* -------------------------------------------------------------------------- */
-/* Authorization Helpers                                                      */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Authorization Helpers
+ * --------------------------------------------------------------------------
+ */
 
-function assertRecipeOwnerOrAdmin(currentUser, recipe) {
-  assertAuthenticated(currentUser);
+/**
+ * Ensure the current user owns the Recipe
+ * or is an administrator.
+ *
+ * The user must already be freshly authenticated
+ * and active before this helper is called.
+ */
+function assertRecipeOwnerOrAdmin(user, recipe) {
+  const isOwner = recipe.authorId?.toString() === user._id?.toString();
 
-  const isOwner = recipe.authorId?.toString() === currentUser._id?.toString();
-
-  const isAdmin = currentUser.role === USER_ROLES.ADMIN;
+  const isAdmin = user.role === USER_ROLES.ADMIN;
 
   if (!isOwner && !isAdmin) {
     throw new AppError(
@@ -97,11 +107,31 @@ function assertRecipeOwnerOrAdmin(currentUser, recipe) {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Slug                                                                       */
-/* -------------------------------------------------------------------------- */
+/**
+ * Assert that a document/update result exists.
+ */
+function assertUpdatedDocument(document, errorCode, message) {
+  if (!document) {
+    throw new AppError(errorCode, message, { statusCode: 404 });
+  }
 
+  return document;
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Slug
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Convert a Recipe title into a slug candidate.
+ */
 function slugifyTitle(title) {
+  if (typeof title !== "string") {
+    return "";
+  }
+
   return title
     .trim()
     .toLowerCase()
@@ -111,6 +141,11 @@ function slugifyTitle(title) {
     .replace(/^-|-$/g, "");
 }
 
+/**
+ * Normalize a slug for lookup.
+ *
+ * This intentionally does not slugify arbitrary input.
+ */
 export function normalizeSlug(slug) {
   if (typeof slug !== "string") {
     return null;
@@ -121,6 +156,9 @@ export function normalizeSlug(slug) {
   return normalized || null;
 }
 
+/**
+ * Create a deterministic slug candidate for a retry attempt.
+ */
 function createSlugCandidate(baseSlug, attempt) {
   if (attempt === 0) {
     return baseSlug;
@@ -129,23 +167,28 @@ function createSlugCandidate(baseSlug, attempt) {
   return `${baseSlug}-${attempt + 1}`;
 }
 
+/**
+ * Detect a duplicate-key error specifically for Recipe.slug.
+ */
 function isSlugDuplicateError(error) {
   return error?.code === 11000 && error?.keyPattern?.slug === 1;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Cursor                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Cursor
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Validate and normalize a decoded recipe cursor.
+ * Validate and normalize a decoded Recipe cursor.
  *
  * Cursor payload:
  * {
  *   v: 1,
  *   resource: CURSOR_RESOURCES.RECIPES,
  *   sort: String,
- *   value: Number | Date,
+ *   value: String | Number,
  *   id: String
  * }
  */
@@ -215,7 +258,6 @@ function validateRecipeCursor(payload, sort) {
       }
 
       value = payload.value;
-
       break;
     }
 
@@ -235,7 +277,7 @@ function validateRecipeCursor(payload, sort) {
 }
 
 /**
- * Create the next cursor from the last returned recipes.
+ * Create the next cursor from the last returned Recipe.
  */
 function createNextCursor(recipes, sort) {
   if (!recipes.length) {
@@ -276,16 +318,26 @@ function createNextCursor(recipes, sort) {
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Create                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Create
+ * --------------------------------------------------------------------------
+ */
 
 export async function createRecipe(currentUser, recipeData) {
-  assertAuthenticated(currentUser);
+  const sanitizedData = pickAllowedFields(recipeData, MUTABLE_RECIPE_FIELDS);
 
-  assertValidObjectId(recipeData.categoryId, "category ID");
+  if (!sanitizedData || typeof sanitizedData.title !== "string") {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "عنوان دستور پخت نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
 
-  const baseSlug = slugifyTitle(recipeData.title);
+  assertValidObjectId(sanitizedData.categoryId, "category ID");
+
+  const baseSlug = slugifyTitle(sanitizedData.title);
 
   if (!baseSlug) {
     throw new AppError(
@@ -300,24 +352,15 @@ export async function createRecipe(currentUser, recipeData) {
 
     try {
       return await withTransaction(async (session) => {
-        const author = await findUserById(currentUser._id, session);
-
-        if (!author) {
-          throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
-            statusCode: 404,
-          });
-        }
-
-        if (author.accountStatus !== ACCOUNT_STATUSES.ACTIVE) {
-          throw new AppError(
-            ERROR_CODES.FORBIDDEN,
-            "حساب کاربری شما فعال نیست.",
-            { statusCode: 403 }
-          );
-        }
+        /**
+         * Re-resolve the current account inside
+         * the transaction so a stale authentication
+         * object is not trusted for the mutation.
+         */
+        const user = await requireActiveAuthenticatedUser(currentUser);
 
         const category = await findActiveCategoryById(
-          recipeData.categoryId,
+          sanitizedData.categoryId,
           session
         );
 
@@ -329,27 +372,42 @@ export async function createRecipe(currentUser, recipeData) {
           );
         }
 
-        const sanitizedData = pickAllowedFields(
-          recipeData,
-          MUTABLE_RECIPE_FIELDS
-        );
-
         const recipe = await createRecipeRepository(
           {
             ...sanitizedData,
-            authorId: author._id,
+            authorId: user._id,
             slug,
           },
           session
         );
 
-        await incrementRecipeCount(author._id, 1, session);
+        const updatedAuthor = await incrementRecipeCount(user._id, 1, session);
 
-        await incrementCategoryRecipeCount(category._id, 1, session);
+        assertUpdatedDocument(
+          updatedAuthor,
+          ERROR_CODES.USER_NOT_FOUND,
+          "کاربر پیدا نشد یا شمارنده دستورهای پخت به‌روزرسانی نشد."
+        );
+
+        const updatedCategory = await incrementCategoryRecipeCount(
+          category._id,
+          1,
+          session
+        );
+
+        assertUpdatedDocument(
+          updatedCategory,
+          ERROR_CODES.CATEGORY_NOT_FOUND,
+          "دسته‌بندی پیدا نشد یا شمارنده دستورهای پخت به‌روزرسانی نشد."
+        );
 
         return recipe;
       });
     } catch (error) {
+      /**
+       * Slug uniqueness is ultimately guaranteed by
+       * the database unique index.
+       */
       if (isSlugDuplicateError(error) && attempt < MAX_SLUG_RETRIES - 1) {
         continue;
       }
@@ -365,11 +423,22 @@ export async function createRecipe(currentUser, recipeData) {
       throw error;
     }
   }
+
+  /**
+   * Defensive fallback.
+   */
+  throw new AppError(
+    ERROR_CODES.RECIPE_SLUG_CONFLICT,
+    "امکان ایجاد شناسه متنی یکتا برای دستور پخت وجود نداشت.",
+    { statusCode: 409 }
+  );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Read                                                                       */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Read
+ * --------------------------------------------------------------------------
+ */
 
 export async function getRecipeById(recipeId) {
   assertValidObjectId(recipeId, "recipe ID");
@@ -396,14 +465,14 @@ export async function getRecipeBySlug(slug) {
     });
   }
 
-  const recipe = await getAccessibleRecipeBySlug(normalizedSlug);
-
-  return recipe;
+  return getAccessibleRecipeBySlug(normalizedSlug);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Get Recipes                                                                */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Get Recipes
+ * --------------------------------------------------------------------------
+ */
 
 export async function getRecipes({
   filter = {},
@@ -446,15 +515,15 @@ export async function getRecipes({
   }
 
   /**
-   * findRecipes() must return only accessible Recipes:
+   * findRecipes() is responsible for returning only
+   * publicly accessible Recipes:
    *
-   * Recipe.deletedAt === null
-   * AND Author.deletedAt === null
-   * AND Author.accountStatus === ACTIVE
-   * AND Category.isActive === true
+   * - Recipe.deletedAt === null
+   * - Author is ACTIVE and non-deleted
+   * - Category is active
    *
-   * These conditions must be applied inside the repository
-   * before cursor pagination and limit calculation.
+   * These accessibility constraints must be applied
+   * in the repository before pagination.
    */
   const recipes = await findRecipes({
     filter: safeFilter,
@@ -476,9 +545,11 @@ export async function getRecipes({
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Home                                                                       */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Home
+ * --------------------------------------------------------------------------
+ */
 
 export function getHomePopularRecipes() {
   return getRecipes({
@@ -499,26 +570,46 @@ export function getHomeCategoryRecipes(categoryId) {
   }).then((result) => result.items);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Update                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Update
+ * --------------------------------------------------------------------------
+ */
 
 export async function updateRecipe(currentUser, recipeId, updates) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   assertValidObjectId(recipeId, "recipe ID");
 
   const sanitizedUpdates = pickAllowedFields(updates, MUTABLE_RECIPE_FIELDS);
 
+  if (Object.keys(sanitizedUpdates).length === 0) {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "حداقل یک فیلد معتبر برای ویرایش باید ارسال شود.",
+      { statusCode: 400 }
+    );
+  }
+
   return withTransaction(async (session) => {
     /**
-     * Recipe must be accessible before it can be updated.
+     * Management operations use the non-deleted
+     * Recipe directly.
      *
-     * This checks the Recipe, its Author and its Category.
+     * Public accessibility is not required here:
+     * an administrator must be able to manage Recipes
+     * even when their author or category is no longer
+     * publicly accessible.
      */
-    const { recipe } = await getAccessibleRecipe(recipeId, session);
+    const recipe = await findRecipeById(recipeId, session);
 
-    assertRecipeOwnerOrAdmin(currentUser, recipe);
+    if (!recipe) {
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
+    }
+
+    assertRecipeOwnerOrAdmin(user, recipe);
 
     const categoryChanged =
       sanitizedUpdates.categoryId !== undefined &&
@@ -540,9 +631,29 @@ export async function updateRecipe(currentUser, recipeId, updates) {
         );
       }
 
-      await incrementCategoryRecipeCount(recipe.categoryId, -1, session);
+      const updatedOldCategory = await incrementCategoryRecipeCount(
+        recipe.categoryId,
+        -1,
+        session
+      );
 
-      await incrementCategoryRecipeCount(newCategory._id, 1, session);
+      assertUpdatedDocument(
+        updatedOldCategory,
+        ERROR_CODES.CATEGORY_NOT_FOUND,
+        "دسته‌بندی قبلی پیدا نشد یا تعداد دستورهای پخت آن نامعتبر است."
+      );
+
+      const updatedNewCategory = await incrementCategoryRecipeCount(
+        newCategory._id,
+        1,
+        session
+      );
+
+      assertUpdatedDocument(
+        updatedNewCategory,
+        ERROR_CODES.CATEGORY_NOT_FOUND,
+        "دسته‌بندی جدید پیدا نشد."
+      );
     }
 
     const updatedRecipe = await updateRecipeById(
@@ -561,60 +672,131 @@ export async function updateRecipe(currentUser, recipeId, updates) {
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Delete                                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Delete
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Soft-delete a Recipe.
+ *
+ * Only the Recipe owner or an administrator
+ * can perform this operation.
+ *
+ * Related Bookmark/Rating/Comment/Reaction documents
+ * are preserved for the current soft-delete policy.
+ */
 export async function deleteRecipe(currentUser, recipeId) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   assertValidObjectId(recipeId, "recipe ID");
 
   return withTransaction(async (session) => {
     /**
-     * Recipe must be fully accessible before delete.
-     */
-    const { recipe } = await getAccessibleRecipe(recipeId, session);
-
-    assertRecipeOwnerOrAdmin(currentUser, recipe);
-
-    /**
-     * Only the Recipe is soft-deleted.
+     * Do not require public accessibility here.
      *
-     * Bookmarks, Ratings, Comments, Reactions and all
-     * other relationships are intentionally preserved.
+     * The owner should still be able to delete their
+     * Recipe if its Category becomes inactive, and
+     * administrators have full Recipe access.
      */
-    const deletedRecipe = await softDeleteRecipe(recipeId, new Date(), session);
+    const recipe = await findRecipeById(recipeId, session);
 
-    if (!deletedRecipe) {
+    if (!recipe) {
       throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
         statusCode: 404,
       });
     }
 
-    await incrementRecipeCount(recipe.authorId, -1, session);
+    assertRecipeOwnerOrAdmin(user, recipe);
 
-    await incrementCategoryRecipeCount(recipe.categoryId, -1, session);
+    const deletedAt = new Date();
+
+    const deletedRecipe = await softDeleteRecipe(recipeId, deletedAt, session);
+
+    if (!deletedRecipe) {
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت حذف نشد.", {
+        statusCode: 404,
+      });
+    }
+
+    /**
+     * User recipe count is meaningful only for
+     * non-deleted User accounts.
+     *
+     * An administrator may delete a Recipe whose
+     * author has already been soft-deleted, so in that
+     * case the author's internal counters are not a
+     * reason to fail the Recipe deletion.
+     */
+    const author = await findUserById(recipe.authorId, session);
+
+    if (author) {
+      const updatedAuthor = await incrementRecipeCount(
+        recipe.authorId,
+        -1,
+        session
+      );
+
+      assertUpdatedDocument(
+        updatedAuthor,
+        ERROR_CODES.USER_NOT_FOUND,
+        "شمارنده دستورهای پخت کاربر به‌روزرسانی نشد."
+      );
+
+      const viewCount = recipe.stats?.viewCount ?? 0;
+
+      if (viewCount > 0) {
+        const updatedAuthorViews = await incrementTotalRecipeViews(
+          recipe.authorId,
+          -viewCount,
+          session
+        );
+
+        assertUpdatedDocument(
+          updatedAuthorViews,
+          ERROR_CODES.USER_NOT_FOUND,
+          "شمارنده بازدیدهای دستورهای پخت کاربر به‌روزرسانی نشد."
+        );
+      }
+    }
+
+    const updatedCategory = await incrementCategoryRecipeCount(
+      recipe.categoryId,
+      -1,
+      session
+    );
+
+    assertUpdatedDocument(
+      updatedCategory,
+      ERROR_CODES.CATEGORY_NOT_FOUND,
+      "شمارنده دستورهای پخت دسته‌بندی به‌روزرسانی نشد."
+    );
 
     return deletedRecipe;
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Restore                                                                    */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Restore
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Restore a soft-deleted Recipe.
+ *
+ * Only an administrator can restore a Recipe.
+ *
+ * The author and Category must both be currently active
+ * so the restored Recipe can immediately become accessible.
+ */
 export async function restoreDeletedRecipe(currentUser, recipeId) {
   assertAdmin(currentUser);
 
   assertValidObjectId(recipeId, "recipe ID");
 
   return withTransaction(async (session) => {
-    /**
-     * Restore intentionally uses the deleted-Recipe lookup
-     * because getAccessibleRecipe() only works with
-     * non-deleted Recipes.
-     */
     const recipe = await findDeletedRecipeById(recipeId, session);
 
     if (!recipe) {
@@ -624,7 +806,8 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
     }
 
     /**
-     * A restored Recipe must have an active author.
+     * The author must currently be ACTIVE
+     * and non-deleted.
      */
     const author = await findUserById(recipe.authorId, session);
 
@@ -637,7 +820,7 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
     }
 
     /**
-     * A restored Recipe must have an active category.
+     * The Category must currently be active.
      */
     const category = await findActiveCategoryById(recipe.categoryId, session);
 
@@ -659,35 +842,75 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
       );
     }
 
-    await incrementRecipeCount(recipe.authorId, 1, session);
+    const updatedAuthor = await incrementRecipeCount(
+      recipe.authorId,
+      1,
+      session
+    );
 
-    await incrementCategoryRecipeCount(recipe.categoryId, 1, session);
+    assertUpdatedDocument(
+      updatedAuthor,
+      ERROR_CODES.USER_NOT_FOUND,
+      "شمارنده دستورهای پخت کاربر به‌روزرسانی نشد."
+    );
+
+    const viewCount = recipe.stats?.viewCount ?? 0;
+
+    if (viewCount > 0) {
+      const updatedAuthorViews = await incrementTotalRecipeViews(
+        recipe.authorId,
+        viewCount,
+        session
+      );
+
+      assertUpdatedDocument(
+        updatedAuthorViews,
+        ERROR_CODES.USER_NOT_FOUND,
+        "شمارنده بازدیدهای دستورهای پخت کاربر به‌روزرسانی نشد."
+      );
+    }
+
+    const updatedCategory = await incrementCategoryRecipeCount(
+      recipe.categoryId,
+      1,
+      session
+    );
+
+    assertUpdatedDocument(
+      updatedCategory,
+      ERROR_CODES.CATEGORY_NOT_FOUND,
+      "شمارنده دستورهای پخت دسته‌بندی به‌روزرسانی نشد."
+    );
 
     return restoredRecipe;
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Statistics                                                                 */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Statistics
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Increment a Recipe's view count and the corresponding
+ * author's total Recipe views atomically.
+ *
+ * A view is allowed only for an accessible Recipe.
+ */
 export async function incrementRecipeView(recipeId) {
   assertValidObjectId(recipeId, "recipe ID");
 
   /**
-   * A Recipe view is allowed only for an
-   * accessible Recipe.
+   * Resolve the current publicly accessible state
+   * before opening the transaction.
    */
   const { recipe } = await getAccessibleRecipe(recipeId);
 
-  /**
-   * Recipe and User view counters must be
-   * updated atomically.
-   */
   return withTransaction(async (session) => {
-    const updated = await incrementViewCount(recipe._id, 1, session);
+    const updatedRecipe = await incrementViewCount(recipe._id, 1, session);
 
-    if (!updated) {
+    if (!updatedRecipe) {
       throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
         statusCode: 404,
       });
@@ -707,10 +930,16 @@ export async function incrementRecipeView(recipeId) {
       );
     }
 
-    return updated;
+    return updatedRecipe;
   });
 }
 
+/**
+ * Increment or decrement a Recipe's top-level
+ * comment count.
+ *
+ * The repository performs the atomic update.
+ */
 export async function incrementRecipeCommentCount(
   recipeId,
   amount = 1,
@@ -718,5 +947,23 @@ export async function incrementRecipeCommentCount(
 ) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  return incrementCommentCount(recipeId, amount, session);
+  if (!Number.isInteger(amount) || amount === 0) {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "تغییر تعداد نظرهای دستور پخت نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
+
+  const updatedRecipe = await incrementCommentCount(recipeId, amount, session);
+
+  if (!updatedRecipe) {
+    throw new AppError(
+      ERROR_CODES.RECIPE_NOT_FOUND,
+      "دستور پخت پیدا نشد یا شمارنده نظرهای آن نامعتبر است.",
+      { statusCode: 404 }
+    );
+  }
+
+  return updatedRecipe;
 }

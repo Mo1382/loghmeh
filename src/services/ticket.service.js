@@ -2,7 +2,7 @@ import AppError from "@/lib/errors/AppError";
 
 import { ERROR_CODES } from "@/constants/error-codes";
 
-import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+import { assertAdmin, requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
@@ -28,17 +28,28 @@ import {
   findTicketsByUser,
 } from "@/repositories/ticket.repository";
 
-/* -------------------------------------------------------------------------- */
-/* Constants                                                                  */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Constants
+ * --------------------------------------------------------------------------
+ */
 
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
 
-/* -------------------------------------------------------------------------- */
-/* Validation                                                                 */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Validation
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Normalize and validate a support-ticket message.
+ *
+ * The input validation layer should enforce the same contract.
+ * This check is retained at the Service boundary as a defense
+ * against incorrect internal callers.
+ */
 function normalizeMessage(message) {
   if (typeof message !== "string") {
     throw new AppError(
@@ -77,15 +88,18 @@ function normalizeMessage(message) {
   return normalizedMessage;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Cursor Helpers                                                             */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Cursor Helpers
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Create the next cursor from the last ticket in the current page.
+ * Create the next cursor from the last Ticket
+ * in the current page.
  */
 function createNextCursor(ticket, userId) {
-  if (!ticket || !ticket.createdAt || !ticket._id) {
+  if (!ticket?.createdAt || !ticket?._id) {
     return null;
   }
 
@@ -97,15 +111,23 @@ function createNextCursor(ticket, userId) {
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Get Ticket                                                                 */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Get Ticket
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Get a Ticket belonging to the current user.
+ *
+ * Ownership is enforced by the repository query.
+ */
 export async function getTicketById(currentUser, ticketId) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
+
   assertValidObjectId(ticketId, "ticket ID");
 
-  const ticket = await findTicketByIdAndUser(ticketId, currentUser._id);
+  const ticket = await findTicketByIdAndUser(ticketId, user._id);
 
   if (!ticket) {
     throw new AppError(
@@ -118,8 +140,17 @@ export async function getTicketById(currentUser, ticketId) {
   return ticket;
 }
 
+/**
+ * Get any Ticket for the Admin Panel.
+ *
+ * The current account must be ACTIVE and have
+ * administrator privileges.
+ */
 export async function getTicketByIdForAdmin(currentUser, ticketId) {
-  assertAdmin(currentUser);
+  const admin = await requireActiveAuthenticatedUser(currentUser);
+
+  assertAdmin(admin);
+
   assertValidObjectId(ticketId, "ticket ID");
 
   const ticket = await findTicketById(ticketId);
@@ -135,15 +166,21 @@ export async function getTicketByIdForAdmin(currentUser, ticketId) {
   return ticket;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Get User Tickets                                                           */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Get User Tickets
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Get the current user's support tickets
+ * using cursor-based pagination.
+ */
 export async function getUserTickets(
   currentUser,
   { cursor = null, limit = DEFAULT_LIST_LIMIT } = {}
 ) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   const normalizedLimit = normalizeLimit(
     limit,
@@ -161,15 +198,19 @@ export async function getUserTickets(
     assertCursorOwner(
       payload,
       "userId",
-      currentUser._id,
+      user._id,
       "نشانگر تیکت پشتیبانی متعلق به این کاربر نیست."
     );
 
     normalizedCursor = normalizeCreatedAtIdCursor(payload);
   }
 
+  /**
+   * Fetch one extra Ticket to determine
+   * whether another page exists.
+   */
   const tickets = await findTicketsByUser({
-    userId: currentUser._id,
+    userId: user._id,
     cursor: normalizedCursor,
     limit: normalizedLimit + 1,
   });
@@ -180,9 +221,7 @@ export async function getUserTickets(
 
   const lastTicket = pageTickets[pageTickets.length - 1];
 
-  const nextCursor = hasMore
-    ? createNextCursor(lastTicket, currentUser._id)
-    : null;
+  const nextCursor = hasMore ? createNextCursor(lastTicket, user._id) : null;
 
   return {
     tickets: pageTickets,
@@ -191,18 +230,31 @@ export async function getUserTickets(
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Create Ticket                                                              */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Create Ticket
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Create a new support Ticket for the current user.
+ *
+ * The initial status and system-managed fields are
+ * controlled by the Service and cannot be supplied
+ * by the caller.
+ */
 export async function createTicket(currentUser, message) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   const normalizedMessage = normalizeMessage(message);
 
   return createTicketRepository({
-    userId: currentUser._id,
+    userId: user._id,
     message: normalizedMessage,
+
+    /**
+     * System-managed initial state.
+     */
     status: TICKET_STATUSES.OPEN,
     replies: [],
     closedAt: null,

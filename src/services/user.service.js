@@ -5,8 +5,8 @@ import { pickAllowedFields } from "@/lib/validation/fields";
 import {
   findActiveUserById,
   findActiveUserByUsername,
+  findActiveUsers,
   findUserById,
-  findUsers,
   restoreUser,
   softDeleteUser,
   updateAccountStatus,
@@ -15,17 +15,17 @@ import {
 
 import {
   ACCOUNT_STATUSES,
+  CURSOR_RESOURCES,
   USER_ROLES,
   USER_SORTS,
   USER_TITLES,
-  CURSOR_RESOURCES,
 } from "@/constants/enums";
 
 import AppError from "@/lib/errors/AppError";
 
 import { ERROR_CODES } from "@/constants/error-codes";
 
-import { assertAdmin } from "@/lib/auth/guards";
+import { assertAdmin, requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 
 import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
 
@@ -37,38 +37,42 @@ import { assertValidObjectId } from "@/lib/validation/object-id";
 
 import { assertEnum } from "@/lib/validation/enum";
 
-/* -------------------------------------------------------------------------- */
-/* Constants                                                                  */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Constants
+ * --------------------------------------------------------------------------
+ */
 
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
 
-/* -------------------------------------------------------------------------- */
-/* Cursor Helpers                                                             */
-/* -------------------------------------------------------------------------- */
+const PUBLIC_USER_FILTER_FIELDS = Object.freeze(["role", "title"]);
+
+const EDITABLE_PROFILE_FIELDS = Object.freeze(["avatar", "bio", "socialLinks"]);
 
 /**
- * Validate and normalize a decoded user cursor.
+ * --------------------------------------------------------------------------
+ * Cursor Helpers
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Validate and normalize a decoded User cursor.
  *
  * Cursor payload:
  * {
  *   v: 1,
  *   resource: CURSOR_RESOURCES.USERS,
  *   sort: String,
- *   value: Number | Date,
+ *   value: String | Number,
  *   id: String
  * }
- *
- * Date-based sorts are converted back from their
- * JSON string representation into Date objects.
- *
- * Numeric sorts remain numbers.
  */
 function validateUserCursor(payload, sort) {
   if (
     !payload ||
     typeof payload !== "object" ||
+    Array.isArray(payload) ||
     payload.sort === undefined ||
     payload.value === undefined ||
     !payload.id
@@ -130,7 +134,6 @@ function validateUserCursor(payload, sort) {
       }
 
       value = payload.value;
-
       break;
     }
 
@@ -150,32 +153,39 @@ function validateUserCursor(payload, sort) {
 }
 
 /**
- * Create the next cursor from the last returned user.
+ * Create the next cursor from the last returned User.
  */
 function createNextCursor(user, sort) {
+  if (!user?._id) {
+    return null;
+  }
+
   let value;
 
   switch (sort) {
     case USER_SORTS.HIGHEST_RATED:
-      value = user.stats.averageRating;
+      value = user.stats?.averageRating ?? 0;
       break;
 
     case USER_SORTS.MOST_VIEWED:
-      value = user.stats.totalRecipeViews;
+      value = user.stats?.totalRecipeViews ?? 0;
       break;
 
     case USER_SORTS.NEWEST:
     case USER_SORTS.OLDEST:
       value = user.createdAt;
+
+      if (!(value instanceof Date)) {
+        return null;
+      }
+
       break;
 
     default:
       throw new AppError(
         ERROR_CODES.INVALID_REQUEST,
         "مرتب‌سازی کاربران نامعتبر است.",
-        {
-          statusCode: 400,
-        }
+        { statusCode: 400 }
       );
   }
 
@@ -187,10 +197,17 @@ function createNextCursor(user, sort) {
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* User Response Helpers                                                      */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * User Response Helpers
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Convert a User document into a public response.
+ *
+ * Internal/security fields are never exposed.
+ */
 function toPublicUser(user) {
   const publicUser = pickAllowedFields(user, [
     "_id",
@@ -201,7 +218,7 @@ function toPublicUser(user) {
     "socialLinks",
   ]);
 
-  const publicStats = pickAllowedFields(user.stats, [
+  const publicStats = pickAllowedFields(user.stats ?? {}, [
     "recipeCount",
     "averageRating",
     "totalRecipeViews",
@@ -219,12 +236,20 @@ function toPublicUser(user) {
 }
 
 /**
- * Convert a User document into a safe private response object.
+ * Convert a User document into a safe private response.
  *
- * Intended for the authenticated user viewing their own account.
- * Sensitive fields such as password and deletedAt are excluded.
+ * Intended for the authenticated user or an administrator.
+ *
+ * Sensitive/internal fields such as password,
+ * deletedAt and sessionVersion are excluded.
  */
 function toPrivateUser(user) {
+  const stats = pickAllowedFields(user.stats ?? {}, [
+    "recipeCount",
+    "averageRating",
+    "totalRecipeViews",
+  ]);
+
   return {
     id: user._id,
     username: user.username,
@@ -234,7 +259,7 @@ function toPrivateUser(user) {
     title: user.title,
     role: user.role,
     socialLinks: user.socialLinks,
-    stats: user.stats,
+    stats,
     emailVerified: user.emailVerified,
     accountStatus: user.accountStatus,
     createdAt: user.createdAt,
@@ -242,39 +267,19 @@ function toPrivateUser(user) {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Authorization Helpers                                                     */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * User Filter Helpers
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Check whether the authenticated user is the owner of the target resource.
- */
-function assertSelfAccess(currentUserId, targetUserId) {
-  if (currentUserId.toString() !== targetUserId.toString()) {
-    throw new AppError(
-      ERROR_CODES.FORBIDDEN,
-      "شما اجازه ویرایش این کاربر را ندارید.",
-      { statusCode: 403 }
-    );
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* User Filter Helpers                                                        */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Build a safe filter for user queries.
+ * Build a safe filter for public User queries.
  *
- * Only explicitly supported fields are allowed to reach
- * the User Repository.
- *
- * Supported filters:
- * - role
- * - title
- * - accountStatus
+ * Only filters that make sense for the public
+ * ACTIVE-only User listing are allowed here.
  */
-function buildSafeUserFilter(filter) {
+function buildSafeUserFilter(filter = {}) {
   if (filter === null || typeof filter !== "object" || Array.isArray(filter)) {
     throw new AppError(
       ERROR_CODES.INVALID_REQUEST,
@@ -283,11 +288,7 @@ function buildSafeUserFilter(filter) {
     );
   }
 
-  const safeFilter = pickAllowedFields(filter, [
-    "role",
-    "title",
-    "accountStatus",
-  ]);
+  const safeFilter = pickAllowedFields(filter, PUBLIC_USER_FILTER_FIELDS);
 
   if (safeFilter.role !== undefined) {
     assertEnum(safeFilter.role, Object.values(USER_ROLES), {
@@ -305,23 +306,17 @@ function buildSafeUserFilter(filter) {
     });
   }
 
-  if (safeFilter.accountStatus !== undefined) {
-    assertEnum(safeFilter.accountStatus, Object.values(ACCOUNT_STATUSES), {
-      errorCode: ERROR_CODES.INVALID_REQUEST,
-      message: "وضعیت حساب کاربری نامعتبر است.",
-      statusCode: 400,
-    });
-  }
-
   return safeFilter;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Get User                                                                   */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Get User
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Get a user by ID.
+ * Get an active public User by ID.
  */
 export async function getUserById(userId) {
   assertValidObjectId(userId, "user ID");
@@ -338,9 +333,15 @@ export async function getUserById(userId) {
 }
 
 /**
- * Get a user by username.
+ * Get an active public User by username.
  */
 export async function getUserByUsername(username) {
+  if (typeof username !== "string" || !username.trim()) {
+    throw new AppError(ERROR_CODES.INVALID_REQUEST, "نام کاربری نامعتبر است.", {
+      statusCode: 400,
+    });
+  }
+
   const user = await findActiveUserByUsername(username);
 
   if (!user) {
@@ -352,12 +353,14 @@ export async function getUserByUsername(username) {
   return toPublicUser(user);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Get Users                                                                  */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Get Users
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Get users using cursor-based infinite loading.
+ * Get active public Users using cursor-based pagination.
  *
  * Supported sorting:
  * - HIGHEST_RATED
@@ -391,6 +394,10 @@ export async function getUsers({
     decodedCursor = validateUserCursor(decodeCursor(cursor), sort);
   }
 
+  /**
+   * findActiveUsers() is responsible for returning
+   * only ACTIVE and non-deleted Users.
+   */
   const users = await findActiveUsers({
     filter: safeFilter,
     sort,
@@ -402,9 +409,9 @@ export async function getUsers({
 
   const visibleUsers = hasMore ? users.slice(0, normalizedLimit) : users;
 
-  const nextCursor = hasMore
-    ? createNextCursor(visibleUsers[visibleUsers.length - 1], sort)
-    : null;
+  const lastUser = visibleUsers[visibleUsers.length - 1];
+
+  const nextCursor = hasMore ? createNextCursor(lastUser, sort) : null;
 
   return {
     users: visibleUsers.map(toPublicUser),
@@ -413,37 +420,23 @@ export async function getUsers({
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Update User Profile                                                        */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Update User Profile
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Update the authenticated user's profile.
  *
- * Only the owner of the profile can perform this operation.
- *
- * Editable fields should already be restricted by
- * updateUserProfileSchema.
+ * The Service derives the target User from the
+ * authenticated account and does not trust a caller-
+ * supplied targetUserId for authorization.
  */
-export async function updateUserProfile(currentUserId, targetUserId, updates) {
-  assertValidObjectId(currentUserId, "user ID");
-  assertValidObjectId(targetUserId, "user ID");
+export async function updateUserProfile(currentUser, updates) {
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
-  assertSelfAccess(currentUserId, targetUserId);
-
-  const user = await findActiveUserById(targetUserId);
-
-  if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
-
-  const sanitizedUpdates = pickAllowedFields(updates, [
-    "avatar",
-    "bio",
-    "socialLinks",
-  ]);
+  const sanitizedUpdates = pickAllowedFields(updates, EDITABLE_PROFILE_FIELDS);
 
   if (Object.keys(sanitizedUpdates).length === 0) {
     throw new AppError(
@@ -453,7 +446,7 @@ export async function updateUserProfile(currentUserId, targetUserId, updates) {
     );
   }
 
-  const updatedUser = await updateUserById(targetUserId, sanitizedUpdates);
+  const updatedUser = await updateUserById(user._id, sanitizedUpdates);
 
   if (!updatedUser) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -464,21 +457,29 @@ export async function updateUserProfile(currentUserId, targetUserId, updates) {
   return toPrivateUser(updatedUser);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Change Account Status                                                      */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Change Account Status
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Change a user's account status.
  *
- * Only administrators can perform this operation.
+ * Only an ACTIVE administrator can perform this operation.
+ *
+ * The repository is responsible for atomically updating
+ * accountStatus and invalidating the relevant sessions
+ * through sessionVersion.
  */
 export async function changeAccountStatus(
   currentUser,
   targetUserId,
   accountStatus
 ) {
-  assertAdmin(currentUser);
+  const admin = await requireActiveAuthenticatedUser(currentUser);
+
+  assertAdmin(admin);
 
   assertValidObjectId(targetUserId, "user ID");
 
@@ -488,8 +489,13 @@ export async function changeAccountStatus(
     statusCode: 400,
   });
 
+  /**
+   * An administrator cannot suspend, deactivate,
+   * or otherwise disable their own account through
+   * this operation.
+   */
   if (
-    currentUser._id.toString() === targetUserId.toString() &&
+    admin._id.toString() === targetUserId.toString() &&
     accountStatus !== ACCOUNT_STATUSES.ACTIVE
   ) {
     throw new AppError(
@@ -507,6 +513,16 @@ export async function changeAccountStatus(
     });
   }
 
+  /**
+   * Idempotent behavior.
+   *
+   * Avoid unnecessary sessionVersion changes
+   * when the status is already the requested value.
+   */
+  if (user.accountStatus === accountStatus) {
+    return toPrivateUser(user);
+  }
+
   const updatedUser = await updateAccountStatus(targetUserId, accountStatus);
 
   if (!updatedUser) {
@@ -518,27 +534,34 @@ export async function changeAccountStatus(
   return toPrivateUser(updatedUser);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Delete User                                                                */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Delete User
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Soft-delete a user.
+ * Soft-delete a User.
  *
- * Only administrators can perform this operation.
+ * Only an ACTIVE administrator can perform this operation.
+ *
+ * The repository is responsible for atomically setting
+ * deletedAt and invalidating existing sessions.
  */
 export async function deleteUser(currentUser, targetUserId) {
-  assertAdmin(currentUser);
+  const admin = await requireActiveAuthenticatedUser(currentUser);
 
-  if (currentUser._id.toString() === targetUserId.toString()) {
+  assertAdmin(admin);
+
+  assertValidObjectId(targetUserId, "user ID");
+
+  if (admin._id.toString() === targetUserId.toString()) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
       "شما نمی‌توانید با این عملیات حساب خودتان را حذف کنید.",
       { statusCode: 403 }
     );
   }
-
-  assertValidObjectId(targetUserId, "user ID");
 
   const user = await findUserById(targetUserId);
 
@@ -551,7 +574,7 @@ export async function deleteUser(currentUser, targetUserId) {
   const deletedUser = await softDeleteUser(targetUserId);
 
   if (!deletedUser) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر حذف نشد.", {
       statusCode: 404,
     });
   }
@@ -561,17 +584,24 @@ export async function deleteUser(currentUser, targetUserId) {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Restore User                                                               */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Restore User
+ * --------------------------------------------------------------------------
+ */
 
 /**
- * Restore a soft-deleted user.
+ * Restore a soft-deleted User.
  *
- * Only administrators can perform this operation.
+ * Only an ACTIVE administrator can perform this operation.
+ *
+ * Restoring the User must also invalidate previously
+ * issued sessions by updating sessionVersion.
  */
 export async function restoreDeletedUser(currentUser, targetUserId) {
-  assertAdmin(currentUser);
+  const admin = await requireActiveAuthenticatedUser(currentUser);
+
+  assertAdmin(admin);
 
   assertValidObjectId(targetUserId, "user ID");
 

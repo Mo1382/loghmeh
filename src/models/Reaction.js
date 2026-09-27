@@ -35,11 +35,11 @@ const reactionSchema = new mongoose.Schema(
   }
 );
 
+/* -------------------------------------------------------------------------- */
+/* Validation                                                                 */
+/* -------------------------------------------------------------------------- */
+
 /**
- * --------------------------------------------------------------------------
- * Validation
- * --------------------------------------------------------------------------
- *
  * Every Reaction must target exactly one resource:
  *
  * Comment:
@@ -55,21 +55,18 @@ reactionSchema.pre("validate", function (next) {
   const hasReply = this.replyId != null;
 
   if (hasComment === hasReply) {
-    return next(
-      new mongoose.Error.ValidationError(
-        new Error("A reaction must belong to exactly one comment or reply.")
-      )
-    );
+    const message = "A reaction must target exactly one comment or reply.";
+
+    this.invalidate("commentId", message);
+    this.invalidate("replyId", message);
   }
 
   next();
 });
 
-/**
- * --------------------------------------------------------------------------
- * Indexes
- * --------------------------------------------------------------------------
- */
+/* -------------------------------------------------------------------------- */
+/* Indexes                                                                    */
+/* -------------------------------------------------------------------------- */
 
 /**
  * One reaction per user for each top-level comment.

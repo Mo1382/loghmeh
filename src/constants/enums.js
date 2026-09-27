@@ -65,7 +65,12 @@ export const TICKET_STATUSES = {
   CLOSED: "CLOSED",
 };
 
-const MAX_COMMENT_REPLIES = 50;
+export const MAX_COMMENT_REPLIES = 50;
+
+export const RECIPE_LIMITS = {
+  MAX_INGREDIENTS: 100,
+  MAX_STEPS: 100,
+};
 
 export const CURSOR_RESOURCES = {
   USERS: "USERS",

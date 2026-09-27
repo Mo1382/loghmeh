@@ -290,6 +290,9 @@ export function updateAccountStatus(userId, accountStatus, session) {
       $set: {
         accountStatus,
       },
+      $inc: {
+        sessionVersion: 1,
+      },
     },
     {
       new: true,
@@ -316,6 +319,9 @@ export function softDeleteUser(userId, deletedAt = new Date(), session) {
       $set: {
         deletedAt,
       },
+      $inc: {
+        sessionVersion: 1,
+      },
     },
     {
       new: true,
@@ -338,6 +344,9 @@ export function restoreUser(userId, session) {
     {
       $set: {
         deletedAt: null,
+      },
+      $inc: {
+        sessionVersion: 1,
       },
     },
     {
@@ -498,22 +507,31 @@ export function findActiveUsers({
   return applySession(query, session);
 }
 
-/**
- * Update a user's numeric stat using $inc.
- */
-export function incrementUserStat(userId, stat, amount = 1, session) {
+export function incrementUserStat(userId, stat, delta = 1, session) {
   if (!Object.values(USER_STATS).includes(stat)) {
     throw new Error("Invalid user stat.");
   }
 
+  if (!Number.isInteger(delta) || delta === 0) {
+    throw new Error("User stat delta must be a non-zero integer.");
+  }
+
+  const filter = {
+    _id: userId,
+    deletedAt: null,
+  };
+
+  if (delta < 0) {
+    filter[`stats.${stat}`] = {
+      $gte: Math.abs(delta),
+    };
+  }
+
   const query = User.findOneAndUpdate(
-    {
-      _id: userId,
-      deletedAt: null,
-    },
+    filter,
     {
       $inc: {
-        [`stats.${stat}`]: amount,
+        [`stats.${stat}`]: delta,
       },
     },
     {
@@ -525,16 +543,10 @@ export function incrementUserStat(userId, stat, amount = 1, session) {
   return applySession(query, session);
 }
 
-/**
- * Increment a user's recipe count.
- */
 export function incrementRecipeCount(userId, amount = 1, session) {
   return incrementUserStat(userId, USER_STATS.RECIPE_COUNT, amount, session);
 }
 
-/**
- * Increment a user's total recipe views.
- */
 export function incrementTotalRecipeViews(userId, amount = 1, session) {
   return incrementUserStat(
     userId,

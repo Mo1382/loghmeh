@@ -2,7 +2,7 @@ import AppError from "@/lib/errors/AppError";
 
 import { ERROR_CODES } from "@/constants/error-codes";
 
-import { assertAdmin, assertAuthenticated } from "@/lib/auth/guards";
+import { assertAdmin, requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
@@ -35,17 +35,27 @@ import { findActiveUsersByIds } from "@/repositories/user.repository";
 
 import { CURSOR_RESOURCES, NOTIFICATION_TYPES } from "@/constants/enums";
 
-/* -------------------------------------------------------------------------- */
-/* Constants                                                                  */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Constants
+ * --------------------------------------------------------------------------
+ */
 
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
 
-/* -------------------------------------------------------------------------- */
-/* Validation                                                                 */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Validation
+ * --------------------------------------------------------------------------
+ */
 
+/**
+ * Normalize and validate notification text.
+ *
+ * Length validation should also be enforced by the
+ * input validation layer / Mongoose schema.
+ */
 function normalizeNotificationText(value, fieldName) {
   if (typeof value !== "string") {
     throw new AppError(
@@ -68,9 +78,11 @@ function normalizeNotificationText(value, fieldName) {
   return normalizedValue;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Cursor Helpers                                                             */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Cursor Helpers
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Create the next cursor from the last notification
@@ -93,9 +105,11 @@ function createNextCursor(notification, userId) {
   });
 }
 
-/* -------------------------------------------------------------------------- */
-/* Notification Data Helpers                                                  */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Notification Data Helpers
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Normalize and validate trusted server-side
@@ -168,11 +182,8 @@ function normalizeSystemNotificationData(notificationData) {
     userId,
     actorId,
     type,
-
     title: normalizeNotificationText(title, "عنوان"),
-
     message: normalizeNotificationText(message, "متن پیام"),
-
     recipeId,
     commentId,
     replyId,
@@ -184,18 +195,20 @@ function normalizeSystemNotificationData(notificationData) {
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Get Notification                                                            */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Get Notification
+ * --------------------------------------------------------------------------
+ */
 
 export async function getNotificationById(currentUser, notificationId) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   assertValidObjectId(notificationId, "notification ID");
 
   const notification = await findNotificationByIdAndUser(
     notificationId,
-    currentUser._id
+    user._id
   );
 
   if (!notification) {
@@ -207,15 +220,17 @@ export async function getNotificationById(currentUser, notificationId) {
   return notification;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Get Notifications                                                           */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Get Notifications
+ * --------------------------------------------------------------------------
+ */
 
 export async function getNotifications(
   currentUser,
   { cursor = null, limit = DEFAULT_LIST_LIMIT } = {}
 ) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   const normalizedLimit = normalizeLimit(
     limit,
@@ -233,7 +248,7 @@ export async function getNotifications(
     assertCursorOwner(
       payload,
       "userId",
-      currentUser._id,
+      user._id,
       "نشانگر اعلان متعلق به این کاربر نیست."
     );
 
@@ -241,7 +256,7 @@ export async function getNotifications(
   }
 
   const notifications = await findNotificationsByUser({
-    userId: currentUser._id,
+    userId: user._id,
     cursor: normalizedCursor,
     limit: normalizedLimit + 1,
   });
@@ -255,7 +270,7 @@ export async function getNotifications(
   const lastNotification = pageNotifications[pageNotifications.length - 1];
 
   const nextCursor = hasMore
-    ? createNextCursor(lastNotification, currentUser._id)
+    ? createNextCursor(lastNotification, user._id)
     : null;
 
   return {
@@ -265,30 +280,36 @@ export async function getNotifications(
   };
 }
 
-/* -------------------------------------------------------------------------- */
-/* Unread Count                                                                */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Unread Count
+ * --------------------------------------------------------------------------
+ */
 
 export async function getUnreadNotificationCount(currentUser) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
-  return countUnreadNotifications(currentUser._id);
+  return countUnreadNotifications(user._id);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Mark Notification As Read                                                   */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Mark Notification As Read
+ * --------------------------------------------------------------------------
+ */
 
 export async function markNotificationRead(currentUser, notificationId) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   assertValidObjectId(notificationId, "notification ID");
 
-  // First verify ownership and retrieve
-  // the current state.
+  /**
+   * First verify ownership and retrieve
+   * the current state.
+   */
   const notification = await findNotificationByIdAndUser(
     notificationId,
-    currentUser._id
+    user._id
   );
 
   if (!notification) {
@@ -297,15 +318,17 @@ export async function markNotificationRead(currentUser, notificationId) {
     });
   }
 
-  // Idempotent behavior:
-  // preserve the original readAt value.
+  /**
+   * Idempotent behavior:
+   * preserve the original readAt value.
+   */
   if (notification.isRead) {
     return notification;
   }
 
   const updatedNotification = await markNotificationAsRead(
     notificationId,
-    currentUser._id
+    user._id
   );
 
   if (!updatedNotification) {
@@ -317,18 +340,20 @@ export async function markNotificationRead(currentUser, notificationId) {
   return updatedNotification;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Delete Notification                                                         */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Delete Notification
+ * --------------------------------------------------------------------------
+ */
 
 export async function deleteNotification(currentUser, notificationId) {
-  assertAuthenticated(currentUser);
+  const user = await requireActiveAuthenticatedUser(currentUser);
 
   assertValidObjectId(notificationId, "notification ID");
 
   const deletedNotification = await deleteNotificationByUser(
     notificationId,
-    currentUser._id
+    user._id
   );
 
   if (!deletedNotification) {
@@ -340,14 +365,16 @@ export async function deleteNotification(currentUser, notificationId) {
   return deletedNotification;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Internal / System Notification                                              */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Internal / System Notification
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Create a notification for one specific user.
  *
- * Intended for trusted server-side services.
+ * Intended for trusted server-side services only.
  *
  * Supported target fields:
  * - recipeId
@@ -364,20 +391,22 @@ export async function createSystemNotification(notificationData, session) {
   return createNotificationRepository(normalizedData, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Global / Admin Notification                                                 */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Global / Admin Notification
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Create an announcement notification for
  * multiple active users.
  *
- * The function:
- * - requires ADMIN privileges
+ * Behavior:
+ * - requires an authenticated ACTIVE administrator
  * - removes duplicate recipient IDs
  * - ignores inactive/deleted users
  * - always creates ANNOUNCEMENT notifications
- * - sets the current admin as actor
+ * - uses the current administrator as actor
  */
 export async function createGlobalNotification(
   currentUser,
@@ -385,7 +414,15 @@ export async function createGlobalNotification(
   recipientUserIds,
   session
 ) {
-  assertAdmin(currentUser);
+  /**
+   * Fetch the current account from the database first.
+   *
+   * This prevents a stale client/session object from
+   * being trusted for an administrative mutation.
+   */
+  const admin = await requireActiveAuthenticatedUser(currentUser);
+
+  assertAdmin(admin);
 
   if (!Array.isArray(recipientUserIds)) {
     throw new AppError(
@@ -407,14 +444,24 @@ export async function createGlobalNotification(
 
   const normalizedMessage = normalizeNotificationText(message, "متن پیام");
 
-  const uniqueRecipientIds = [
-    ...new Set(recipientUserIds.map((id) => id.toString())),
-  ];
-
-  uniqueRecipientIds.forEach((userId) => {
+  /**
+   * Validate every ID before calling toString().
+   *
+   * This prevents malformed values such as null or
+   * arbitrary objects from becoming unexpected 500 errors.
+   */
+  const normalizedRecipientIds = recipientUserIds.map((userId) => {
     assertValidObjectId(userId, "recipient user ID");
+
+    return userId.toString();
   });
 
+  const uniqueRecipientIds = [...new Set(normalizedRecipientIds)];
+
+  /**
+   * Only currently ACTIVE, non-deleted users
+   * can receive public/system announcements.
+   */
   const activeUsers = await findActiveUsersByIds(uniqueRecipientIds, session);
 
   if (activeUsers.length === 0) {
@@ -429,7 +476,7 @@ export async function createGlobalNotification(
     userId: user._id,
 
     // Administrator creating the announcement.
-    actorId: currentUser._id,
+    actorId: admin._id,
 
     // Type is controlled by the Service.
     type: NOTIFICATION_TYPES.ANNOUNCEMENT,
@@ -447,5 +494,18 @@ export async function createGlobalNotification(
     readAt: null,
   }));
 
-  return createNotificationsRepository(notifications, session);
+  const createdNotifications = await createNotificationsRepository(
+    notifications,
+    session
+  );
+
+  if (!createdNotifications) {
+    throw new AppError(
+      ERROR_CODES.INVALID_NOTIFICATION_DATA,
+      "ایجاد اعلان‌ها انجام نشد.",
+      { statusCode: 500 }
+    );
+  }
+
+  return createdNotifications;
 }

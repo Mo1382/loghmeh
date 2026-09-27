@@ -17,11 +17,25 @@ export function normalizeLimit(limit, defaultLimit = 16, maxLimit = 50) {
     throw new RangeError("defaultLimit نمی‌تواند بزرگ‌تر از maxLimit باشد.");
   }
 
-  const parsedLimit = Number(limit);
-
-  if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+  if (limit === undefined || limit === null) {
     return defaultLimit;
   }
 
-  return Math.min(parsedLimit, maxLimit);
+  if (typeof limit !== "number" || !Number.isInteger(limit)) {
+    throw new AppError(
+      ERROR_CODES.INVALID_LIMIT,
+      "مقدار تعداد نتایج نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
+
+  if (limit <= 0) {
+    throw new AppError(
+      ERROR_CODES.INVALID_LIMIT,
+      "مقدار تعداد نتایج نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
+
+  return Math.min(limit, maxLimit);
 }

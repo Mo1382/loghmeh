@@ -561,3 +561,70 @@ export function updateAverageRating(recipeId, averageRating, session) {
 
   return applySession(query, session);
 }
+
+export function updateRatingStatsDeltas(
+  recipeId,
+  ratingCountDelta,
+  ratingSumDelta,
+  session
+) {
+  const currentCount = {
+    $ifNull: ["$stats.ratingCount", 0],
+  };
+
+  const currentSum = {
+    $ifNull: ["$stats.ratingSum", 0],
+  };
+
+  const nextCount = {
+    $add: [currentCount, ratingCountDelta],
+  };
+
+  const nextSum = {
+    $add: [currentSum, ratingSumDelta],
+  };
+
+  const query = Recipe.findOneAndUpdate(
+    {
+      _id: recipeId,
+      deletedAt: null,
+      $expr: {
+        $and: [
+          {
+            $gte: [nextCount, 0],
+          },
+          {
+            $gte: [nextSum, 0],
+          },
+        ],
+      },
+    },
+    [
+      {
+        $set: {
+          "stats.ratingCount": nextCount,
+          "stats.ratingSum": nextSum,
+          "stats.averageRating": {
+            $cond: [
+              { $gt: [nextCount, 0] },
+              {
+                $round: [
+                  {
+                    $divide: [nextSum, nextCount],
+                  },
+                  2,
+                ],
+              },
+              0,
+            ],
+          },
+        },
+      },
+    ],
+    {
+      new: true,
+    }
+  );
+
+  return applySession(query, session);
+}

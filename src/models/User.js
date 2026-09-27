@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+
 import { ACCOUNT_STATUSES, USER_ROLES, USER_TITLES } from "@/constants/enums";
 
 function isValidHttpsUrl(value) {
@@ -19,6 +20,14 @@ function isValidHttpsUrl(value) {
   }
 }
 
+function isValidSocialUrl(value, domainPattern) {
+  if (value == null) {
+    return true;
+  }
+
+  return isValidHttpsUrl(value) && domainPattern.test(value);
+}
+
 const userSchema = new mongoose.Schema(
   {
     sessionVersion: {
@@ -26,6 +35,7 @@ const userSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+
     username: {
       type: String,
       required: true,
@@ -33,7 +43,8 @@ const userSchema = new mongoose.Schema(
       trim: true,
       minlength: 3,
       maxlength: 30,
-      // Expect nums, Latin small and capital letters, Persian letters and _
+
+      // Allows numbers, Latin letters, Persian letters, and underscore.
       match: /^[a-zA-Z0-9_\u0600-\u06FF]+$/,
     },
 
@@ -88,43 +99,36 @@ const userSchema = new mongoose.Schema(
         default: null,
         trim: true,
         validate: {
-          validator: (value) => {
-            if (!isValidHttpsUrl(value)) {
-              return false;
-            }
-
-            return /^https:\/\/(www\.)?instagram\.com\//i.test(value);
-          },
+          validator: (value) =>
+            isValidSocialUrl(value, /^https:\/\/(www\.)?instagram\.com\//i),
           message: "Instagram URL must be a valid HTTPS Instagram URL.",
         },
       },
+
       telegram: {
         type: String,
         default: null,
         trim: true,
         validate: {
-          validator: (value) => {
-            if (!isValidHttpsUrl(value)) {
-              return false;
-            }
-
-            return /^https:\/\/(www\.)?(t\.me|telegram\.me)\//i.test(value);
-          },
+          validator: (value) =>
+            isValidSocialUrl(
+              value,
+              /^https:\/\/(www\.)?(t\.me|telegram\.me)\//i
+            ),
           message: "Telegram URL must be a valid HTTPS Telegram URL.",
         },
       },
+
       x: {
         type: String,
         default: null,
         trim: true,
         validate: {
-          validator: (value) => {
-            if (!isValidHttpsUrl(value)) {
-              return false;
-            }
-
-            return /^https:\/\/(www\.)?(x\.com|twitter\.com)\//i.test(value);
-          },
+          validator: (value) =>
+            isValidSocialUrl(
+              value,
+              /^https:\/\/(www\.)?(x\.com|twitter\.com)\//i
+            ),
           message: "X URL must be a valid HTTPS X URL.",
         },
       },
@@ -143,6 +147,7 @@ const userSchema = new mongoose.Schema(
         min: 0,
         max: 5,
       },
+
       totalRecipeViews: {
         type: Number,
         default: 0,

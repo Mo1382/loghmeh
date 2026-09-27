@@ -73,8 +73,12 @@ export function encodeCursor(payload) {
  * Domain-specific validation belongs to the corresponding Service.
  */
 export function decodeCursor(cursor) {
-  if (!cursor || typeof cursor !== "string") {
+  if (cursor === null || cursor === undefined || cursor === "") {
     return null;
+  }
+
+  if (typeof cursor !== "string") {
+    throw invalidCursor;
   }
 
   const parts = cursor.split(".");

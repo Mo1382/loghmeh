@@ -1,4 +1,3 @@
-import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 
@@ -19,22 +18,26 @@ import {
 } from "@/repositories/verification-code.repository";
 
 import { ERROR_CODES } from "@/constants/error-codes";
+
 import {
   ACCOUNT_STATUSES,
   VERIFICATION_CODE_PURPOSES,
 } from "@/constants/enums";
+
 import AppError from "@/lib/errors/AppError";
 import { withTransaction } from "@/lib/transaction";
+import { assertValidObjectId } from "@/lib/validation/object-id";
+import { requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 
 /**
  * Verification code lifetime.
  */
-const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000; // 10 min
+const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Password-reset token lifetime.
  */
-const PASSWORD_RESET_TOKEN_TTL_MS = 10 * 60 * 1000; // 10 min
+const PASSWORD_RESET_TOKEN_TTL_MS = 10 * 60 * 1000;
 
 /**
  * Generate a six-digit verification code.
@@ -54,8 +57,8 @@ async function hashVerificationCode(code) {
  * Convert a User document into a safe plain object.
  *
  * Only explicitly allowed fields are returned.
- * Internal/security fields such as password, deletedAt,
- * and sessionVersion are never exposed.
+ * Security/internal fields such as password,
+ * deletedAt and sessionVersion are never exposed.
  */
 function toSafeUser(user) {
   const data = user.toObject ? user.toObject() : { ...user };
@@ -107,6 +110,38 @@ function getAuthSecret() {
   return secret;
 }
 
+/**
+ * Create a signed password-reset token.
+ *
+ * Token format:
+ * base64url(payload).base64url(hmac)
+ */
+function createPasswordResetToken(payload) {
+  const encodedPayload = Buffer.from(JSON.stringify(payload), "utf8").toString(
+    "base64url"
+  );
+
+  const signature = crypto
+    .createHmac("sha256", getAuthSecret())
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+/**
+ * Validate a strict ObjectId string.
+ *
+ * This intentionally requires the project's external ID contract:
+ * exactly 24 hexadecimal characters.
+ */
+function isStrictObjectIdString(value) {
+  return typeof value === "string" && /^[0-9a-fA-F]{24}$/.test(value);
+}
+
+/**
+ * Verify and decode a password-reset token.
+ */
 function verifyPasswordResetToken(token) {
   const invalidTokenError = () =>
     new AppError(
@@ -166,20 +201,13 @@ function verifyPasswordResetToken(token) {
   if (
     payload.v !== 1 ||
     payload.purpose !== VERIFICATION_CODE_PURPOSES.PASSWORD_RESET ||
-    typeof payload.userId !== "string" ||
+    !isStrictObjectIdString(payload.userId) ||
+    !isStrictObjectIdString(payload.verificationCodeId) ||
     typeof payload.sessionVersion !== "number" ||
     !Number.isSafeInteger(payload.sessionVersion) ||
     payload.sessionVersion < 0 ||
-    typeof payload.verificationCodeId !== "string" ||
     typeof payload.expiresAt !== "number" ||
     !Number.isSafeInteger(payload.expiresAt)
-  ) {
-    throw invalidTokenError();
-  }
-
-  if (
-    !mongoose.Types.ObjectId.isValid(payload.userId) ||
-    !mongoose.Types.ObjectId.isValid(payload.verificationCodeId)
   ) {
     throw invalidTokenError();
   }
@@ -192,17 +220,47 @@ function verifyPasswordResetToken(token) {
 }
 
 /**
+ * Convert a duplicate-key error from the User collection
+ * into the appropriate application error.
+ */
+function throwUserDuplicateError(error) {
+  if (error?.code !== 11000) {
+    throw error;
+  }
+
+  const keyPattern = error.keyPattern ?? {};
+  const keyValue = error.keyValue ?? {};
+
+  if (
+    keyPattern.email ||
+    Object.prototype.hasOwnProperty.call(keyValue, "email")
+  ) {
+    throw new AppError(
+      ERROR_CODES.EMAIL_ALREADY_EXISTS,
+      "حسابی با این ایمیل از قبل وجود دارد.",
+      { statusCode: 409 }
+    );
+  }
+
+  if (
+    keyPattern.username ||
+    Object.prototype.hasOwnProperty.call(keyValue, "username")
+  ) {
+    throw new AppError(
+      ERROR_CODES.USERNAME_ALREADY_EXISTS,
+      "این نام کاربری قبلاً استفاده شده است.",
+      { statusCode: 409 }
+    );
+  }
+
+  throw error;
+}
+
+/**
  * Register a new user.
  *
- * Flow:
- * 1. Check email uniqueness.
- * 2. Check username uniqueness.
- * 3. Hash password.
- * 4. Create user.
- * 5. Create email-verification code.
- *
- * Auth.js can sign the user in after this service
- * returns the newly created user.
+ * The unique database indexes remain the final protection
+ * against concurrent duplicate registrations.
  */
 export async function registerUser({ username, email, password, title }) {
   const existingEmail = await findUserByEmail(email);
@@ -228,41 +286,51 @@ export async function registerUser({ username, email, password, title }) {
   const passwordHash = await bcrypt.hash(password, 12);
 
   const verificationCode = generateVerificationCode();
-
   const codeHash = await hashVerificationCode(verificationCode);
 
   const expiresAt = new Date(Date.now() + VERIFICATION_CODE_TTL_MS);
 
-  const user = await withTransaction(async (session) => {
-    const newUser = await createUser(
-      {
-        username,
-        email,
-        password: passwordHash,
-        title,
-      },
-      session
-    );
+  let user;
 
-    await replaceVerificationCode(
-      {
-        email,
-        codeHash,
-        purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-        expiresAt,
-      },
-      session
-    );
+  try {
+    user = await withTransaction(async (session) => {
+      let newUser;
 
-    return newUser;
-  });
+      try {
+        newUser = await createUser(
+          {
+            username,
+            email,
+            password: passwordHash,
+            title,
+          },
+          session
+        );
+      } catch (error) {
+        throwUserDuplicateError(error);
+      }
 
-  /*
+      await replaceVerificationCode(
+        {
+          email,
+          codeHash,
+          purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
+          expiresAt,
+        },
+        session
+      );
+
+      return newUser;
+    });
+  } catch (error) {
+    throwUserDuplicateError(error);
+  }
+
+  /**
    * The verificationCode must be sent through the
    * Email/Infrastructure layer and must never be returned
    * to the client.
    */
-
   return toSafeUser(user);
 }
 
@@ -283,15 +351,7 @@ export async function loginUser({ identifier, password }) {
     );
   }
 
-  if (user.deletedAt) {
-    throw new AppError(
-      ERROR_CODES.INVALID_CREDENTIALS,
-      "ایمیل، نام کاربری یا رمز عبور نامعتبر است.",
-      { statusCode: 401 }
-    );
-  }
-
-  if (user.accountStatus === "SUSPENDED") {
+  if (user.accountStatus === ACCOUNT_STATUSES.SUSPENDED) {
     throw new AppError(
       ERROR_CODES.USER_SUSPENDED,
       "این حساب کاربری معلق شده است.",
@@ -299,7 +359,7 @@ export async function loginUser({ identifier, password }) {
     );
   }
 
-  if (user.accountStatus === "DEACTIVATED") {
+  if (user.accountStatus === ACCOUNT_STATUSES.DEACTIVATED) {
     throw new AppError(
       ERROR_CODES.USER_DEACTIVATED,
       "این حساب کاربری غیرفعال شده است.",
@@ -407,22 +467,17 @@ export async function verifyEmail({ email, code }) {
 /**
  * Request a password reset code.
  *
- * A generic response is returned even when the account
- * does not exist, preventing email/account enumeration.
+ * A generic response is always returned so that the endpoint
+ * does not reveal whether an account exists.
  */
 export async function requestPasswordReset({ email }) {
   const user = await findUserByEmail(email);
 
-  if (
-    !user ||
-    user.deletedAt ||
-    user.accountStatus !== ACCOUNT_STATUSES.ACTIVE
-  ) {
+  if (!user || user.accountStatus !== ACCOUNT_STATUSES.ACTIVE) {
     return passwordResetRequestResponse();
   }
 
   const resetCode = generateVerificationCode();
-
   const codeHash = await hashVerificationCode(resetCode);
 
   const expiresAt = new Date(Date.now() + VERIFICATION_CODE_TTL_MS);
@@ -434,12 +489,11 @@ export async function requestPasswordReset({ email }) {
     expiresAt,
   });
 
-  /*
+  /**
    * The resetCode must be sent through the
    * Email/Infrastructure layer and must never be returned
    * to the client.
    */
-
   return passwordResetRequestResponse();
 }
 
@@ -484,15 +538,16 @@ export async function verifyPasswordResetCode({ email, code }) {
     );
   }
 
-  const expiresAt = new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL_MS);
+  const expiresAt = Date.now() + PASSWORD_RESET_TOKEN_TTL_MS;
 
   return {
     resetToken: createPasswordResetToken({
+      v: 1,
       purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
       userId: user._id.toString(),
       sessionVersion: user.sessionVersion,
       verificationCodeId: verificationCode._id.toString(),
-      expiresAt: expiresAt.getTime(),
+      expiresAt,
     }),
   };
 }
@@ -501,8 +556,10 @@ export async function verifyPasswordResetCode({ email, code }) {
  * Reset a user's password using a verified reset token.
  *
  * The password must be different from the current password.
+ * The verification code and password update are consumed
+ * atomically in the same transaction.
  */
-export async function resetPassword({ resetToken, password }) {
+export async function resetPassword({ resetToken, newPassword }) {
   const payload = verifyPasswordResetToken(resetToken);
 
   const user = await findUserByIdWithPassword(payload.userId);
@@ -545,7 +602,7 @@ export async function resetPassword({ resetToken, password }) {
     );
   }
 
-  const sameAsCurrent = await bcrypt.compare(password, user.password);
+  const sameAsCurrent = await bcrypt.compare(newPassword, user.password);
 
   if (sameAsCurrent) {
     throw new AppError(
@@ -555,7 +612,7 @@ export async function resetPassword({ resetToken, password }) {
     );
   }
 
-  const passwordHash = await bcrypt.hash(password, 12);
+  const passwordHash = await bcrypt.hash(newPassword, 12);
 
   const updatedUser = await withTransaction(async (session) => {
     const consumedVerification = await consumeVerificationCode({
@@ -591,16 +648,25 @@ export async function resetPassword({ resetToken, password }) {
 /**
  * Change the authenticated user's password.
  *
- * The caller must provide the authenticated user's email.
- * Authorization is performed before calling this service.
+ * The current authenticated user is verified here rather
+ * than relying only on the caller to perform authorization.
  */
-export async function changePassword({ userId, currentPassword, newPassword }) {
-  const user = await findUserByIdWithPassword(userId);
+export async function changePassword(
+  currentUser,
+  { currentPassword, newPassword }
+) {
+  const authenticatedUser = await requireActiveAuthenticatedUser(currentUser);
 
-  if (!user || user.deletedAt) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
-      statusCode: 404,
-    });
+  assertValidObjectId(authenticatedUser._id, "user ID");
+
+  const user = await findUserByIdWithPassword(authenticatedUser._id);
+
+  if (!user || user.accountStatus !== ACCOUNT_STATUSES.ACTIVE) {
+    throw new AppError(
+      ERROR_CODES.FORBIDDEN,
+      "این حساب کاربری نمی‌تواند رمز عبور خود را تغییر دهد.",
+      { statusCode: 403 }
+    );
   }
 
   const currentPasswordMatches = await bcrypt.compare(
@@ -629,6 +695,12 @@ export async function changePassword({ userId, currentPassword, newPassword }) {
   const passwordHash = await bcrypt.hash(newPassword, 12);
 
   const updatedUser = await updateUserPassword(user._id, passwordHash);
+
+  if (!updatedUser) {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
+      statusCode: 404,
+    });
+  }
 
   return toSafeUser(updatedUser);
 }

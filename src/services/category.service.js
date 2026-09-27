@@ -12,17 +12,34 @@ import {
 } from "@/repositories/category.repository";
 
 import { ERROR_CODES } from "@/constants/error-codes";
+
 import { assertAdmin } from "@/lib/auth/guards";
+
 import AppError from "@/lib/errors/AppError";
+
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
 import { pickAllowedFields } from "@/lib/validation/fields";
 
-const MUTABLE_CATEGORY_FIELDS = ["name", "slug", "icon", "order"];
+const MUTABLE_CATEGORY_FIELDS = Object.freeze([
+  "name",
+  "slug",
+  "icon",
+  "order",
+]);
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 100;
 
+/**
+ * --------------------------------------------------------------------------
+ * Normalization
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Normalize and validate a category name.
+ */
 function normalizeCategoryName(name) {
   if (typeof name !== "string") {
     throw new AppError(
@@ -45,6 +62,12 @@ function normalizeCategoryName(name) {
   return normalizedName;
 }
 
+/**
+ * Normalize and validate a category slug.
+ *
+ * This intentionally performs only read/update normalization.
+ * It does not attempt to generate a slug from arbitrary text.
+ */
 function normalizeCategorySlug(slug) {
   if (typeof slug !== "string") {
     throw new AppError(
@@ -67,6 +90,9 @@ function normalizeCategorySlug(slug) {
   return normalizedSlug;
 }
 
+/**
+ * Convert a category name into a slug candidate.
+ */
 function slugifyCategoryName(name) {
   return name
     .trim()
@@ -77,6 +103,12 @@ function slugifyCategoryName(name) {
     .replace(/^-|-$/g, "");
 }
 
+/**
+ * Generate a unique slug candidate.
+ *
+ * The unique database index remains the final protection
+ * against concurrent requests.
+ */
 async function generateUniqueSlug(name) {
   const baseSlug = slugifyCategoryName(name);
 
@@ -98,6 +130,12 @@ async function generateUniqueSlug(name) {
 
   return slug;
 }
+
+/**
+ * --------------------------------------------------------------------------
+ * Uniqueness
+ * --------------------------------------------------------------------------
+ */
 
 async function assertUniqueCategoryName(name, currentCategoryId = null) {
   const existingCategory = await findCategoryByName(name);
@@ -130,6 +168,49 @@ async function assertUniqueCategorySlug(slug, currentCategoryId = null) {
     );
   }
 }
+
+/**
+ * Map a MongoDB duplicate-key error to the appropriate
+ * category application error.
+ */
+function throwCategoryDuplicateError(error) {
+  if (error?.code !== 11000) {
+    throw error;
+  }
+
+  const keyPattern = error.keyPattern ?? {};
+  const keyValue = error.keyValue ?? {};
+
+  if (
+    keyPattern.name ||
+    Object.prototype.hasOwnProperty.call(keyValue, "name")
+  ) {
+    throw new AppError(
+      ERROR_CODES.CATEGORY_ALREADY_EXISTS,
+      "دسته‌بندی‌ای با این نام از قبل وجود دارد.",
+      { statusCode: 409 }
+    );
+  }
+
+  if (
+    keyPattern.slug ||
+    Object.prototype.hasOwnProperty.call(keyValue, "slug")
+  ) {
+    throw new AppError(
+      ERROR_CODES.CATEGORY_ALREADY_EXISTS,
+      "دسته‌بندی‌ای با این شناسه متنی از قبل وجود دارد.",
+      { statusCode: 409 }
+    );
+  }
+
+  throw error;
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Read
+ * --------------------------------------------------------------------------
+ */
 
 export async function getCategoryById(categoryId) {
   assertValidObjectId(categoryId, "category ID");
@@ -183,6 +264,12 @@ export async function getCategories({ activeOnly = true } = {}) {
   return findAllCategories();
 }
 
+/**
+ * --------------------------------------------------------------------------
+ * Create
+ * --------------------------------------------------------------------------
+ */
+
 export async function createCategory(currentUser, categoryData) {
   assertAdmin(currentUser);
 
@@ -205,31 +292,41 @@ export async function createCategory(currentUser, categoryData) {
 
   await assertUniqueCategorySlug(slug);
 
-  return createCategoryRepository({
-    ...(sanitizedData.icon !== undefined && {
-      icon: sanitizedData.icon,
-    }),
-    ...(sanitizedData.order !== undefined && {
-      order: sanitizedData.order,
-    }),
-    name,
-    slug,
-  });
+  try {
+    return await createCategoryRepository({
+      name,
+      slug,
+
+      ...(sanitizedData.icon !== undefined && {
+        icon: sanitizedData.icon,
+      }),
+
+      ...(sanitizedData.order !== undefined && {
+        order: sanitizedData.order,
+      }),
+    });
+  } catch (error) {
+    /**
+     * The pre-checks above are only an optimization.
+     * The unique database indexes remain the final
+     * protection against concurrent duplicate writes.
+     */
+    throwCategoryDuplicateError(error);
+  }
 }
+
+/**
+ * --------------------------------------------------------------------------
+ * Update
+ * --------------------------------------------------------------------------
+ */
 
 export async function updateCategory(currentUser, categoryId, updates) {
   assertAdmin(currentUser);
+
   assertValidObjectId(categoryId, "category ID");
 
   const sanitizedUpdates = pickAllowedFields(updates, MUTABLE_CATEGORY_FIELDS);
-
-  const category = await findCategoryById(categoryId);
-
-  if (!category) {
-    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
 
   if (Object.keys(sanitizedUpdates).length === 0) {
     throw new AppError(
@@ -239,26 +336,45 @@ export async function updateCategory(currentUser, categoryId, updates) {
     );
   }
 
-  if (sanitizedUpdates.name !== undefined) {
-    sanitizedUpdates.name = normalizeCategoryName(sanitizedUpdates.name);
+  const category = await findCategoryById(categoryId);
 
-    if (sanitizedUpdates.name !== category.name) {
-      await assertUniqueCategoryName(sanitizedUpdates.name, category._id);
+  if (!category) {
+    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
+      statusCode: 404,
+    });
+  }
+
+  if (sanitizedUpdates.name !== undefined) {
+    const normalizedName = normalizeCategoryName(sanitizedUpdates.name);
+
+    sanitizedUpdates.name = normalizedName;
+
+    if (normalizedName !== category.name) {
+      await assertUniqueCategoryName(normalizedName, category._id);
     }
   }
 
   if (sanitizedUpdates.slug !== undefined) {
-    sanitizedUpdates.slug = normalizeCategorySlug(sanitizedUpdates.slug);
+    const normalizedSlug = normalizeCategorySlug(sanitizedUpdates.slug);
 
-    if (sanitizedUpdates.slug !== category.slug) {
-      await assertUniqueCategorySlug(sanitizedUpdates.slug, category._id);
+    sanitizedUpdates.slug = normalizedSlug;
+
+    if (normalizedSlug !== category.slug) {
+      await assertUniqueCategorySlug(normalizedSlug, category._id);
     }
   }
 
-  const updatedCategory = await updateCategoryById(
-    categoryId,
-    sanitizedUpdates
-  );
+  let updatedCategory;
+
+  try {
+    updatedCategory = await updateCategoryById(categoryId, sanitizedUpdates);
+  } catch (error) {
+    /**
+     * Protect against a concurrent update creating
+     * the same unique name or slug.
+     */
+    throwCategoryDuplicateError(error);
+  }
 
   if (!updatedCategory) {
     throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
@@ -269,8 +385,15 @@ export async function updateCategory(currentUser, categoryId, updates) {
   return updatedCategory;
 }
 
+/**
+ * --------------------------------------------------------------------------
+ * Activation
+ * --------------------------------------------------------------------------
+ */
+
 export async function deactivateCategory(currentUser, categoryId) {
   assertAdmin(currentUser);
+
   assertValidObjectId(categoryId, "category ID");
 
   const category = await findCategoryById(categoryId);
@@ -289,6 +412,10 @@ export async function deactivateCategory(currentUser, categoryId) {
     );
   }
 
+  /**
+   * Based on the current project business rule,
+   * categories containing recipes cannot be deactivated.
+   */
   if ((category.stats?.recipeCount ?? 0) > 0) {
     throw new AppError(
       ERROR_CODES.CATEGORY_HAS_RECIPES,
@@ -312,6 +439,7 @@ export async function deactivateCategory(currentUser, categoryId) {
 
 export async function activateCategory(currentUser, categoryId) {
   assertAdmin(currentUser);
+
   assertValidObjectId(categoryId, "category ID");
 
   const category = await findCategoryById(categoryId);
@@ -343,6 +471,19 @@ export async function activateCategory(currentUser, categoryId) {
   return updatedCategory;
 }
 
+/**
+ * --------------------------------------------------------------------------
+ * Statistics
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Increment or decrement the number of Recipes
+ * associated with a Category.
+ *
+ * This is an internal synchronization operation and
+ * expects the repository to perform the atomic update.
+ */
 export async function incrementRecipeCount(categoryId, amount = 1, session) {
   assertValidObjectId(categoryId, "category ID");
 
@@ -354,5 +495,17 @@ export async function incrementRecipeCount(categoryId, amount = 1, session) {
     );
   }
 
-  return incrementCategoryRecipeCount(categoryId, amount, session);
+  const updatedCategory = await incrementCategoryRecipeCount(
+    categoryId,
+    amount,
+    session
+  );
+
+  if (!updatedCategory) {
+    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, "دسته‌بندی پیدا نشد.", {
+      statusCode: 404,
+    });
+  }
+
+  return updatedCategory;
 }

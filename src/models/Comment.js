@@ -93,6 +93,8 @@ const commentSchema = new mongoose.Schema(
 // Indexes
 commentSchema.index({ recipeId: 1, createdAt: -1 });
 
+commentSchema.index({ "replies._id": 1 });
+
 const Comment =
   mongoose.models.Comment || mongoose.model("Comment", commentSchema);
 

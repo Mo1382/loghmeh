@@ -139,17 +139,26 @@ export function setCategoryActive(categoryId, isActive, session) {
   return applySession(query, session);
 }
 
-/**
- * Increment or decrement recipe count.
- */
-export function incrementRecipeCount(categoryId, amount = 1, session) {
+export function incrementRecipeCount(categoryId, delta = 1, session) {
+  if (!Number.isInteger(delta) || delta === 0) {
+    throw new Error("Category recipe count delta must be a non-zero integer.");
+  }
+
+  const filter = {
+    _id: categoryId,
+  };
+
+  if (delta < 0) {
+    filter["stats.recipeCount"] = {
+      $gte: Math.abs(delta),
+    };
+  }
+
   const query = Category.findOneAndUpdate(
-    {
-      _id: categoryId,
-    },
+    filter,
     {
       $inc: {
-        "stats.recipeCount": amount,
+        "stats.recipeCount": delta,
       },
     },
     {
