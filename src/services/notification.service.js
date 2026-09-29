@@ -582,13 +582,7 @@ export async function createGlobalNotification(
   recipientUserIds,
   session
 ) {
-  /**
-   * Pass the transaction session to the Guard when
-   * this function itself is called inside a transaction.
-   */
-  const admin = await requireActiveAuthenticatedUser(currentUser, session);
-
-  assertAdmin(admin);
+  await assertAdmin(currentUser);
 
   if (!Array.isArray(recipientUserIds)) {
     throw new AppError(

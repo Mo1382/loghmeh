@@ -147,9 +147,7 @@ export async function getTicketById(currentUser, ticketId) {
  * administrator privileges.
  */
 export async function getTicketByIdForAdmin(currentUser, ticketId) {
-  const admin = await requireActiveAuthenticatedUser(currentUser);
-
-  assertAdmin(admin);
+  await assertAdmin(currentUser);
 
   assertValidObjectId(ticketId, "ticket ID");
 

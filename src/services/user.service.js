@@ -477,9 +477,7 @@ export async function changeAccountStatus(
   targetUserId,
   accountStatus
 ) {
-  const admin = await requireActiveAuthenticatedUser(currentUser);
-
-  assertAdmin(admin);
+  const admin = await assertAdmin(currentUser);
 
   assertValidObjectId(targetUserId, "user ID");
 
@@ -549,9 +547,7 @@ export async function changeAccountStatus(
  * deletedAt and invalidating existing sessions.
  */
 export async function deleteUser(currentUser, targetUserId) {
-  const admin = await requireActiveAuthenticatedUser(currentUser);
-
-  assertAdmin(admin);
+  const admin = await assertAdmin(currentUser);
 
   assertValidObjectId(targetUserId, "user ID");
 
@@ -599,9 +595,7 @@ export async function deleteUser(currentUser, targetUserId) {
  * issued sessions by updating sessionVersion.
  */
 export async function restoreDeletedUser(currentUser, targetUserId) {
-  const admin = await requireActiveAuthenticatedUser(currentUser);
-
-  assertAdmin(admin);
+  await assertAdmin(currentUser);
 
   assertValidObjectId(targetUserId, "user ID");
 

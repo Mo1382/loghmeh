@@ -618,16 +618,16 @@ Create and publish new recipe. Can publish immediately or save as draft.
 
 **Required Fields:**
 
-| Field            | Validation                                    |
-| ---------------- | --------------------------------------------- |
-| Title            | Required, generates unique slug               |
-| Cover Image      | Required, image file (JPG/PNG/WebP), max 5MB  |
-| Category         | Required                                      |
-| Difficulty       | Required (EASY, MEDIUM, HARD)                 |
-| Preparation Time | Required, > 0 minutes                         |
-| Servings         | Required, > 0                                 |
-| Ingredients      | At least 1 required (name, quantity, unit)    |
-| Steps            | At least 1 required (max 1000 chars per step) |
+| Field            | Validation                                                                  |
+| ---------------- | --------------------------------------------------------------------------- |
+| Title            | Required, generates unique slug                                             |
+| Cover Image      | Required, image file (JPG/PNG/WebP), max 5MB                                |
+| Category         | Required                                                                    |
+| Difficulty       | Required (EASY, MEDIUM, HARD)                                               |
+| Preparation Time | Required, > 0 minutes                                                       |
+| Servings         | Required, > 0                                                               |
+| Ingredients      | At least 1 required (name, quantity, unit)                                  |
+| Steps            | At least 1 required (titles up to 100 chars; descriptions up to 2000 chars) |
 
 **Optional Fields:**
 
@@ -1654,6 +1654,7 @@ export const config = {
 
 ```typescript
 import { z } from "zod";
+import { RECIPE_LIMITS } from "@/constants/enums";
 
 export const recipeSchema = z.object({
   title: z.string().min(5).max(120),
@@ -1668,7 +1669,7 @@ export const recipeSchema = z.object({
   ingredients: z
     .array(
       z.object({
-        name: z.string().min(1),
+        name: z.string().min(1).max(RECIPE_LIMITS.MAX_INGREDIENT_NAME_LENGTH),
         quantity: z.number().min(0),
         unit: z.string().min(1),
       })
@@ -1678,8 +1679,11 @@ export const recipeSchema = z.object({
     .array(
       z.object({
         order: z.number().min(1),
-        title: z.string().optional(),
-        description: z.string().min(1).max(1000),
+        title: z.string().max(RECIPE_LIMITS.MAX_STEP_TITLE_LENGTH).optional(),
+        description: z
+          .string()
+          .min(1)
+          .max(RECIPE_LIMITS.MAX_STEP_DESCRIPTION_LENGTH),
         image: z.string().url().optional(),
       })
     )

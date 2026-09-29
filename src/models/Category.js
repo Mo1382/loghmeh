@@ -34,6 +34,11 @@ const categorySchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: 255,
+      validate: {
+        validator: (value) => /^\/[a-zA-Z0-9/_\-.]+$/.test(value),
+        message: "Icon path is invalid.",
+      },
     },
 
     order: {

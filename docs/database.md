@@ -934,7 +934,7 @@ Avoid deep population chains to reduce query complexity.
 
 **Common defaults:** `isActive=true`, `isRead=false`, and `deletedAt=null` where soft-delete is supported; all counters `=0`.
 
-**Current field limits:** username 3–30 · recipe title 5–120 · recipe description 30–500 · ingredient name 1–100 · cooking step 1–1000 · comment/reply 1–1000 · support message 20–3000 · notification title 100 · notification message 500.
+**Current field limits:** username 3–30 · recipe title 5–120 · recipe description 30–500 · ingredient name 1–100 · cooking step title 1–100 · cooking step description 1–2000 · comment/reply 1–1000 · support message 20–3000 · notification title 100 · notification message 500.
 
 **Enums**
 

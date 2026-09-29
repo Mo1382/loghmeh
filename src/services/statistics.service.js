@@ -25,65 +25,46 @@ import {
 
 /**
  * --------------------------------------------------------------------------
- * Statistics Service
- * --------------------------------------------------------------------------
- */
-
-/**
- * This service is responsible for reconciliation of denormalized statistics.
- *
- * Source of truth remains in the domain collections.
- *
- * Rating documents
- *   -> Recipe.stats.ratingCount
- *   -> Recipe.stats.ratingSum
- *   -> Recipe.stats.averageRating
- *
- * Active top-level Comment documents
- *   -> Recipe.stats.commentCount
- *
- * Reaction documents targeting Comments
- *   -> Comment.likeCount
- *   -> Comment.dislikeCount
- *
- * Reaction documents targeting Replies
- *   -> Reply.likeCount
- *   -> Reply.dislikeCount
- *
- * Recipe documents
- *   -> User.stats.recipeCount
- *   -> User.stats.totalRecipeViews
- *
- * Rating documents belonging to a user's non-deleted Recipes
- *   -> User.stats.averageRating
- *
- * Recipe documents belonging to a Category
- *   -> Category.stats.recipeCount
- *
- * Normal business operations should keep projections synchronized
- * transactionally. These functions are the repair mechanism when
- * a projection has drifted from its source of truth.
- *
- * Recipe.stats.viewCount is intentionally not reconciled because
- * it is currently the stored source of truth for Recipe views.
- */
-
-/**
- * --------------------------------------------------------------------------
  * Internal Helpers
  * --------------------------------------------------------------------------
  */
 
 /**
- * Ensure that a repository update actually returned
- * the target document.
+ * Ensure that the expected document was actually updated.
  */
 function assertUpdatedDocument(document, errorCode, message) {
   if (!document) {
-    throw new AppError(errorCode, message, { statusCode: 404 });
+    throw new AppError(errorCode, message, {
+      statusCode: 404,
+    });
   }
 
   return document;
+}
+
+/**
+ * Execute a reconciliation operation.
+ *
+ * When a session is supplied, the existing transaction is reused.
+ *
+ * When no session is supplied, the reconciliation is executed inside
+ * a new transaction.
+ *
+ * This allows the same service function to be used:
+ *
+ * 1. inside a domain transaction
+ * 2. as an independent repair operation
+ *
+ * without creating nested transactions.
+ */
+function runReconciliation(session, operation) {
+  if (session) {
+    return operation(session);
+  }
+
+  return withTransaction(async (transactionSession) => {
+    return operation(transactionSession);
+  });
 }
 
 /**
@@ -93,18 +74,24 @@ function assertUpdatedDocument(document, errorCode, message) {
  */
 
 /**
- * Reconcile Recipe rating statistics from the Rating collection.
+ * Reconcile Recipe rating statistics.
  *
- * Invariants:
- * - Recipe.stats.ratingCount = count(Rating)
- * - Recipe.stats.ratingSum = sum(Rating.value)
- * - Recipe.stats.averageRating = avg(Rating.value)
+ * Source of truth:
+ * Rating documents
+ *
+ * Projection:
+ * Recipe.stats.ratingCount
+ * Recipe.stats.ratingSum
+ * Recipe.stats.averageRating
  */
-export async function reconcileRecipeRatingStats(recipeId) {
+export function reconcileRecipeRatingStats(recipeId, session) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  return withTransaction(async (session) => {
-    const sourceStats = await getRatingStatsByRecipeId(recipeId, session);
+  return runReconciliation(session, async (transactionSession) => {
+    const sourceStats = await getRatingStatsByRecipeId(
+      recipeId,
+      transactionSession
+    );
 
     const {
       ratingCount = 0,
@@ -119,7 +106,7 @@ export async function reconcileRecipeRatingStats(recipeId) {
         ratingSum,
         averageRating,
       },
-      session
+      transactionSession
     );
 
     return assertUpdatedDocument(
@@ -131,28 +118,27 @@ export async function reconcileRecipeRatingStats(recipeId) {
 }
 
 /**
- * Reconcile Recipe comment count from active
- * top-level Comments.
+ * Reconcile Recipe comment count.
  *
- * Replies are intentionally excluded.
+ * Source of truth:
+ * Active top-level Comment documents
  *
- * Invariant:
- * Recipe.stats.commentCount =
- * number of active top-level Comments
+ * Projection:
+ * Recipe.stats.commentCount
  */
-export async function reconcileRecipeCommentCount(recipeId) {
+export function reconcileRecipeCommentCount(recipeId, session) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  return withTransaction(async (session) => {
+  return runReconciliation(session, async (transactionSession) => {
     const commentCount = await countTopLevelCommentsByRecipeId(
       recipeId,
-      session
+      transactionSession
     );
 
     const updatedRecipe = await setRecipeCommentCount(
       recipeId,
       commentCount,
-      session
+      transactionSession
     );
 
     return assertUpdatedDocument(
@@ -164,22 +150,23 @@ export async function reconcileRecipeCommentCount(recipeId) {
 }
 
 /**
- * Reconcile all currently supported derived
- * statistics of one Recipe.
+ * Reconcile all currently maintained Recipe statistics.
  *
- * Recipe.stats.viewCount is intentionally not
- * reconciled because the view counter itself
- * is currently the stored source of truth.
+ * Reconciled projections:
+ *
+ * Recipe.stats.ratingCount
+ * Recipe.stats.ratingSum
+ * Recipe.stats.averageRating
+ * Recipe.stats.commentCount
+ *
+ * Recipe.stats.viewCount is intentionally excluded because
+ * it is currently the stored source of truth for Recipe views.
  */
-export async function reconcileRecipeStatistics(recipeId) {
+export function reconcileRecipeStatistics(recipeId, session) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  return withTransaction(async (session) => {
-    /**
-     * Only an existing non-deleted Recipe is
-     * considered a valid reconciliation target.
-     */
-    const recipe = await findNonDeletedRecipeById(recipeId, session);
+  return runReconciliation(session, async (transactionSession) => {
+    const recipe = await findNonDeletedRecipeById(recipeId, transactionSession);
 
     if (!recipe) {
       throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
@@ -187,7 +174,13 @@ export async function reconcileRecipeStatistics(recipeId) {
       });
     }
 
-    const ratingStats = await getRatingStatsByRecipeId(recipeId, session);
+    /**
+     * Rating statistics.
+     */
+    const ratingStats = await getRatingStatsByRecipeId(
+      recipeId,
+      transactionSession
+    );
 
     const {
       ratingCount = 0,
@@ -195,11 +188,17 @@ export async function reconcileRecipeStatistics(recipeId) {
       averageRating = 0,
     } = ratingStats ?? {};
 
+    /**
+     * Comment statistics.
+     */
     const commentCount = await countTopLevelCommentsByRecipeId(
       recipeId,
-      session
+      transactionSession
     );
 
+    /**
+     * Update rating projection.
+     */
     const updatedRecipe = await setRecipeRatingStats(
       recipeId,
       {
@@ -207,7 +206,7 @@ export async function reconcileRecipeStatistics(recipeId) {
         ratingSum,
         averageRating,
       },
-      session
+      transactionSession
     );
 
     assertUpdatedDocument(
@@ -216,10 +215,13 @@ export async function reconcileRecipeStatistics(recipeId) {
       "دستور پخت پیدا نشد."
     );
 
+    /**
+     * Update comment projection.
+     */
     const finalRecipe = await setRecipeCommentCount(
       recipeId,
       commentCount,
-      session
+      transactionSession
     );
 
     return assertUpdatedDocument(
@@ -237,21 +239,23 @@ export async function reconcileRecipeStatistics(recipeId) {
  */
 
 /**
- * Reconcile top-level Comment reaction counters
- * from the Reaction collection.
+ * Reconcile top-level Comment reaction statistics.
  *
- * Invariants:
- * - Comment.likeCount =
- *     count(Reaction type=LIKE where commentId is set)
+ * Source of truth:
+ * Reaction documents targeting the Comment
  *
- * - Comment.dislikeCount =
- *     count(Reaction type=DISLIKE where commentId is set)
+ * Projection:
+ * Comment.likeCount
+ * Comment.dislikeCount
  */
-export async function reconcileCommentReactionStats(commentId) {
+export function reconcileCommentReactionStats(commentId, session) {
   assertValidObjectId(commentId, "comment ID");
 
-  return withTransaction(async (session) => {
-    const sourceStats = await getCommentReactionStats(commentId, session);
+  return runReconciliation(session, async (transactionSession) => {
+    const sourceStats = await getCommentReactionStats(
+      commentId,
+      transactionSession
+    );
 
     const { likeCount = 0, dislikeCount = 0 } = sourceStats ?? {};
 
@@ -261,7 +265,7 @@ export async function reconcileCommentReactionStats(commentId) {
         likeCount,
         dislikeCount,
       },
-      session
+      transactionSession
     );
 
     return assertUpdatedDocument(
@@ -279,23 +283,25 @@ export async function reconcileCommentReactionStats(commentId) {
  */
 
 /**
- * Reconcile an embedded Reply's reaction counters
- * from the Reaction collection.
+ * Reconcile embedded Reply reaction statistics.
  *
- * Invariants:
- * - Reply.likeCount =
- *     count(Reaction type=LIKE where replyId is set)
+ * Source of truth:
+ * Reaction documents targeting the Reply
  *
- * - Reply.dislikeCount =
- *     count(Reaction type=DISLIKE where replyId is set)
+ * Projection:
+ * Reply.likeCount
+ * Reply.dislikeCount
  */
-export async function reconcileReplyReactionStats(commentId, replyId) {
+export function reconcileReplyReactionStats(commentId, replyId, session) {
   assertValidObjectId(commentId, "comment ID");
 
   assertValidObjectId(replyId, "reply ID");
 
-  return withTransaction(async (session) => {
-    const sourceStats = await getReplyReactionStats(replyId, session);
+  return runReconciliation(session, async (transactionSession) => {
+    const sourceStats = await getReplyReactionStats(
+      replyId,
+      transactionSession
+    );
 
     const { likeCount = 0, dislikeCount = 0 } = sourceStats ?? {};
 
@@ -306,7 +312,7 @@ export async function reconcileReplyReactionStats(commentId, replyId) {
         likeCount,
         dislikeCount,
       },
-      session
+      transactionSession
     );
 
     return assertUpdatedDocument(
@@ -324,25 +330,46 @@ export async function reconcileReplyReactionStats(commentId, replyId) {
  */
 
 /**
- * Reconcile User statistics from their
- * source collections.
+ * Reconcile User statistics.
  *
- * Expected source-data contract:
- * {
- *   recipeCount,
- *   totalRecipeViews,
- *   averageRating
- * }
+ * Source of truth:
+ *
+ * Recipe collection:
+ * - recipeCount
+ * - totalRecipeViews
+ *
+ * Rating collection joined through non-deleted Recipes:
+ * - ratingCount
+ * - ratingSum
+ * - averageRating
+ *
+ * Projection:
+ *
+ * User.stats.recipeCount
+ * User.stats.totalRecipeViews
+ * User.stats.ratingCount
+ * User.stats.ratingSum
+ * User.stats.averageRating
+ *
+ * IMPORTANT:
+ *
+ * When this function receives an existing transaction session,
+ * the same transaction is reused.
  */
-export async function reconcileUserStatistics(userId) {
+export function reconcileUserStatistics(userId, session) {
   assertValidObjectId(userId, "user ID");
 
-  return withTransaction(async (session) => {
-    const sourceStats = await getUserStatisticsSourceData(userId, session);
+  return runReconciliation(session, async (transactionSession) => {
+    const sourceStats = await getUserStatisticsSourceData(
+      userId,
+      transactionSession
+    );
 
     const {
       recipeCount = 0,
       totalRecipeViews = 0,
+      ratingCount = 0,
+      ratingSum = 0,
       averageRating = 0,
     } = sourceStats ?? {};
 
@@ -351,9 +378,11 @@ export async function reconcileUserStatistics(userId) {
       {
         recipeCount,
         totalRecipeViews,
+        ratingCount,
+        ratingSum,
         averageRating,
       },
-      session
+      transactionSession
     );
 
     return assertUpdatedDocument(
@@ -371,20 +400,21 @@ export async function reconcileUserStatistics(userId) {
  */
 
 /**
- * Reconcile Category recipe count
- * from the Recipe collection.
+ * Reconcile Category recipe count.
  *
- * Invariant:
- * Category.stats.recipeCount =
- * number of non-deleted Recipes in Category
+ * Source of truth:
+ * Non-deleted Recipe documents belonging to the Category
+ *
+ * Projection:
+ * Category.stats.recipeCount
  */
-export async function reconcileCategoryStatistics(categoryId) {
+export function reconcileCategoryStatistics(categoryId, session) {
   assertValidObjectId(categoryId, "category ID");
 
-  return withTransaction(async (session) => {
+  return runReconciliation(session, async (transactionSession) => {
     const sourceStats = await getCategoryStatisticsSourceData(
       categoryId,
-      session
+      transactionSession
     );
 
     const { recipeCount = 0 } = sourceStats ?? {};
@@ -392,7 +422,7 @@ export async function reconcileCategoryStatistics(categoryId) {
     const updatedCategory = await setCategoryRecipeCount(
       categoryId,
       recipeCount,
-      session
+      transactionSession
     );
 
     return assertUpdatedDocument(

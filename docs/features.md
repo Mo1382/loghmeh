@@ -489,7 +489,8 @@ Each ingredient must contain:
 #### Preparation Steps
 
 - Minimum one step
-- Maximum 1000 characters per step
+- Step title: maximum 100 characters
+- Step description: maximum 2000 characters
 
 ### Business Rules
 

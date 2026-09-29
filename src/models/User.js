@@ -141,17 +141,29 @@ const userSchema = new mongoose.Schema(
         min: 0,
       },
 
+      totalRecipeViews: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      ratingCount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      ratingSum: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
       averageRating: {
         type: Number,
         default: 0,
         min: 0,
         max: 5,
-      },
-
-      totalRecipeViews: {
-        type: Number,
-        default: 0,
-        min: 0,
       },
     },
 

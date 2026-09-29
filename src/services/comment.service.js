@@ -1,7 +1,6 @@
 import {
   addCommentReply,
   createComment as createCommentRepository,
-  deleteCommentReplyById,
   findCommentById,
   findCommentByReplyId,
   findCommentsByRecipe,
@@ -13,10 +12,10 @@ import {
 import { incrementCommentCount } from "@/repositories/recipe.repository";
 
 import {
+  CURSOR_RESOURCES,
+  MAX_COMMENT_REPLIES,
   NOTIFICATION_TYPES,
   USER_ROLES,
-  MAX_COMMENT_REPLIES,
-  CURSOR_RESOURCES,
 } from "@/constants/enums";
 
 import { ERROR_CODES } from "@/constants/error-codes";
@@ -54,7 +53,6 @@ import { createSystemNotification } from "./notification.service";
 
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
-const MAX_COMMENT_LENGTH = 1000;
 
 /**
  * --------------------------------------------------------------------------
@@ -158,7 +156,7 @@ function normalizeCommentText(text) {
     );
   }
 
-  if (normalizedText.length > MAX_COMMENT_LENGTH) {
+  if (normalizedText.length > 1000) {
     throw new AppError(
       ERROR_CODES.INVALID_REQUEST,
       "نظر از حداکثر طول مجاز بیشتر است.",
@@ -538,7 +536,7 @@ export async function deleteComment(currentUser, commentId) {
  * The parent Recipe must still be accessible.
  */
 export async function restoreComment(currentUser, commentId) {
-  assertAdmin(currentUser);
+  await assertAdmin(currentUser);
 
   assertValidObjectId(commentId, "comment ID");
 
@@ -669,9 +667,7 @@ export async function restoreCommentReply(currentUser, replyId) {
   assertValidObjectId(replyId, "reply ID");
 
   return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser, session);
-
-    assertAdmin(user);
+    await assertAdmin(currentUser, session);
 
     const comment = await findDeletedCommentByReplyId(replyId, session);
 

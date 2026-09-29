@@ -12,7 +12,7 @@ const ingredientSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: 100,
+      maxlength: RECIPE_LIMITS.MAX_INGREDIENT_NAME_LENGTH,
     },
 
     quantity: {
@@ -63,14 +63,14 @@ const stepSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: 100,
+      maxlength: RECIPE_LIMITS.MAX_STEP_TITLE_LENGTH,
     },
 
     description: {
       type: String,
       required: true,
       trim: true,
-      maxlength: 2000,
+      maxlength: RECIPE_LIMITS.MAX_STEP_DESCRIPTION_LENGTH,
     },
   },
   { _id: false }
@@ -276,14 +276,17 @@ recipeSchema.index(
 
 recipeSchema.index({
   "stats.averageRating": -1,
+  _id: -1,
 });
 
 recipeSchema.index({
   "stats.viewCount": -1,
+  _id: -1,
 });
 
 recipeSchema.index({
   createdAt: -1,
+  _id: -1,
 });
 
 const Recipe = mongoose.models.Recipe || mongoose.model("Recipe", recipeSchema);

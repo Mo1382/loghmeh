@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+
 import { MAX_COMMENT_REPLIES } from "@/constants/enums";
 
 const replySchema = new mongoose.Schema(
@@ -13,7 +14,7 @@ const replySchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      maxlength: MAX_COMMENT_LENGTH,
+      maxlength: 1000,
     },
 
     likeCount: {
@@ -62,9 +63,24 @@ const commentSchema = new mongoose.Schema(
     replies: {
       type: [replySchema],
       default: [],
+
+      /**
+       * MAX_COMMENT_REPLIES represents the maximum
+       * number of active replies.
+       *
+       * Soft-deleted replies remain embedded in the
+       * document but do not consume the active-reply limit.
+       */
       validate: {
-        validator: (items) => items.length <= MAX_COMMENT_REPLIES,
-        message: `A comment cannot have more than ${MAX_COMMENT_REPLIES} replies.`,
+        validator(items) {
+          const activeReplyCount = (items ?? []).filter(
+            (reply) => reply.deletedAt == null
+          ).length;
+
+          return activeReplyCount <= MAX_COMMENT_REPLIES;
+        },
+
+        message: `A comment cannot have more than ${MAX_COMMENT_REPLIES} active replies.`,
       },
     },
 
@@ -91,9 +107,15 @@ const commentSchema = new mongoose.Schema(
 );
 
 // Indexes
-commentSchema.index({ recipeId: 1, createdAt: -1 });
 
-commentSchema.index({ "replies._id": 1 });
+commentSchema.index({
+  recipeId: 1,
+  createdAt: -1,
+});
+
+commentSchema.index({
+  "replies._id": 1,
+});
 
 const Comment =
   mongoose.models.Comment || mongoose.model("Comment", commentSchema);

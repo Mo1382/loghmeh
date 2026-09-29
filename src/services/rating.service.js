@@ -6,9 +6,10 @@ import {
 
 import { updateRatingStatsDeltas } from "@/repositories/recipe.repository";
 
-import { NOTIFICATION_TYPES } from "@/constants/enums";
-
+import { reconcileUserStatistics } from "@/services/statistics.service";
 import { createSystemNotification } from "@/services/notification.service";
+
+import { NOTIFICATION_TYPES } from "@/constants/enums";
 
 import { ERROR_CODES } from "@/constants/error-codes";
 
@@ -31,22 +32,24 @@ import { getAccessibleRecipe } from "@/lib/helpers/recipe-access";
 /**
  * Ensure the rating value is an integer between 1 and 5.
  *
- * Zod validation should normally enforce this at the input boundary.
- * This check is kept in the Service as an additional business-layer guard.
+ * Zod validation should normally enforce this at the
+ * external input boundary as well.
+ *
+ * This check remains as a business-layer guard.
  */
 function assertValidRatingValue(value) {
   if (!Number.isInteger(value) || value < 1 || value > 5) {
     throw new AppError(
       ERROR_CODES.INVALID_REQUEST,
       "امتیاز باید یک عدد صحیح بین ۱ و ۵ باشد.",
-      { statusCode: 400 }
+      {
+        statusCode: 400,
+      }
     );
   }
 }
 
 /**
- * Ensure the current user is not the Recipe owner.
- *
  * Users cannot rate their own Recipes.
  */
 function assertNotRecipeOwner(currentUser, recipe) {
@@ -56,14 +59,25 @@ function assertNotRecipeOwner(currentUser, recipe) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
       "شما نمی‌توانید به دستور پخت خودتان امتیاز بدهید.",
-      { statusCode: 403 }
+      {
+        statusCode: 403,
+      }
     );
   }
 }
 
 /**
- * Ensure a MongoDB duplicate-key error is specifically
- * caused by the unique user/Recipe rating relationship.
+ * --------------------------------------------------------------------------
+ * Duplicate Error Handling
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Convert a duplicate-key error from the unique
+ * { userId, recipeId } index into a domain error.
+ *
+ * Only the expected Rating uniqueness violation is
+ * converted. Other duplicate-key errors are rethrown.
  */
 function throwRatingDuplicateError(error) {
   if (error?.code !== 11000) {
@@ -74,7 +88,7 @@ function throwRatingDuplicateError(error) {
   const keyValue = error.keyValue ?? {};
 
   const isRatingDuplicate =
-    (keyPattern.userId && keyPattern.recipeId) ||
+    Boolean(keyPattern.userId && keyPattern.recipeId) ||
     (Object.prototype.hasOwnProperty.call(keyValue, "userId") &&
       Object.prototype.hasOwnProperty.call(keyValue, "recipeId"));
 
@@ -85,7 +99,9 @@ function throwRatingDuplicateError(error) {
   throw new AppError(
     ERROR_CODES.RATING_ALREADY_EXISTS,
     "شما قبلاً به این دستور پخت امتیاز داده‌اید.",
-    { statusCode: 409 }
+    {
+      statusCode: 409,
+    }
   );
 }
 
@@ -96,9 +112,7 @@ function throwRatingDuplicateError(error) {
  */
 
 /**
- * Get the current user's rating for a Recipe.
- *
- * Returns null when the user has not rated the Recipe yet.
+ * Get the current user's Rating for a Recipe.
  *
  * The Recipe must currently be accessible.
  */
@@ -119,37 +133,49 @@ export async function getUserRating(currentUser, recipeId) {
  */
 
 /**
- * Create a new rating for a Recipe.
+ * Create a new Rating.
  *
- * Rating statistics are updated atomically with the
- * Rating creation:
+ * Maintains:
  *
- * ratingCount += 1
- * ratingSum   += value
- * averageRating = newSum / newCount
+ * Rating
+ *   ↓
+ * Recipe.stats.ratingCount
+ * Recipe.stats.ratingSum
+ * Recipe.stats.averageRating
+ *
+ * Then reconciles:
+ *
+ * Recipe + Rating
+ *   ↓
+ * User.stats.ratingCount
+ * User.stats.ratingSum
+ * User.stats.averageRating
  */
 export async function createRating(currentUser, recipeId, value) {
   assertValidObjectId(recipeId, "recipe ID");
+
   assertValidRatingValue(value);
 
   return withTransaction(async (session) => {
+    /**
+     * Re-resolve the authenticated User
+     * inside the transaction.
+     */
     const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     /**
-     * Only accessible Recipes can be rated.
+     * Recipe must remain accessible
+     * within this transaction.
      */
     const { recipe } = await getAccessibleRecipe(recipeId, session);
 
-    /**
-     * Users cannot rate their own Recipes.
-     */
     assertNotRecipeOwner(user, recipe);
 
     /**
-     * Pre-check for the normal duplicate path.
+     * Fast duplicate pre-check.
      *
-     * The unique database index remains the final
-     * protection against concurrent duplicate requests.
+     * The database unique index remains the
+     * final protection against concurrent creation.
      */
     const existingRating = await findRatingByUserAndRecipe(
       user._id,
@@ -161,7 +187,9 @@ export async function createRating(currentUser, recipeId, value) {
       throw new AppError(
         ERROR_CODES.RATING_ALREADY_EXISTS,
         "شما قبلاً به این دستور پخت امتیاز داده‌اید.",
-        { statusCode: 409 }
+        {
+          statusCode: 409,
+        }
       );
     }
 
@@ -177,16 +205,14 @@ export async function createRating(currentUser, recipeId, value) {
         session
       );
     } catch (error) {
-      /**
-       * Handle a duplicate-key race against the
-       * unique { userId, recipeId } index.
-       */
       throwRatingDuplicateError(error);
     }
 
     /**
-     * Keep Recipe rating projections synchronized
-     * inside the same transaction.
+     * Rating is the source of truth.
+     *
+     * Atomically maintain the Recipe's
+     * denormalized rating statistics.
      */
     const updatedRecipe = await updateRatingStatsDeltas(
       recipeId,
@@ -202,10 +228,19 @@ export async function createRating(currentUser, recipeId, value) {
     }
 
     /**
+     * Reconcile User statistics from the
+     * underlying source data.
+     *
+     * IMPORTANT:
+     * The existing transaction session is reused.
+     */
+    await reconcileUserStatistics(recipe.authorId, session);
+
+    /**
      * Notify the Recipe owner.
      *
-     * assertNotRecipeOwner() guarantees that the
-     * actor and recipient cannot be the same user.
+     * Self-rating is already prohibited above,
+     * so the actor and target owner are different.
      */
     await createSystemNotification(
       {
@@ -230,27 +265,39 @@ export async function createRating(currentUser, recipeId, value) {
  */
 
 /**
- * Update the current user's existing rating.
+ * Update an existing Rating.
  *
- * Only ratingSum changes because ratingCount remains unchanged.
+ * ratingCount remains unchanged.
  *
- * ratingSumDelta = newValue - oldValue
+ * Only ratingSum changes:
+ *
+ * newValue - oldValue
+ *
+ * User statistics are reconciled from source data
+ * after the Recipe projection is updated.
  */
 export async function updateRating(currentUser, recipeId, value) {
   assertValidObjectId(recipeId, "recipe ID");
+
   assertValidRatingValue(value);
 
   return withTransaction(async (session) => {
+    /**
+     * Re-resolve the authenticated User
+     * inside the transaction.
+     */
     const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     /**
-     * Only accessible Recipes can have their
-     * rating updated.
+     * Recipe must remain accessible.
      */
     const { recipe } = await getAccessibleRecipe(recipeId, session);
 
     assertNotRecipeOwner(user, recipe);
 
+    /**
+     * Load the current Rating.
+     */
     const existingRating = await findRatingByUserAndRecipe(
       user._id,
       recipeId,
@@ -264,14 +311,16 @@ export async function updateRating(currentUser, recipeId, value) {
     }
 
     /**
-     * Idempotent behavior:
-     * if the selected value is already stored,
+     * Idempotent update:
      * no database mutation is required.
      */
     if (existingRating.value === value) {
       return existingRating;
     }
 
+    /**
+     * Update the source Rating first.
+     */
     const updatedRating = await updateRatingByUserAndRecipe(
       user._id,
       recipeId,
@@ -283,17 +332,19 @@ export async function updateRating(currentUser, recipeId, value) {
       throw new AppError(
         ERROR_CODES.RATING_NOT_FOUND,
         "امتیاز به‌روزرسانی نشد.",
-        { statusCode: 404 }
+        {
+          statusCode: 404,
+        }
       );
     }
 
     /**
-     * Replace the old contribution with the new one.
+     * Move the difference into Recipe.ratingSum.
      *
      * Example:
-     * old = 3
-     * new = 5
-     * delta = +2
+     *
+     * 2 -> 5  => +3
+     * 5 -> 2  => -3
      */
     const ratingSumDelta = value - existingRating.value;
 
@@ -309,6 +360,14 @@ export async function updateRating(currentUser, recipeId, value) {
         statusCode: 404,
       });
     }
+
+    /**
+     * Recalculate User rating statistics
+     * from the underlying Rating/Recipe data.
+     *
+     * The same transaction session is reused.
+     */
+    await reconcileUserStatistics(recipe.authorId, session);
 
     return updatedRating;
   });

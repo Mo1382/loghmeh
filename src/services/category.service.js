@@ -271,7 +271,7 @@ export async function getCategories({ activeOnly = true } = {}) {
  */
 
 export async function createCategory(currentUser, categoryData) {
-  assertAdmin(currentUser);
+  await assertAdmin(currentUser);
 
   const sanitizedData = pickAllowedFields(
     categoryData,
@@ -395,7 +395,7 @@ export async function updateCategory(currentUser, categoryId, updates) {
  */
 
 export async function deactivateCategory(currentUser, categoryId) {
-  assertAdmin(currentUser);
+  await assertAdmin(currentUser);
 
   assertValidObjectId(categoryId, "category ID");
 
@@ -441,7 +441,7 @@ export async function deactivateCategory(currentUser, categoryId) {
 }
 
 export async function activateCategory(currentUser, categoryId) {
-  assertAdmin(currentUser);
+  await assertAdmin(currentUser);
 
   assertValidObjectId(categoryId, "category ID");
 

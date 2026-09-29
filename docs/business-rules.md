@@ -131,13 +131,13 @@ Rules are organized by domain and include validation constraints, access control
 
 ## 3.2 Recipe Content Rules
 
-| Rule ID | Rule                                                    | Priority |
-| ------- | ------------------------------------------------------- | -------- |
-| REC-009 | Every recipe must contain at least one ingredient       | Critical |
-| REC-010 | Every recipe must contain at least one preparation step | Critical |
-| REC-011 | Preparation time must be greater than zero              | High     |
-| REC-012 | Serving size must be greater than zero                  | High     |
-| REC-013 | Each preparation step must not exceed 1000 characters   | Medium   |
+| Rule ID | Rule                                                              | Priority |
+| ------- | ----------------------------------------------------------------- | -------- |
+| REC-009 | Every recipe must contain at least one ingredient                 | Critical |
+| REC-010 | Every recipe must contain at least one preparation step           | Critical |
+| REC-011 | Preparation time must be greater than zero                        | High     |
+| REC-012 | Serving size must be greater than zero                            | High     |
+| REC-013 | Each preparation step description must not exceed 2000 characters | Medium   |
 
 ## 3.3 Recipe Ownership Rules
 

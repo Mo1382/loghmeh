@@ -9,9 +9,11 @@ import { REACTION_TYPES } from "@/constants/enums";
 
 import { applySession } from "@/lib/helpers/apply-session";
 
-/* -------------------------------------------------------------------------- */
-/* Recipe Statistics                                                          */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Recipe Statistics
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Calculate Recipe rating statistics from the Rating collection.
@@ -33,6 +35,7 @@ export async function getRatingStatsByRecipeId(recipeId, session) {
         recipeId,
       },
     },
+
     {
       $group: {
         _id: null,
@@ -47,6 +50,30 @@ export async function getRatingStatsByRecipeId(recipeId, session) {
 
         averageRating: {
           $avg: "$value",
+        },
+      },
+    },
+
+    {
+      $project: {
+        _id: 0,
+
+        ratingCount: 1,
+
+        ratingSum: 1,
+
+        averageRating: {
+          $cond: [
+            {
+              $gt: ["$ratingCount", 0],
+            },
+
+            {
+              $round: ["$averageRating", 2],
+            },
+
+            0,
+          ],
         },
       },
     },
@@ -65,21 +92,19 @@ export async function getRatingStatsByRecipeId(recipeId, session) {
 
     ratingSum: result?.ratingSum ?? 0,
 
-    averageRating:
-      result?.averageRating !== undefined
-        ? Number(result.averageRating.toFixed(2))
-        : 0,
+    averageRating: result?.averageRating ?? 0,
   };
 }
 
 /**
- * Replace the stored Recipe rating statistics
- * with calculated values.
+ * Replace the stored Recipe rating statistics.
  *
  * Projection:
  * - Recipe.stats.ratingCount
  * - Recipe.stats.ratingSum
  * - Recipe.stats.averageRating
+ *
+ * Only non-deleted Recipes are updated.
  */
 export function setRecipeRatingStats(
   recipeId,
@@ -91,13 +116,17 @@ export function setRecipeRatingStats(
       _id: recipeId,
       deletedAt: null,
     },
+
     {
       $set: {
         "stats.ratingCount": ratingCount,
+
         "stats.ratingSum": ratingSum,
+
         "stats.averageRating": averageRating,
       },
     },
+
     {
       new: true,
       runValidators: true,
@@ -108,10 +137,9 @@ export function setRecipeRatingStats(
 }
 
 /**
- * Count active top-level comments for a Recipe.
+ * Count active top-level Comments for a Recipe.
  *
- * Replies are embedded inside Comment documents
- * and are not counted.
+ * Embedded Replies are intentionally not counted.
  */
 export function countTopLevelCommentsByRecipeId(recipeId, session) {
   const query = Comment.countDocuments({
@@ -124,6 +152,11 @@ export function countTopLevelCommentsByRecipeId(recipeId, session) {
 
 /**
  * Replace the stored Recipe comment count.
+ *
+ * Projection:
+ * - Recipe.stats.commentCount
+ *
+ * Only non-deleted Recipes are updated.
  */
 export function setRecipeCommentCount(recipeId, commentCount, session) {
   const query = Recipe.findOneAndUpdate(
@@ -131,11 +164,13 @@ export function setRecipeCommentCount(recipeId, commentCount, session) {
       _id: recipeId,
       deletedAt: null,
     },
+
     {
       $set: {
         "stats.commentCount": commentCount,
       },
     },
+
     {
       new: true,
       runValidators: true,
@@ -145,9 +180,11 @@ export function setRecipeCommentCount(recipeId, commentCount, session) {
   return applySession(query, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Comment Statistics                                                         */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Comment Statistics
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Calculate top-level Comment reaction statistics
@@ -155,12 +192,6 @@ export function setRecipeCommentCount(recipeId, commentCount, session) {
  *
  * Source of truth:
  * - Reaction documents whose commentId is set.
- *
- * Returns:
- * {
- *   likeCount: Number,
- *   dislikeCount: Number
- * }
  */
 export async function getCommentReactionStats(commentId, session) {
   const pipeline = [
@@ -169,9 +200,11 @@ export async function getCommentReactionStats(commentId, session) {
         commentId,
       },
     },
+
     {
       $group: {
         _id: "$type",
+
         count: {
           $sum: 1,
         },
@@ -202,6 +235,12 @@ export async function getCommentReactionStats(commentId, session) {
 /**
  * Replace the stored top-level Comment
  * reaction counters.
+ *
+ * Projection:
+ * - Comment.likeCount
+ * - Comment.dislikeCount
+ *
+ * Only non-deleted Comments are updated.
  */
 export function setCommentReactionStats(
   commentId,
@@ -213,12 +252,14 @@ export function setCommentReactionStats(
       _id: commentId,
       deletedAt: null,
     },
+
     {
       $set: {
         likeCount,
         dislikeCount,
       },
     },
+
     {
       new: true,
       runValidators: true,
@@ -228,9 +269,11 @@ export function setCommentReactionStats(
   return applySession(query, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Reply Statistics                                                           */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Reply Statistics
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Calculate embedded Reply reaction statistics
@@ -246,9 +289,11 @@ export async function getReplyReactionStats(replyId, session) {
         replyId,
       },
     },
+
     {
       $group: {
         _id: "$type",
+
         count: {
           $sum: 1,
         },
@@ -295,12 +340,15 @@ export function setReplyReactionStats(
       deletedAt: null,
       "replies._id": replyId,
     },
+
     {
       $set: {
         "replies.$.likeCount": likeCount,
+
         "replies.$.dislikeCount": dislikeCount,
       },
     },
+
     {
       new: true,
       runValidators: true,
@@ -310,22 +358,35 @@ export function setReplyReactionStats(
   return applySession(query, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* User Statistics                                                            */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * User Statistics
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Calculate User statistics from source collections.
  *
- * Current invariants:
- * - recipeCount =
- *     number of non-deleted Recipes authored by the User
+ * Source of truth:
  *
- * - totalRecipeViews =
- *     sum of viewCount on non-deleted authored Recipes
+ * Recipe collection:
+ * - recipeCount
+ * - totalRecipeViews
  *
- * - averageRating =
- *     average of Rating.value for non-deleted authored Recipes
+ * Rating collection joined through non-deleted Recipes:
+ * - ratingCount
+ * - ratingSum
+ * - averageRating
+ *
+ * Returned contract:
+ *
+ * {
+ *   recipeCount,
+ *   totalRecipeViews,
+ *   ratingCount,
+ *   ratingSum,
+ *   averageRating
+ * }
  */
 export async function getUserStatisticsSourceData(userId, session) {
   const recipeFilter = {
@@ -333,14 +394,25 @@ export async function getUserStatisticsSourceData(userId, session) {
     deletedAt: null,
   };
 
+  /**
+   * ----------------------------------------------------
+   * Recipe Count
+   * ----------------------------------------------------
+   */
   const recipeCountQuery = Recipe.countDocuments(recipeFilter);
 
   const recipeCount = await applySession(recipeCountQuery, session);
 
+  /**
+   * ----------------------------------------------------
+   * Total Recipe Views
+   * ----------------------------------------------------
+   */
   const viewPipeline = [
     {
       $match: recipeFilter,
     },
+
     {
       $group: {
         _id: null,
@@ -362,27 +434,74 @@ export async function getUserStatisticsSourceData(userId, session) {
 
   const [viewResult] = await viewAggregate;
 
+  /**
+   * ----------------------------------------------------
+   * Rating Statistics
+   * ----------------------------------------------------
+   *
+   * Only Ratings belonging to non-deleted
+   * Recipes authored by this User are included.
+   */
   const ratingPipeline = [
     {
       $match: recipeFilter,
     },
+
     {
       $lookup: {
         from: Rating.collection.name,
+
         localField: "_id",
+
         foreignField: "recipeId",
+
         as: "ratings",
       },
     },
+
     {
       $unwind: "$ratings",
     },
+
     {
       $group: {
         _id: null,
 
+        ratingCount: {
+          $sum: 1,
+        },
+
+        ratingSum: {
+          $sum: "$ratings.value",
+        },
+      },
+    },
+
+    {
+      $project: {
+        _id: 0,
+
+        ratingCount: 1,
+
+        ratingSum: 1,
+
         averageRating: {
-          $avg: "$ratings.value",
+          $cond: [
+            {
+              $gt: ["$ratingCount", 0],
+            },
+
+            {
+              $round: [
+                {
+                  $divide: ["$ratingSum", "$ratingCount"],
+                },
+                2,
+              ],
+            },
+
+            0,
+          ],
         },
       },
     },
@@ -396,44 +515,59 @@ export async function getUserStatisticsSourceData(userId, session) {
 
   const [ratingResult] = await ratingAggregate;
 
+  /**
+   * ----------------------------------------------------
+   * Final Source-Data Contract
+   * ----------------------------------------------------
+   */
   return {
     recipeCount,
 
     totalRecipeViews: viewResult?.totalRecipeViews ?? 0,
 
-    averageRating:
-      ratingResult?.averageRating !== undefined
-        ? Number(ratingResult.averageRating.toFixed(2))
-        : 0,
+    ratingCount: ratingResult?.ratingCount ?? 0,
+
+    ratingSum: ratingResult?.ratingSum ?? 0,
+
+    averageRating: ratingResult?.averageRating ?? 0,
   };
 }
 
 /**
- * Replace the stored User statistics.
+ * Replace stored User statistics.
  *
  * Projection:
- * - User.stats.recipeCount
- * - User.stats.totalRecipeViews
- * - User.stats.averageRating
+ *
+ * User.stats.recipeCount
+ * User.stats.totalRecipeViews
+ * User.stats.ratingCount
+ * User.stats.ratingSum
+ * User.stats.averageRating
  */
 export function setUserStats(
   userId,
-  { recipeCount, totalRecipeViews, averageRating },
+  { recipeCount, totalRecipeViews, ratingCount, ratingSum, averageRating },
   session
 ) {
   const query = User.findOneAndUpdate(
     {
       _id: userId,
     },
+
     {
       $set: {
         "stats.recipeCount": recipeCount,
 
         "stats.totalRecipeViews": totalRecipeViews,
 
+        "stats.ratingCount": ratingCount,
+
+        "stats.ratingSum": ratingSum,
+
         "stats.averageRating": averageRating,
       },
     },
+
     {
       new: true,
       runValidators: true,
@@ -443,17 +577,20 @@ export function setUserStats(
   return applySession(query, session);
 }
 
-/* -------------------------------------------------------------------------- */
-/* Category Statistics                                                        */
-/* -------------------------------------------------------------------------- */
+/**
+ * --------------------------------------------------------------------------
+ * Category Statistics
+ * --------------------------------------------------------------------------
+ */
 
 /**
  * Calculate Category recipe count
  * from the Recipe collection.
  *
  * Current invariant:
- * - Category.stats.recipeCount =
- *     number of non-deleted Recipes in Category
+ *
+ * Category.stats.recipeCount =
+ * number of non-deleted Recipes in Category
  */
 export function getCategoryStatisticsSourceData(categoryId, session) {
   const query = Recipe.countDocuments({
@@ -468,17 +605,22 @@ export function getCategoryStatisticsSourceData(categoryId, session) {
 
 /**
  * Replace the stored Category recipe count.
+ *
+ * Projection:
+ * - Category.stats.recipeCount
  */
 export function setCategoryRecipeCount(categoryId, recipeCount, session) {
   const query = Category.findOneAndUpdate(
     {
       _id: categoryId,
     },
+
     {
       $set: {
         "stats.recipeCount": recipeCount,
       },
     },
+
     {
       new: true,
       runValidators: true,

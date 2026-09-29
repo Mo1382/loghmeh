@@ -1,7 +1,8 @@
 import User from "@/models/User";
-import { ACCOUNT_STATUSES, USER_SORTS, USER_STATS } from "@/constants/enums";
-import { applySession } from "@/lib/helpers/apply-session";
 
+import { ACCOUNT_STATUSES, USER_SORTS, USER_STATS } from "@/constants/enums";
+
+import { applySession } from "@/lib/helpers/apply-session";
 /**
  * Allowed user statistics that can be updated using $inc.
  */
@@ -557,19 +558,149 @@ export function incrementTotalRecipeViews(userId, amount = 1, session) {
 }
 
 /**
- * Update user's average recipe rating.
+ * Replace calculated User statistics.
+ *
+ * Source of truth:
+ * - Recipe collection
+ * - Rating collection
+ *
+ * Stored projection:
+ * - recipeCount
+ * - totalRecipeViews
+ * - ratingCount
+ * - ratingSum
+ * - averageRating
  */
-export function updateAverageRating(userId, averageRating, session) {
-  const query = User.findByIdAndUpdate(
-    userId,
+export function setUserStats(
+  userId,
+  { recipeCount, totalRecipeViews, ratingCount, ratingSum, averageRating },
+  session
+) {
+  const query = User.findOneAndUpdate(
+    {
+      _id: userId,
+      deletedAt: null,
+    },
     {
       $set: {
+        "stats.recipeCount": recipeCount,
+        "stats.totalRecipeViews": totalRecipeViews,
+        "stats.ratingCount": ratingCount,
+        "stats.ratingSum": ratingSum,
         "stats.averageRating": averageRating,
       },
     },
     {
       new: true,
       runValidators: true,
+    }
+  );
+
+  return applySession(query, session);
+}
+
+/**
+ * Update User rating projection.
+ *
+ * Used after Rating mutations.
+ *
+ * Fields updated together:
+ * - ratingCount
+ * - ratingSum
+ * - averageRating
+ */
+export function updateUserRatingStats(
+  userId,
+  { ratingCount, ratingSum, averageRating },
+  session
+) {
+  const query = User.findOneAndUpdate(
+    {
+      _id: userId,
+      deletedAt: null,
+    },
+    {
+      $set: {
+        "stats.ratingCount": ratingCount,
+        "stats.ratingSum": ratingSum,
+        "stats.averageRating": averageRating,
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  return applySession(query, session);
+}
+
+export function updateUserRatingStatsDeltas(
+  userId,
+  ratingCountDelta,
+  ratingSumDelta,
+  session
+) {
+  const currentCount = {
+    $ifNull: ["$stats.ratingCount", 0],
+  };
+
+  const currentSum = {
+    $ifNull: ["$stats.ratingSum", 0],
+  };
+
+  const nextCount = {
+    $add: [currentCount, ratingCountDelta],
+  };
+
+  const nextSum = {
+    $add: [currentSum, ratingSumDelta],
+  };
+
+  const query = User.findOneAndUpdate(
+    {
+      _id: userId,
+      deletedAt: null,
+
+      $expr: {
+        $and: [
+          {
+            $gte: [nextCount, 0],
+          },
+          {
+            $gte: [nextSum, 0],
+          },
+        ],
+      },
+    },
+    [
+      {
+        $set: {
+          "stats.ratingCount": nextCount,
+
+          "stats.ratingSum": nextSum,
+
+          "stats.averageRating": {
+            $cond: [
+              {
+                $gt: [nextCount, 0],
+              },
+              {
+                $round: [
+                  {
+                    $divide: [nextSum, nextCount],
+                  },
+                  2,
+                ],
+              },
+              0,
+            ],
+          },
+        },
+      },
+    ],
+    {
+      new: true,
     }
   );
 

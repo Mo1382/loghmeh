@@ -72,6 +72,9 @@ export const MAX_COMMENT_REPLIES = 50;
 export const RECIPE_LIMITS = {
   MAX_INGREDIENTS: 100,
   MAX_STEPS: 100,
+  MAX_INGREDIENT_NAME_LENGTH: 100,
+  MAX_STEP_TITLE_LENGTH: 100,
+  MAX_STEP_DESCRIPTION_LENGTH: 2000,
 };
 
 export const CURSOR_RESOURCES = {
@@ -108,6 +111,8 @@ export const RECIPE_STATS = {
 export const USER_STATS = {
   RECIPE_COUNT: "recipeCount",
   TOTAL_RECIPE_VIEWS: "totalRecipeViews",
+  RATING_COUNT: "ratingCount",
+  RATING_SUM: "ratingSum",
 };
 
 export const COMMENT_STATS = {
