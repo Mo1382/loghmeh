@@ -6,7 +6,8 @@ import {
 
 import { updateRatingStatsDeltas } from "@/repositories/recipe.repository";
 
-import { reconcileUserStatistics } from "@/services/statistics.service";
+import { updateUserRatingStatsDeltas } from "@/repositories/user.repository";
+
 import { createSystemNotification } from "@/services/notification.service";
 
 import { NOTIFICATION_TYPES } from "@/constants/enums";
@@ -73,11 +74,13 @@ function assertNotRecipeOwner(currentUser, recipe) {
  */
 
 /**
- * Convert a duplicate-key error from the unique
- * { userId, recipeId } index into a domain error.
+ * Convert the expected unique-index violation for:
  *
- * Only the expected Rating uniqueness violation is
- * converted. Other duplicate-key errors are rethrown.
+ * { userId, recipeId }
+ *
+ * into a domain error.
+ *
+ * Other duplicate-key errors are rethrown unchanged.
  */
 function throwRatingDuplicateError(error) {
   if (error?.code !== 11000) {
@@ -85,6 +88,7 @@ function throwRatingDuplicateError(error) {
   }
 
   const keyPattern = error.keyPattern ?? {};
+
   const keyValue = error.keyValue ?? {};
 
   const isRatingDuplicate =
@@ -135,21 +139,18 @@ export async function getUserRating(currentUser, recipeId) {
 /**
  * Create a new Rating.
  *
- * Maintains:
+ * Normal statistics path:
  *
  * Rating
  *   ↓
- * Recipe.stats.ratingCount
- * Recipe.stats.ratingSum
- * Recipe.stats.averageRating
- *
- * Then reconciles:
- *
- * Recipe + Rating
+ * Recipe statistics → Delta
  *   ↓
- * User.stats.ratingCount
- * User.stats.ratingSum
- * User.stats.averageRating
+ * User statistics   → Delta
+ *
+ * All changes occur inside one transaction.
+ *
+ * User reconciliation is intentionally NOT performed here.
+ * It remains available as a repair/rebuild mechanism.
  */
 export async function createRating(currentUser, recipeId, value) {
   assertValidObjectId(recipeId, "recipe ID");
@@ -158,14 +159,13 @@ export async function createRating(currentUser, recipeId, value) {
 
   return withTransaction(async (session) => {
     /**
-     * Re-resolve the authenticated User
+     * Resolve the authenticated User again
      * inside the transaction.
      */
     const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     /**
-     * Recipe must remain accessible
-     * within this transaction.
+     * The Recipe must currently be accessible.
      */
     const { recipe } = await getAccessibleRecipe(recipeId, session);
 
@@ -174,7 +174,7 @@ export async function createRating(currentUser, recipeId, value) {
     /**
      * Fast duplicate pre-check.
      *
-     * The database unique index remains the
+     * The unique database index remains the
      * final protection against concurrent creation.
      */
     const existingRating = await findRatingByUserAndRecipe(
@@ -211,8 +211,8 @@ export async function createRating(currentUser, recipeId, value) {
     /**
      * Rating is the source of truth.
      *
-     * Atomically maintain the Recipe's
-     * denormalized rating statistics.
+     * Maintain Recipe rating statistics
+     * using atomic deltas.
      */
     const updatedRecipe = await updateRatingStatsDeltas(
       recipeId,
@@ -228,27 +228,51 @@ export async function createRating(currentUser, recipeId, value) {
     }
 
     /**
-     * Reconcile User statistics from the
-     * underlying source data.
+     * Maintain User rating statistics
+     * using the same delta.
      *
-     * IMPORTANT:
-     * The existing transaction session is reused.
+     * Create:
+     *   ratingCount + 1
+     *   ratingSum   + value
+     *
+     * averageRating is recalculated atomically
+     * by the Repository from the new values.
      */
-    await reconcileUserStatistics(recipe.authorId, session);
+    const updatedUser = await updateUserRatingStatsDeltas(
+      recipe.authorId,
+      1,
+      value,
+      session
+    );
+
+    if (!updatedUser) {
+      throw new AppError(
+        ERROR_CODES.USER_NOT_FOUND,
+        "آمار امتیازات کاربر به‌روزرسانی نشد.",
+        {
+          statusCode: 404,
+        }
+      );
+    }
 
     /**
      * Notify the Recipe owner.
      *
-     * Self-rating is already prohibited above,
-     * so the actor and target owner are different.
+     * Self-rating has already been prohibited,
+     * so the notification target and actor differ.
      */
     await createSystemNotification(
       {
         userId: recipe.authorId,
+
         actorId: user._id,
+
         type: NOTIFICATION_TYPES.RECIPE_RATED,
+
         title: "امتیاز جدید برای دستور پخت شما",
+
         message: `${user.username} به دستور پخت شما امتیاز داد.`,
+
         recipeId: recipe._id,
       },
       session
@@ -265,16 +289,21 @@ export async function createRating(currentUser, recipeId, value) {
  */
 
 /**
- * Update an existing Rating.
+ * Update the current user's existing Rating.
  *
  * ratingCount remains unchanged.
  *
  * Only ratingSum changes:
  *
- * newValue - oldValue
+ *     newValue - oldValue
  *
- * User statistics are reconciled from source data
- * after the Recipe projection is updated.
+ * The same delta is applied to both:
+ *
+ * Recipe.stats
+ * User.stats
+ *
+ * User reconciliation is intentionally NOT performed
+ * during the normal mutation path.
  */
 export async function updateRating(currentUser, recipeId, value) {
   assertValidObjectId(recipeId, "recipe ID");
@@ -283,13 +312,13 @@ export async function updateRating(currentUser, recipeId, value) {
 
   return withTransaction(async (session) => {
     /**
-     * Re-resolve the authenticated User
+     * Resolve the authenticated User again
      * inside the transaction.
      */
     const user = await requireActiveAuthenticatedUser(currentUser, session);
 
     /**
-     * Recipe must remain accessible.
+     * The Recipe must currently be accessible.
      */
     const { recipe } = await getAccessibleRecipe(recipeId, session);
 
@@ -312,14 +341,26 @@ export async function updateRating(currentUser, recipeId, value) {
 
     /**
      * Idempotent update:
-     * no database mutation is required.
+     *
+     * Nothing needs to change when the selected
+     * value is already active.
      */
     if (existingRating.value === value) {
       return existingRating;
     }
 
     /**
-     * Update the source Rating first.
+     * Calculate the delta from the source Rating.
+     *
+     * Example:
+     *
+     * 2 -> 5 = +3
+     * 5 -> 2 = -3
+     */
+    const ratingSumDelta = value - existingRating.value;
+
+    /**
+     * Update the source Rating.
      */
     const updatedRating = await updateRatingByUserAndRecipe(
       user._id,
@@ -339,15 +380,11 @@ export async function updateRating(currentUser, recipeId, value) {
     }
 
     /**
-     * Move the difference into Recipe.ratingSum.
+     * Maintain Recipe rating statistics.
      *
-     * Example:
-     *
-     * 2 -> 5  => +3
-     * 5 -> 2  => -3
+     * ratingCountDelta = 0
+     * ratingSumDelta   = newValue - oldValue
      */
-    const ratingSumDelta = value - existingRating.value;
-
     const updatedRecipe = await updateRatingStatsDeltas(
       recipeId,
       0,
@@ -362,12 +399,31 @@ export async function updateRating(currentUser, recipeId, value) {
     }
 
     /**
-     * Recalculate User rating statistics
-     * from the underlying Rating/Recipe data.
+     * Maintain User rating statistics
+     * using exactly the same delta.
      *
-     * The same transaction session is reused.
+     * ratingCount remains unchanged.
+     * ratingSum changes by ratingSumDelta.
+     *
+     * averageRating is recalculated atomically
+     * by the Repository from the new values.
      */
-    await reconcileUserStatistics(recipe.authorId, session);
+    const updatedUser = await updateUserRatingStatsDeltas(
+      recipe.authorId,
+      0,
+      ratingSumDelta,
+      session
+    );
+
+    if (!updatedUser) {
+      throw new AppError(
+        ERROR_CODES.USER_NOT_FOUND,
+        "آمار امتیازات کاربر به‌روزرسانی نشد.",
+        {
+          statusCode: 404,
+        }
+      );
+    }
 
     return updatedRating;
   });

@@ -139,7 +139,7 @@ export function setRecipeRatingStats(
 /**
  * Count active top-level Comments for a Recipe.
  *
- * Embedded Replies are intentionally not counted.
+ * Embedded Replies are intentionally excluded.
  */
 export function countTopLevelCommentsByRecipeId(recipeId, session) {
   const query = Comment.countDocuments({
@@ -373,7 +373,8 @@ export function setReplyReactionStats(
  * - recipeCount
  * - totalRecipeViews
  *
- * Rating collection joined through non-deleted Recipes:
+ * Rating collection joined through the User's
+ * non-deleted Recipes:
  * - ratingCount
  * - ratingSum
  * - averageRating
@@ -587,20 +588,25 @@ export function setUserStats(
  * Calculate Category recipe count
  * from the Recipe collection.
  *
+ * Source of truth:
+ * - non-deleted Recipe documents
+ *
  * Current invariant:
  *
  * Category.stats.recipeCount =
  * number of non-deleted Recipes in Category
  */
-export function getCategoryStatisticsSourceData(categoryId, session) {
+export async function getCategoryStatisticsSourceData(categoryId, session) {
   const query = Recipe.countDocuments({
     categoryId,
     deletedAt: null,
   });
 
-  return applySession(query, session).then((recipeCount) => ({
+  const recipeCount = await applySession(query, session);
+
+  return {
     recipeCount,
-  }));
+  };
 }
 
 /**

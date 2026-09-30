@@ -1,48 +1,54 @@
-import {
-  addCommentReply,
-  createComment as createCommentRepository,
-  findCommentById,
-  findCommentByReplyId,
-  findCommentsByRecipe,
-  findDeletedCommentById,
-  restoreComment as restoreCommentRepository,
-  softDeleteComment,
-  softDeleteCommentReplyById,
-} from "@/repositories/comment.repository";
+import mongoose from "mongoose";
 
-import { incrementCommentCount } from "@/repositories/recipe.repository";
-
-import { findNonDeletedRecipeById } from "@/repositories/recipe.repository";
-
-import {
-  CURSOR_RESOURCES,
-  NOTIFICATION_TYPES,
-  USER_ROLES,
-} from "@/constants/enums";
+import { CURSOR_RESOURCES, RECIPE_SORTS, USER_ROLES } from "@/constants/enums";
 
 import { ERROR_CODES } from "@/constants/error-codes";
+
+import {
+  createRecipe as createRecipeRepository,
+  findDeletedRecipeById,
+  findNonDeletedRecipeById,
+  findRecipes,
+  incrementCommentCount,
+  incrementViewCount,
+  restoreRecipe as restoreRecipeRepository,
+  softDeleteRecipe,
+  updateRecipeById,
+} from "@/repositories/recipe.repository";
+
+import {
+  findNonDeletedUserById,
+  incrementTotalRecipeViews,
+} from "@/repositories/user.repository";
+
+import { findActiveCategoryById } from "@/repositories/category.repository";
+
+import {
+  getAccessibleRecipe,
+  getAccessibleRecipeBySlug,
+} from "@/lib/helpers/recipe-access";
 
 import { assertAdmin, requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 
 import AppError from "@/lib/errors/AppError";
 
-import { getAccessibleRecipe } from "@/lib/helpers/recipe-access";
+import { withTransaction } from "@/lib/transaction";
 
 import { assertCursorResource } from "@/lib/pagination/cursor-context";
 
-import {
-  decodeCursor,
-  encodeCursor,
-  normalizeCreatedAtIdCursor,
-} from "@/lib/pagination/cursor";
+import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
 
 import { normalizeLimit } from "@/lib/pagination/limit";
 
-import { withTransaction } from "@/lib/transaction";
+import { assertEnum } from "@/lib/validation/enum";
+
+import { pickAllowedFields } from "@/lib/validation/fields";
 
 import { assertValidObjectId } from "@/lib/validation/object-id";
-
-import { createSystemNotification } from "./notification.service";
+import {
+  reconcileCategoryStatistics,
+  reconcileUserStatistics,
+} from "./statistics.service";
 
 /**
  * --------------------------------------------------------------------------
@@ -52,9 +58,32 @@ import { createSystemNotification } from "./notification.service";
 
 const DEFAULT_LIST_LIMIT = 16;
 
+const HOME_LIST_LIMIT = 12;
+
 const MAX_LIST_LIMIT = 50;
 
-const MAX_COMMENT_LENGTH = 1000;
+const MAX_SLUG_RETRIES = 10;
+
+/**
+ * Fields allowed for user Recipe mutations.
+ *
+ * calories intentionally removed.
+ *
+ * If calories become a calculated value,
+ * they must only be modified by trusted backend logic.
+ */
+const MUTABLE_RECIPE_FIELDS = Object.freeze([
+  "categoryId",
+  "title",
+  "description",
+  "origin",
+  "difficulty",
+  "preparationTime",
+  "defaultServings",
+  "image",
+  "ingredients",
+  "steps",
+]);
 
 /**
  * --------------------------------------------------------------------------
@@ -63,21 +92,21 @@ const MAX_COMMENT_LENGTH = 1000;
  */
 
 /**
- * Ensure the current user owns the Comment
+ * Ensure the current user owns the Recipe
  * or is an administrator.
  *
- * Authentication and active-account validation
- * are performed by the caller.
+ * The caller must already be authenticated
+ * and active.
  */
-function assertCommentOwnerOrAdmin(user, comment) {
-  const isOwner = comment.authorId?.toString() === user._id?.toString();
+function assertRecipeOwnerOrAdmin(user, recipe) {
+  const isOwner = recipe.authorId?.toString() === user._id?.toString();
 
   const isAdmin = user.role === USER_ROLES.ADMIN;
 
   if (!isOwner && !isAdmin) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
-      "شما اجازه حذف این نظر را ندارید.",
+      "شما اجازه انجام این عملیات روی این دستور پخت را ندارید.",
       {
         statusCode: 403,
       }
@@ -86,47 +115,7 @@ function assertCommentOwnerOrAdmin(user, comment) {
 }
 
 /**
- * Ensure the current user owns the Reply
- * or is an administrator.
- */
-function assertReplyOwnerOrAdmin(user, reply) {
-  const isOwner = reply.authorId?.toString() === user._id?.toString();
-
-  const isAdmin = user.role === USER_ROLES.ADMIN;
-
-  if (!isOwner && !isAdmin) {
-    throw new AppError(
-      ERROR_CODES.FORBIDDEN,
-      "شما اجازه حذف این پاسخ را ندارید.",
-      {
-        statusCode: 403,
-      }
-    );
-  }
-}
-
-/**
- * Only the Recipe owner or an administrator
- * may provide an official reply.
- */
-function assertCanReplyToComment(user, recipe) {
-  const isRecipeOwner = recipe.authorId?.toString() === user._id?.toString();
-
-  const isAdmin = user.role === USER_ROLES.ADMIN;
-
-  if (!isRecipeOwner && !isAdmin) {
-    throw new AppError(
-      ERROR_CODES.FORBIDDEN,
-      "فقط صاحب دستور پخت یا مدیر سیستم می‌تواند به نظر پاسخ دهد.",
-      {
-        statusCode: 403,
-      }
-    );
-  }
-}
-
-/**
- * Ensure an update result exists.
+ * Ensure update result exists.
  */
 function assertUpdatedDocument(document, errorCode, message) {
   if (!document) {
@@ -140,76 +129,310 @@ function assertUpdatedDocument(document, errorCode, message) {
 
 /**
  * --------------------------------------------------------------------------
- * Validation / Normalization
+ * Slug Helpers
  * --------------------------------------------------------------------------
  */
 
 /**
- * Normalize and validate Comment text.
- *
- * Zod validation should normally enforce these rules
- * at the external input boundary as well.
+ * Convert Recipe title into slug candidate.
  */
-function normalizeCommentText(text) {
-  if (typeof text !== "string") {
-    throw new AppError(ERROR_CODES.INVALID_REQUEST, "متن نظر نامعتبر است.", {
-      statusCode: 400,
-    });
+function slugifyTitle(title) {
+  if (typeof title !== "string") {
+    return "";
   }
 
-  const normalizedText = text.trim();
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
 
-  if (!normalizedText) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نظر نمی‌تواند خالی باشد.",
-      {
-        statusCode: 400,
-      }
-    );
+/**
+ * Normalize slug for lookup.
+ */
+export function normalizeSlug(slug) {
+  if (typeof slug !== "string") {
+    return null;
   }
 
-  if (normalizedText.length > MAX_COMMENT_LENGTH) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "نظر از حداکثر طول مجاز بیشتر است.",
-      {
-        statusCode: 400,
-      }
-    );
+  const normalized = slug.trim().toLowerCase();
+
+  return normalized || null;
+}
+
+/**
+ * Create deterministic slug candidate.
+ */
+function createSlugCandidate(baseSlug, attempt) {
+  if (attempt === 0) {
+    return baseSlug;
   }
 
-  return normalizedText;
+  return `${baseSlug}-${attempt + 1}`;
+}
+
+/**
+ * Detect duplicate slug conflict.
+ */
+function isSlugDuplicateError(error) {
+  return error?.code === 11000 && error?.keyPattern?.slug === 1;
 }
 
 /**
  * --------------------------------------------------------------------------
- * Cursor
+ * Cursor Helpers
  * --------------------------------------------------------------------------
  */
 
 /**
- * Create the next cursor from the last Comment
- * in the current page.
+ * Validate decoded Recipe cursor.
  */
-function createNextCursor(comments) {
-  if (!comments.length) {
+function validateRecipeCursor(payload, sort) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    Array.isArray(payload) ||
+    payload.sort === undefined ||
+    payload.value === undefined ||
+    !payload.id
+  ) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
+  }
+
+  assertCursorResource(payload, CURSOR_RESOURCES.RECIPES);
+
+  assertEnum(payload.sort, Object.values(RECIPE_SORTS), {
+    errorCode: ERROR_CODES.INVALID_CURSOR,
+    message: "ترتیب مرتب‌سازی دستورهای پخت نامعتبر است.",
+    statusCode: 400,
+  });
+
+  if (payload.sort !== sort) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "نشانگر صفحه‌بندی با مرتب‌سازی انتخاب‌شده مطابقت ندارد.",
+      {
+        statusCode: 400,
+      }
+    );
+  }
+
+  assertValidObjectId(payload.id, "cursor ID");
+
+  let value;
+
+  switch (payload.sort) {
+    case RECIPE_SORTS.NEWEST:
+    case RECIPE_SORTS.OLDEST: {
+      value = new Date(payload.value);
+
+      if (Number.isNaN(value.getTime())) {
+        throw new AppError(
+          ERROR_CODES.INVALID_CURSOR,
+          "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+          {
+            statusCode: 400,
+          }
+        );
+      }
+
+      break;
+    }
+
+    case RECIPE_SORTS.MOST_VIEWED:
+    case RECIPE_SORTS.HIGHEST_RATED: {
+      if (
+        typeof payload.value !== "number" ||
+        !Number.isFinite(payload.value)
+      ) {
+        throw new AppError(
+          ERROR_CODES.INVALID_CURSOR,
+          "مقدار نشانگر صفحه‌بندی نامعتبر است.",
+          {
+            statusCode: 400,
+          }
+        );
+      }
+
+      value = payload.value;
+
+      break;
+    }
+
+    default:
+      throw new AppError(
+        ERROR_CODES.INVALID_CURSOR,
+        "مرتب‌سازی دستورهای پخت نامعتبر است.",
+        {
+          statusCode: 400,
+        }
+      );
+  }
+
+  return {
+    sort: payload.sort,
+    value,
+    id: new mongoose.Types.ObjectId(payload.id),
+  };
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Cursor Helpers
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Create next cursor from last returned Recipe.
+ */
+function createNextCursor(recipes, sort) {
+  if (!recipes.length) {
     return null;
   }
 
-  const lastComment = comments[comments.length - 1];
+  const lastRecipe = recipes[recipes.length - 1];
 
-  if (!lastComment.createdAt || !lastComment._id) {
+  let value;
+
+  switch (sort) {
+    case RECIPE_SORTS.NEWEST:
+    case RECIPE_SORTS.OLDEST:
+      value = lastRecipe.createdAt?.toISOString();
+      break;
+
+    case RECIPE_SORTS.MOST_VIEWED:
+      value = lastRecipe.stats?.viewCount ?? 0;
+      break;
+
+    case RECIPE_SORTS.HIGHEST_RATED:
+      value = lastRecipe.stats?.averageRating ?? 0;
+      break;
+
+    default:
+      return null;
+  }
+
+  if (value === undefined) {
     return null;
   }
 
   return encodeCursor({
-    resource: CURSOR_RESOURCES.COMMENTS,
-
-    createdAt: lastComment.createdAt.toISOString(),
-
-    id: lastComment._id.toString(),
+    resource: CURSOR_RESOURCES.RECIPES,
+    sort,
+    value,
+    id: lastRecipe._id.toString(),
   });
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Create
+ * --------------------------------------------------------------------------
+ */
+
+export async function createRecipe(currentUser, recipeData) {
+  const sanitizedData = pickAllowedFields(recipeData, MUTABLE_RECIPE_FIELDS);
+
+  if (!sanitizedData || typeof sanitizedData.title !== "string") {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "عنوان دستور پخت نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
+  }
+
+  assertValidObjectId(sanitizedData.categoryId, "category ID");
+
+  const baseSlug = slugifyTitle(sanitizedData.title);
+
+  if (!baseSlug) {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "عنوان دستور پخت نمی‌تواند معتبر باشد.",
+      {
+        statusCode: 400,
+      }
+    );
+  }
+
+  for (let attempt = 0; attempt < MAX_SLUG_RETRIES; attempt++) {
+    const slug = createSlugCandidate(baseSlug, attempt);
+
+    try {
+      return await withTransaction(async (session) => {
+        /**
+         * Always resolve the user inside
+         * transaction.
+         */
+        const user = await requireActiveAuthenticatedUser(currentUser, session);
+
+        const category = await findActiveCategoryById(
+          sanitizedData.categoryId,
+          session
+        );
+
+        if (!category) {
+          throw new AppError(
+            ERROR_CODES.CATEGORY_NOT_FOUND,
+            "دسته‌بندی پیدا نشد یا فعال نیست.",
+            {
+              statusCode: 404,
+            }
+          );
+        }
+
+        const recipe = await createRecipeRepository(
+          {
+            ...sanitizedData,
+            authorId: user._id,
+            slug,
+          },
+          session
+        );
+
+        await reconcileUserStatistics(user._id, session);
+
+        await reconcileCategoryStatistics(category._id, session);
+
+        return recipe;
+      });
+    } catch (error) {
+      if (isSlugDuplicateError(error) && attempt < MAX_SLUG_RETRIES - 1) {
+        continue;
+      }
+
+      if (isSlugDuplicateError(error)) {
+        throw new AppError(
+          ERROR_CODES.RECIPE_SLUG_CONFLICT,
+          "امکان ایجاد شناسه متنی یکتا برای دستور پخت وجود نداشت.",
+          {
+            statusCode: 409,
+          }
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  throw new AppError(
+    ERROR_CODES.RECIPE_SLUG_CONFLICT,
+    "امکان ایجاد شناسه متنی یکتا برای دستور پخت وجود نداشت.",
+    {
+      statusCode: 409,
+    }
+  );
 }
 
 /**
@@ -218,39 +441,67 @@ function createNextCursor(comments) {
  * --------------------------------------------------------------------------
  */
 
-/**
- * Get a single active Comment by ID.
- *
- * The parent Recipe must currently be accessible.
- */
-export async function getCommentById(commentId) {
-  assertValidObjectId(commentId, "comment ID");
+export async function getRecipeById(recipeId) {
+  assertValidObjectId(recipeId, "recipe ID");
 
-  const comment = await findCommentById(commentId);
+  const { recipe } = await getAccessibleRecipe(recipeId);
 
-  if (!comment) {
-    throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "نظر پیدا نشد.", {
-      statusCode: 404,
+  return recipe;
+}
+
+export async function getRecipeBySlug(slug) {
+  if (!slug || typeof slug !== "string") {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "شناسه متنی دستور پخت نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
+  }
+
+  const normalizedSlug = normalizeSlug(slug);
+
+  if (!normalizedSlug) {
+    throw new AppError(ERROR_CODES.INVALID_REQUEST, "شناسه متنی نامعتبر است.", {
+      statusCode: 400,
     });
   }
 
-  await getAccessibleRecipe(comment.recipeId);
-
-  return comment;
+  return getAccessibleRecipeBySlug(normalizedSlug);
 }
 
 /**
- * Get active Comments for an accessible Recipe
- * using cursor-based pagination.
+ * --------------------------------------------------------------------------
+ * Get Recipes
+ * --------------------------------------------------------------------------
  */
-export async function getCommentsByRecipe({
-  recipeId,
+
+export async function getRecipes({
+  filter = {},
+  sort = RECIPE_SORTS.NEWEST,
   cursor = null,
   limit = DEFAULT_LIST_LIMIT,
 } = {}) {
-  assertValidObjectId(recipeId, "recipe ID");
+  const safeFilter = {};
 
-  await getAccessibleRecipe(recipeId);
+  if (filter.categoryId !== undefined) {
+    assertValidObjectId(filter.categoryId, "category ID");
+
+    safeFilter.categoryId = filter.categoryId;
+  }
+
+  if (filter.authorId !== undefined) {
+    assertValidObjectId(filter.authorId, "author ID");
+
+    safeFilter.authorId = filter.authorId;
+  }
+
+  const normalizedSort = assertEnum(sort, Object.values(RECIPE_SORTS), {
+    errorCode: ERROR_CODES.INVALID_REQUEST,
+    message: "ترتیب مرتب‌سازی دستورهای پخت نامعتبر است.",
+    statusCode: 400,
+  });
 
   const normalizedLimit = normalizeLimit(
     limit,
@@ -261,24 +512,21 @@ export async function getCommentsByRecipe({
   let decodedCursor = null;
 
   if (cursor) {
-    const payload = decodeCursor(cursor);
-
-    assertCursorResource(payload, CURSOR_RESOURCES.COMMENTS);
-
-    decodedCursor = normalizeCreatedAtIdCursor(payload);
+    decodedCursor = validateRecipeCursor(decodeCursor(cursor), normalizedSort);
   }
 
-  const comments = await findCommentsByRecipe({
-    recipeId,
+  const recipes = await findRecipes({
+    filter: safeFilter,
+    sort: normalizedSort,
     cursor: decodedCursor,
     limit: normalizedLimit + 1,
   });
 
-  const hasMore = comments.length > normalizedLimit;
+  const hasMore = recipes.length > normalizedLimit;
 
-  const items = hasMore ? comments.slice(0, normalizedLimit) : comments;
+  const items = hasMore ? recipes.slice(0, normalizedLimit) : recipes;
 
-  const nextCursor = hasMore ? createNextCursor(items) : null;
+  const nextCursor = hasMore ? createNextCursor(items, normalizedSort) : null;
 
   return {
     items,
@@ -289,329 +537,336 @@ export async function getCommentsByRecipe({
 
 /**
  * --------------------------------------------------------------------------
- * Create
+ * Home
  * --------------------------------------------------------------------------
  */
 
+export async function getHomePopularRecipes() {
+  const result = await getRecipes({
+    sort: RECIPE_SORTS.MOST_VIEWED,
+    limit: HOME_LIST_LIMIT,
+  });
+
+  return result.items;
+}
+
+export async function getHomeCategoryRecipes(categoryId) {
+  assertValidObjectId(categoryId, "category ID");
+
+  const result = await getRecipes({
+    filter: {
+      categoryId,
+    },
+    sort: RECIPE_SORTS.NEWEST,
+    limit: HOME_LIST_LIMIT,
+  });
+
+  return result.items;
+}
+
 /**
- * Create a new top-level Comment.
- *
- * Only an active authenticated user may create a Comment.
+ * --------------------------------------------------------------------------
+ * Update
+ * --------------------------------------------------------------------------
  */
-export async function createComment(currentUser, recipeId, text) {
+
+export async function updateRecipe(currentUser, recipeId, updates) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  const normalizedText = normalizeCommentText(text);
+  const sanitizedUpdates = pickAllowedFields(updates, MUTABLE_RECIPE_FIELDS);
+
+  if (Object.keys(sanitizedUpdates).length === 0) {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "حداقل یک فیلد معتبر برای ویرایش باید ارسال شود.",
+      {
+        statusCode: 400,
+      }
+    );
+  }
 
   return withTransaction(async (session) => {
     const user = await requireActiveAuthenticatedUser(currentUser, session);
 
-    const { recipe } = await getAccessibleRecipe(recipeId, session);
+    const recipe = await findNonDeletedRecipeById(recipeId, session);
 
-    const comment = await createCommentRepository(
-      {
-        authorId: user._id,
-        recipeId,
-        text: normalizedText,
-      },
+    if (!recipe) {
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
+    }
+
+    assertRecipeOwnerOrAdmin(user, recipe);
+
+    const categoryChanged =
+      sanitizedUpdates.categoryId !== undefined &&
+      sanitizedUpdates.categoryId.toString() !== recipe.categoryId.toString();
+
+    if (categoryChanged) {
+      assertValidObjectId(sanitizedUpdates.categoryId, "category ID");
+
+      const newCategory = await findActiveCategoryById(
+        sanitizedUpdates.categoryId,
+        session
+      );
+
+      if (!newCategory) {
+        throw new AppError(
+          ERROR_CODES.CATEGORY_NOT_FOUND,
+          "دسته‌بندی پیدا نشد یا فعال نیست.",
+          {
+            statusCode: 404,
+          }
+        );
+      }
+
+      await reconcileCategoryStatistics(recipe.categoryId, session);
+
+      await reconcileCategoryStatistics(newCategory._id, session);
+    }
+
+    /**
+     * Generate new slug only when title changes.
+     */
+    if (sanitizedUpdates.title && sanitizedUpdates.title !== recipe.title) {
+      const newBaseSlug = slugifyTitle(sanitizedUpdates.title);
+
+      if (!newBaseSlug) {
+        throw new AppError(
+          ERROR_CODES.INVALID_REQUEST,
+          "عنوان دستور پخت معتبر نیست.",
+          {
+            statusCode: 400,
+          }
+        );
+      }
+
+      let updated = false;
+
+      for (let attempt = 0; attempt < MAX_SLUG_RETRIES; attempt++) {
+        const slug = createSlugCandidate(newBaseSlug, attempt);
+
+        try {
+          const updatedRecipe = await updateRecipeById(
+            recipeId,
+            {
+              ...sanitizedUpdates,
+              slug,
+            },
+            session
+          );
+
+          if (!updatedRecipe) {
+            throw new AppError(
+              ERROR_CODES.RECIPE_NOT_FOUND,
+              "دستور پخت پیدا نشد.",
+              {
+                statusCode: 404,
+              }
+            );
+          }
+
+          return updatedRecipe;
+        } catch (error) {
+          if (isSlugDuplicateError(error) && attempt < MAX_SLUG_RETRIES - 1) {
+            continue;
+          }
+
+          throw error;
+        }
+      }
+
+      throw new AppError(
+        ERROR_CODES.RECIPE_SLUG_CONFLICT,
+        "امکان ایجاد شناسه متنی یکتا وجود نداشت.",
+        {
+          statusCode: 409,
+        }
+      );
+    }
+
+    const updatedRecipe = await updateRecipeById(
+      recipeId,
+      sanitizedUpdates,
       session
     );
 
-    const updatedRecipe = await incrementCommentCount(recipeId, 1, session);
+    return assertUpdatedDocument(
+      updatedRecipe,
+      ERROR_CODES.RECIPE_NOT_FOUND,
+      "دستور پخت پیدا نشد."
+    );
+  });
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Delete
+ * --------------------------------------------------------------------------
+ */
+
+export async function deleteRecipe(currentUser, recipeId) {
+  assertValidObjectId(recipeId, "recipe ID");
+
+  return withTransaction(async (session) => {
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
+
+    const recipe = await findNonDeletedRecipeById(recipeId, session);
+
+    if (!recipe) {
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
+    }
+
+    assertRecipeOwnerOrAdmin(user, recipe);
+
+    const deletedRecipe = await softDeleteRecipe(recipeId, new Date(), session);
+
+    if (!deletedRecipe) {
+      throw new AppError(
+        ERROR_CODES.RECIPE_NOT_FOUND,
+        "حذف دستور پخت ممکن نبود.",
+        {
+          statusCode: 404,
+        }
+      );
+    }
+
+    await reconcileUserStatistics(recipe.authorId, session);
+
+    const views = recipe.stats?.viewCount ?? 0;
+
+    if (views > 0) {
+      await reconcileCategoryStatistics(recipe.categoryId, session);
+    }
+
+    return deletedRecipe;
+  });
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Restore
+ * --------------------------------------------------------------------------
+ */
+
+export async function restoreDeletedRecipe(currentUser, recipeId) {
+  assertValidObjectId(recipeId, "recipe ID");
+
+  await assertAdmin(currentUser);
+
+  return withTransaction(async (session) => {
+    const recipe = await findDeletedRecipeById(recipeId, session);
+
+    if (!recipe) {
+      throw new AppError(ERROR_CODES.RECIPE_NOT_FOUND, "دستور پخت پیدا نشد.", {
+        statusCode: 404,
+      });
+    }
+
+    const author = await findNonDeletedUserById(recipe.authorId, session);
+
+    if (!author) {
+      throw new AppError(
+        ERROR_CODES.FORBIDDEN,
+        "نویسنده دستور پخت فعال نیست.",
+        {
+          statusCode: 403,
+        }
+      );
+    }
+
+    const category = await findActiveCategoryById(recipe.categoryId, session);
+
+    if (!category) {
+      throw new AppError(
+        ERROR_CODES.CATEGORY_NOT_FOUND,
+        "دسته‌بندی فعال نیست.",
+        {
+          statusCode: 404,
+        }
+      );
+    }
+
+    const restoredRecipe = await restoreRecipeRepository(recipeId, session);
+
+    assertUpdatedDocument(
+      restoredRecipe,
+      ERROR_CODES.RECIPE_NOT_FOUND,
+      "بازیابی دستور پخت ممکن نبود."
+    );
+
+    await reconcileUserStatistics(recipe.authorId, session);
+
+    const views = recipe.stats?.viewCount ?? 0;
+
+    if (views > 0) {
+      await reconcileCategoryStatistics(recipe.categoryId, session);
+    }
+
+    return restoredRecipe;
+  });
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * Statistics
+ * --------------------------------------------------------------------------
+ */
+
+export async function incrementRecipeView(recipeId) {
+  assertValidObjectId(recipeId, "recipe ID");
+
+  return withTransaction(async (session) => {
+    const { recipe } = await getAccessibleRecipe(recipeId, session);
+
+    const updatedRecipe = await incrementViewCount(recipe._id, 1, session);
 
     assertUpdatedDocument(
       updatedRecipe,
       ERROR_CODES.RECIPE_NOT_FOUND,
-      "شمارنده نظرهای دستور پخت به‌روزرسانی نشد."
+      "دستور پخت پیدا نشد."
     );
 
-    if (recipe.authorId.toString() !== user._id.toString()) {
-      await createSystemNotification(
-        {
-          userId: recipe.authorId,
-
-          actorId: user._id,
-
-          type: NOTIFICATION_TYPES.RECIPE_COMMENTED,
-
-          title: "نظر جدید برای دستور پخت شما",
-
-          message: `${user.username} روی دستور پخت شما نظر گذاشت.`,
-
-          recipeId: recipe._id,
-
-          commentId: comment._id,
-        },
-        session
-      );
-    }
-
-    return comment;
-  });
-}
-
-/**
- * --------------------------------------------------------------------------
- * Reply
- * --------------------------------------------------------------------------
- */
-
-/**
- * Create an official Reply to a Comment.
- *
- * Only the Recipe owner or an administrator
- * may create the Reply.
- */
-export async function createCommentReply(currentUser, commentId, text) {
-  assertValidObjectId(commentId, "comment ID");
-
-  const normalizedText = normalizeCommentText(text);
-
-  return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser, session);
-
-    const comment = await findCommentById(commentId, session);
-
-    if (!comment) {
-      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "نظر پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
-
-    const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
-
-    assertCanReplyToComment(user, recipe);
-
-    const updatedComment = await addCommentReply(
-      commentId,
-      {
-        authorId: user._id,
-
-        text: normalizedText,
-
-        deletedAt: null,
-      },
-      session
-    );
-
-    if (!updatedComment) {
-      throw new AppError(
-        ERROR_CODES.COMMENT_NOT_FOUND,
-        "پاسخ به نظر اضافه نشد.",
-        {
-          statusCode: 404,
-        }
-      );
-    }
-
-    if (comment.authorId.toString() !== user._id.toString()) {
-      await createSystemNotification(
-        {
-          userId: comment.authorId,
-
-          actorId: user._id,
-
-          type: NOTIFICATION_TYPES.COMMENT_REPLIED,
-
-          title: "پاسخ جدید به نظر شما",
-
-          message: `${user.username} به نظر شما پاسخ داد.`,
-
-          recipeId: recipe._id,
-
-          commentId: comment._id,
-        },
-        session
-      );
-    }
-
-    return updatedComment;
-  });
-}
-
-/**
- * --------------------------------------------------------------------------
- * Delete Comment
- * --------------------------------------------------------------------------
- */
-
-/**
- * Soft-delete a top-level Comment.
- *
- * The parent Recipe does not need to be publicly accessible
- * in order to delete the Comment.
- *
- * If the Recipe itself has already been soft-deleted,
- * its comment counter is no longer updated.
- */
-export async function deleteComment(currentUser, commentId) {
-  assertValidObjectId(commentId, "comment ID");
-
-  return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser, session);
-
-    const comment = await findCommentById(commentId, session);
-
-    if (!comment) {
-      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "نظر پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
-
-    assertCommentOwnerOrAdmin(user, comment);
-
-    const deletedComment = await softDeleteComment(
-      commentId,
-      new Date(),
-      session
-    );
-
-    assertUpdatedDocument(
-      deletedComment,
-      ERROR_CODES.COMMENT_NOT_FOUND,
-      "نظر حذف نشد."
-    );
-
-    /**
-     * Update Recipe.commentCount only when
-     * the parent Recipe itself is still non-deleted.
-     */
-    const recipe = await findNonDeletedRecipeById(comment.recipeId, session);
-
-    if (recipe) {
-      const updatedRecipe = await incrementCommentCount(
-        comment.recipeId,
-        -1,
-        session
-      );
-
-      assertUpdatedDocument(
-        updatedRecipe,
-        ERROR_CODES.RECIPE_NOT_FOUND,
-        "شمارنده نظرهای دستور پخت به‌روزرسانی نشد."
-      );
-    }
-
-    return deletedComment;
-  });
-}
-
-/**
- * --------------------------------------------------------------------------
- * Restore Comment
- * --------------------------------------------------------------------------
- */
-
-/**
- * Restore a soft-deleted top-level Comment.
- *
- * Only an active administrator may restore it.
- *
- * The parent Recipe must currently be accessible.
- */
-export async function restoreComment(currentUser, commentId) {
-  assertValidObjectId(commentId, "comment ID");
-
-  return withTransaction(async (session) => {
-    await assertAdmin(currentUser, session);
-
-    const comment = await findDeletedCommentById(commentId, session);
-
-    if (!comment) {
-      throw new AppError(
-        ERROR_CODES.COMMENT_NOT_FOUND,
-        "نظر حذف‌شده پیدا نشد.",
-        {
-          statusCode: 404,
-        }
-      );
-    }
-
-    const { recipe } = await getAccessibleRecipe(comment.recipeId, session);
-
-    const restoredComment = await restoreCommentRepository(commentId, session);
-
-    assertUpdatedDocument(
-      restoredComment,
-      ERROR_CODES.COMMENT_NOT_FOUND,
-      "بازیابی نظر ممکن نبود."
-    );
-
-    const updatedRecipe = await incrementCommentCount(
-      comment.recipeId,
+    const updatedAuthor = await incrementTotalRecipeViews(
+      recipe.authorId,
       1,
       session
     );
 
     assertUpdatedDocument(
-      updatedRecipe,
-      ERROR_CODES.RECIPE_NOT_FOUND,
-      "شمارنده نظرهای دستور پخت به‌روزرسانی نشد."
+      updatedAuthor,
+      ERROR_CODES.USER_NOT_FOUND,
+      "کاربر نویسنده پیدا نشد."
     );
 
-    return restoredComment;
+    return updatedRecipe;
   });
 }
 
-/**
- * --------------------------------------------------------------------------
- * Delete Reply
- * --------------------------------------------------------------------------
- */
+export async function incrementRecipeCommentCount(
+  recipeId,
+  amount = 1,
+  session
+) {
+  assertValidObjectId(recipeId, "recipe ID");
 
-/**
- * Soft-delete an embedded Reply.
- *
- * The Reply remains embedded so its Reaction documents
- * remain valid.
- *
- * Only the Reply author or an administrator
- * may delete it.
- */
-export async function deleteCommentReply(currentUser, replyId) {
-  assertValidObjectId(replyId, "reply ID");
-
-  return withTransaction(async (session) => {
-    const user = await requireActiveAuthenticatedUser(currentUser, session);
-
-    const comment = await findCommentByReplyId(replyId, session);
-
-    if (!comment) {
-      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "پاسخ پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
-
-    const reply = comment.replies?.find(
-      (item) => item._id?.toString() === replyId.toString()
+  if (!Number.isInteger(amount) || amount === 0) {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "تغییر تعداد نظرهای دستور پخت نامعتبر است.",
+      {
+        statusCode: 400,
+      }
     );
+  }
 
-    if (!reply) {
-      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "پاسخ پیدا نشد.", {
-        statusCode: 404,
-      });
-    }
+  const updatedRecipe = await incrementCommentCount(recipeId, amount, session);
 
-    assertReplyOwnerOrAdmin(user, reply);
-
-    const deletedAt = new Date();
-
-    const updatedComment = await softDeleteCommentReplyById(
-      replyId,
-      deletedAt,
-      session
-    );
-
-    if (!updatedComment) {
-      throw new AppError(ERROR_CODES.COMMENT_NOT_FOUND, "پاسخ حذف نشد.", {
-        statusCode: 404,
-      });
-    }
-
-    const deletedReply = updatedComment.replies?.find(
-      (item) => item._id?.toString() === replyId.toString()
-    );
-
-    return deletedReply ?? reply;
-  });
+  return assertUpdatedDocument(
+    updatedRecipe,
+    ERROR_CODES.RECIPE_NOT_FOUND,
+    "دستور پخت پیدا نشد."
+  );
 }

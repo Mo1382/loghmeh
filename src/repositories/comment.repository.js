@@ -237,16 +237,17 @@ export function softDeleteCommentReplyById(
   return applySession(query, session);
 }
 
-/**
- * Restore a soft-deleted embedded Reply by ID.
- *
- * The parent Comment itself must remain active.
- */
 export function restoreCommentReplyById(replyId, session) {
   const query = Comment.findOneAndUpdate(
     {
+      /**
+       * Parent Comment must still be active.
+       */
       deletedAt: null,
 
+      /**
+       * Target Reply must currently be soft-deleted.
+       */
       replies: {
         $elemMatch: {
           _id: replyId,
@@ -255,9 +256,49 @@ export function restoreCommentReplyById(replyId, session) {
           },
         },
       },
+
+      /**
+       * Atomic active-reply limit.
+       *
+       * Before restoring the Reply:
+       *
+       * activeReplyCount < MAX_COMMENT_REPLIES
+       *
+       * After restore:
+       * activeReplyCount + 1 <= MAX_COMMENT_REPLIES
+       */
+      $expr: {
+        $lt: [
+          {
+            $size: {
+              $filter: {
+                input: {
+                  $ifNull: ["$replies", []],
+                },
+
+                as: "reply",
+
+                cond: {
+                  $eq: [
+                    {
+                      $ifNull: ["$$reply.deletedAt", null],
+                    },
+                    null,
+                  ],
+                },
+              },
+            },
+          },
+
+          MAX_COMMENT_REPLIES,
+        ],
+      },
     },
 
     {
+      /**
+       * Restore the matched soft-deleted Reply.
+       */
       $set: {
         "replies.$.deletedAt": null,
       },
