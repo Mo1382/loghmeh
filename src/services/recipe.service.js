@@ -1,6 +1,11 @@
 import mongoose from "mongoose";
 
-import { CURSOR_RESOURCES, RECIPE_SORTS, USER_ROLES } from "@/constants/enums";
+import {
+  CURSOR_RESOURCES,
+  RECIPE_SORTS,
+  USER_ROLES,
+  USER_STATS,
+} from "@/constants/enums";
 
 import { ERROR_CODES } from "@/constants/error-codes";
 
@@ -17,11 +22,15 @@ import {
 } from "@/repositories/recipe.repository";
 
 import {
-  findNonDeletedUserById,
+  findActiveUserById,
   incrementTotalRecipeViews,
+  incrementUserStat,
 } from "@/repositories/user.repository";
 
-import { findActiveCategoryById } from "@/repositories/category.repository";
+import {
+  findActiveCategoryById,
+  incrementRecipeCount,
+} from "@/repositories/category.repository";
 
 import {
   getAccessibleRecipe,
@@ -35,20 +44,12 @@ import AppError from "@/lib/errors/AppError";
 import { withTransaction } from "@/lib/transaction";
 
 import { assertCursorResource } from "@/lib/pagination/cursor-context";
-
 import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
-
 import { normalizeLimit } from "@/lib/pagination/limit";
 
 import { assertEnum } from "@/lib/validation/enum";
-
 import { pickAllowedFields } from "@/lib/validation/fields";
-
 import { assertValidObjectId } from "@/lib/validation/object-id";
-import {
-  reconcileCategoryStatistics,
-  reconcileUserStatistics,
-} from "./statistics.service";
 
 /**
  * --------------------------------------------------------------------------
@@ -57,21 +58,18 @@ import {
  */
 
 const DEFAULT_LIST_LIMIT = 16;
-
 const HOME_LIST_LIMIT = 12;
-
 const MAX_LIST_LIMIT = 50;
-
 const MAX_SLUG_RETRIES = 10;
 
 /**
  * Fields allowed for user Recipe mutations.
  *
- * calories intentionally removed.
- *
- * If calories become a calculated value,
- * they must only be modified by trusted backend logic.
+ * calories is part of the Recipe model and is therefore kept mutable here.
+ * If calories later becomes a calculated/system-controlled field, remove it
+ * from this whitelist and update it only through trusted backend logic.
  */
+
 const MUTABLE_RECIPE_FIELDS = Object.freeze([
   "categoryId",
   "title",
@@ -83,6 +81,7 @@ const MUTABLE_RECIPE_FIELDS = Object.freeze([
   "image",
   "ingredients",
   "steps",
+  "calories",
 ]);
 
 /**
@@ -120,6 +119,36 @@ function assertRecipeOwnerOrAdmin(user, recipe) {
 function assertUpdatedDocument(document, errorCode, message) {
   if (!document) {
     throw new AppError(errorCode, message, {
+      statusCode: 404,
+    });
+  }
+
+  return document;
+}
+
+/**
+ * Ensure a Category statistics update succeeded.
+ *
+ * The category has already been validated before this point.
+ * A null result therefore means that the atomic projection update
+ * could not be applied.
+ */
+function assertUpdatedCategory(document, message) {
+  if (!document) {
+    throw new AppError(ERROR_CODES.CATEGORY_NOT_FOUND, message, {
+      statusCode: 409,
+    });
+  }
+
+  return document;
+}
+
+/**
+ * Ensure a User statistics update succeeded.
+ */
+function assertUpdatedUser(document, message) {
+  if (!document) {
+    throw new AppError(ERROR_CODES.USER_NOT_FOUND, message, {
       statusCode: 404,
     });
   }
@@ -286,12 +315,6 @@ function validateRecipeCursor(payload, sort) {
 }
 
 /**
- * --------------------------------------------------------------------------
- * Cursor Helpers
- * --------------------------------------------------------------------------
- */
-
-/**
  * Create next cursor from last returned Recipe.
  */
 function createNextCursor(recipes, sort) {
@@ -371,10 +394,6 @@ export async function createRecipe(currentUser, recipeData) {
 
     try {
       return await withTransaction(async (session) => {
-        /**
-         * Always resolve the user inside
-         * transaction.
-         */
         const user = await requireActiveAuthenticatedUser(currentUser, session);
 
         const category = await findActiveCategoryById(
@@ -401,9 +420,29 @@ export async function createRecipe(currentUser, recipeData) {
           session
         );
 
-        await reconcileUserStatistics(user._id, session);
+        /**
+         * Normal mutation:
+         * update projections by delta instead of full reconciliation.
+         */
+        const updatedUser = await incrementUserStat(
+          user._id,
+          USER_STATS.RECIPE_COUNT,
+          1,
+          session
+        );
 
-        await reconcileCategoryStatistics(category._id, session);
+        assertUpdatedUser(updatedUser, "به‌روزرسانی آمار کاربر ممکن نبود.");
+
+        const updatedCategory = await incrementRecipeCount(
+          category._id,
+          1,
+          session
+        );
+
+        assertUpdatedCategory(
+          updatedCategory,
+          "به‌روزرسانی آمار دسته‌بندی ممکن نبود."
+        );
 
         return recipe;
       });
@@ -485,13 +524,13 @@ export async function getRecipes({
 } = {}) {
   const safeFilter = {};
 
-  if (filter.categoryId !== undefined) {
+  if (filter?.categoryId !== undefined) {
     assertValidObjectId(filter.categoryId, "category ID");
 
     safeFilter.categoryId = filter.categoryId;
   }
 
-  if (filter.authorId !== undefined) {
+  if (filter?.authorId !== undefined) {
     assertValidObjectId(filter.authorId, "author ID");
 
     safeFilter.authorId = filter.authorId;
@@ -602,10 +641,12 @@ export async function updateRecipe(currentUser, recipeId, updates) {
       sanitizedUpdates.categoryId !== undefined &&
       sanitizedUpdates.categoryId.toString() !== recipe.categoryId.toString();
 
+    let newCategory = null;
+
     if (categoryChanged) {
       assertValidObjectId(sanitizedUpdates.categoryId, "category ID");
 
-      const newCategory = await findActiveCategoryById(
+      newCategory = await findActiveCategoryById(
         sanitizedUpdates.categoryId,
         session
       );
@@ -619,14 +660,13 @@ export async function updateRecipe(currentUser, recipeId, updates) {
           }
         );
       }
-
-      await reconcileCategoryStatistics(recipe.categoryId, session);
-
-      await reconcileCategoryStatistics(newCategory._id, session);
     }
 
     /**
      * Generate new slug only when title changes.
+     *
+     * Category projection updates are intentionally performed
+     * only after the Recipe mutation succeeds.
      */
     if (sanitizedUpdates.title && sanitizedUpdates.title !== recipe.title) {
       const newBaseSlug = slugifyTitle(sanitizedUpdates.title);
@@ -640,8 +680,6 @@ export async function updateRecipe(currentUser, recipeId, updates) {
           }
         );
       }
-
-      let updated = false;
 
       for (let attempt = 0; attempt < MAX_SLUG_RETRIES; attempt++) {
         const slug = createSlugCandidate(newBaseSlug, attempt);
@@ -666,10 +704,48 @@ export async function updateRecipe(currentUser, recipeId, updates) {
             );
           }
 
+          /**
+           * Recipe mutation has succeeded inside this transaction.
+           * Now update Category projections atomically.
+           */
+          if (categoryChanged) {
+            const oldCategory = await incrementRecipeCount(
+              recipe.categoryId,
+              -1,
+              session
+            );
+
+            assertUpdatedCategory(
+              oldCategory,
+              "به‌روزرسانی آمار دسته‌بندی قبلی ممکن نبود."
+            );
+
+            const updatedCategory = await incrementRecipeCount(
+              newCategory._id,
+              1,
+              session
+            );
+
+            assertUpdatedCategory(
+              updatedCategory,
+              "به‌روزرسانی آمار دسته‌بندی جدید ممکن نبود."
+            );
+          }
+
           return updatedRecipe;
         } catch (error) {
           if (isSlugDuplicateError(error) && attempt < MAX_SLUG_RETRIES - 1) {
             continue;
+          }
+
+          if (isSlugDuplicateError(error)) {
+            throw new AppError(
+              ERROR_CODES.RECIPE_SLUG_CONFLICT,
+              "امکان ایجاد شناسه متنی یکتا وجود نداشت.",
+              {
+                statusCode: 409,
+              }
+            );
           }
 
           throw error;
@@ -685,17 +761,53 @@ export async function updateRecipe(currentUser, recipeId, updates) {
       );
     }
 
+    /**
+     * No title change, therefore no slug retry is required.
+     */
     const updatedRecipe = await updateRecipeById(
       recipeId,
       sanitizedUpdates,
       session
     );
 
-    return assertUpdatedDocument(
+    assertUpdatedDocument(
       updatedRecipe,
       ERROR_CODES.RECIPE_NOT_FOUND,
       "دستور پخت پیدا نشد."
     );
+
+    /**
+     * Important:
+     *
+     * 1. Recipe must be updated first.
+     * 2. Only then Category counters are adjusted.
+     * 3. Everything remains inside the same transaction.
+     */
+    if (categoryChanged) {
+      const oldCategory = await incrementRecipeCount(
+        recipe.categoryId,
+        -1,
+        session
+      );
+
+      assertUpdatedCategory(
+        oldCategory,
+        "به‌روزرسانی آمار دسته‌بندی قبلی ممکن نبود."
+      );
+
+      const updatedCategory = await incrementRecipeCount(
+        newCategory._id,
+        1,
+        session
+      );
+
+      assertUpdatedCategory(
+        updatedCategory,
+        "به‌روزرسانی آمار دسته‌بندی جدید ممکن نبود."
+      );
+    }
+
+    return updatedRecipe;
   });
 }
 
@@ -733,13 +845,32 @@ export async function deleteRecipe(currentUser, recipeId) {
       );
     }
 
-    await reconcileUserStatistics(recipe.authorId, session);
+    /**
+     * The Recipe is now soft-deleted.
+     *
+     * Normal mutation path:
+     * update User.recipeCount and Category.recipeCount
+     * by delta instead of full reconciliation.
+     */
+    const updatedUser = await incrementUserStat(
+      recipe.authorId,
+      USER_STATS.RECIPE_COUNT,
+      -1,
+      session
+    );
 
-    const views = recipe.stats?.viewCount ?? 0;
+    assertUpdatedUser(updatedUser, "به‌روزرسانی آمار کاربر ممکن نبود.");
 
-    if (views > 0) {
-      await reconcileCategoryStatistics(recipe.categoryId, session);
-    }
+    const updatedCategory = await incrementRecipeCount(
+      recipe.categoryId,
+      -1,
+      session
+    );
+
+    assertUpdatedCategory(
+      updatedCategory,
+      "به‌روزرسانی آمار دسته‌بندی ممکن نبود."
+    );
 
     return deletedRecipe;
   });
@@ -754,9 +885,11 @@ export async function deleteRecipe(currentUser, recipeId) {
 export async function restoreDeletedRecipe(currentUser, recipeId) {
   assertValidObjectId(recipeId, "recipe ID");
 
-  await assertAdmin(currentUser);
-
   return withTransaction(async (session) => {
+    const user = await requireActiveAuthenticatedUser(currentUser, session);
+
+    assertAdmin(user);
+
     const recipe = await findDeletedRecipeById(recipeId, session);
 
     if (!recipe) {
@@ -765,7 +898,11 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
       });
     }
 
-    const author = await findNonDeletedUserById(recipe.authorId, session);
+    /**
+     * A restored Recipe must belong to an ACTIVE,
+     * non-deleted author.
+     */
+    const author = await findActiveUserById(recipe.authorId, session);
 
     if (!author) {
       throw new AppError(
@@ -797,13 +934,31 @@ export async function restoreDeletedRecipe(currentUser, recipeId) {
       "بازیابی دستور پخت ممکن نبود."
     );
 
-    await reconcileUserStatistics(recipe.authorId, session);
+    /**
+     * Normal mutation path:
+     * restore projections by delta.
+     *
+     * viewCount has absolutely no role here.
+     */
+    const updatedUser = await incrementUserStat(
+      recipe.authorId,
+      USER_STATS.RECIPE_COUNT,
+      1,
+      session
+    );
 
-    const views = recipe.stats?.viewCount ?? 0;
+    assertUpdatedUser(updatedUser, "به‌روزرسانی آمار کاربر ممکن نبود.");
 
-    if (views > 0) {
-      await reconcileCategoryStatistics(recipe.categoryId, session);
-    }
+    const updatedCategory = await incrementRecipeCount(
+      category._id,
+      1,
+      session
+    );
+
+    assertUpdatedCategory(
+      updatedCategory,
+      "به‌روزرسانی آمار دسته‌بندی ممکن نبود."
+    );
 
     return restoredRecipe;
   });

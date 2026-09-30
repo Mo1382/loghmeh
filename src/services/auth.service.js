@@ -7,7 +7,7 @@ import {
   findUserByIdentifier,
   findUserByIdWithPassword,
   findUserByUsername,
-  markEmailAsVerified,
+  verifyUserEmail,
   updateUserPassword,
 } from "@/repositories/user.repository";
 
@@ -127,6 +127,20 @@ function createPasswordResetToken(payload) {
     .digest("base64url");
 
   return `${encodedPayload}.${signature}`;
+}
+
+function normalizeLoginIdentifier(identifier) {
+  if (typeof identifier !== "string") {
+    return "";
+  }
+
+  const normalized = identifier.trim();
+
+  if (normalized.includes("@")) {
+    return normalized.toLowerCase();
+  }
+
+  return normalized;
 }
 
 /**
@@ -341,13 +355,26 @@ export async function registerUser({ username, email, password, title }) {
  * provider's authorize() callback.
  */
 export async function loginUser({ identifier, password }) {
-  const user = await findUserByIdentifier(identifier);
+  const normalizedIdentifier = normalizeLoginIdentifier(identifier);
+
+  const user = await findUserByIdentifier(normalizedIdentifier);
 
   if (!user) {
     throw new AppError(
       ERROR_CODES.INVALID_CREDENTIALS,
       "ایمیل، نام کاربری یا رمز عبور نامعتبر است.",
       { statusCode: 401 }
+    );
+  }
+
+  if (
+    user.accountStatus === ACCOUNT_STATUSES.PENDING_VERIFICATION ||
+    !user.emailVerified
+  ) {
+    throw new AppError(
+      ERROR_CODES.EMAIL_NOT_VERIFIED,
+      "ابتدا باید ایمیل حساب کاربری خود را تأیید کنید.",
+      { statusCode: 403 }
     );
   }
 
@@ -363,14 +390,6 @@ export async function loginUser({ identifier, password }) {
     throw new AppError(
       ERROR_CODES.USER_DEACTIVATED,
       "این حساب کاربری غیرفعال شده است.",
-      { statusCode: 403 }
-    );
-  }
-
-  if (!user.emailVerified) {
-    throw new AppError(
-      ERROR_CODES.EMAIL_NOT_VERIFIED,
-      "ایمیل حساب کاربری تأیید نشده است.",
       { statusCode: 403 }
     );
   }
@@ -400,7 +419,10 @@ export async function verifyEmail({ email, code }) {
     });
   }
 
-  if (user.emailVerified) {
+  if (
+    user.accountStatus !== ACCOUNT_STATUSES.PENDING_VERIFICATION ||
+    user.emailVerified
+  ) {
     throw new AppError(
       ERROR_CODES.EMAIL_ALREADY_VERIFIED,
       "ایمیل قبلاً تأیید شده است.",
@@ -448,7 +470,7 @@ export async function verifyEmail({ email, code }) {
       );
     }
 
-    const verifiedUser = await markEmailAsVerified(user._id, session);
+    const verifiedUser = await verifyUserEmail(user._id, session);
 
     if (!verifiedUser) {
       throw new AppError(

@@ -521,6 +521,16 @@ export async function changeAccountStatus(
     return toPrivateUser(user);
   }
 
+  if (accountStatus === ACCOUNT_STATUSES.ACTIVE && !user.emailVerified) {
+    throw new AppError(
+      ERROR_CODES.EMAIL_NOT_VERIFIED,
+      "کاربر تا زمانی که ایمیل خود را تأیید نکرده باشد نمی‌تواند فعال شود.",
+      {
+        statusCode: 409,
+      }
+    );
+  }
+
   const updatedUser = await updateAccountStatus(targetUserId, accountStatus);
 
   if (!updatedUser) {

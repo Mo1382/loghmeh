@@ -582,7 +582,7 @@ export async function createGlobalNotification(
   recipientUserIds,
   session
 ) {
-  await assertAdmin(currentUser);
+  const admin = await assertAdmin(currentUser);
 
   if (!Array.isArray(recipientUserIds)) {
     throw new AppError(

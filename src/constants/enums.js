@@ -21,35 +21,36 @@ export const CURSOR_VERSION = 1;
 export const DIFFICULTIES = ["آسان", "متوسط", "سخت"];
 
 // Account identity and access
-export const ACCOUNT_STATUSES = {
+export const ACCOUNT_STATUSES = Object.freeze({
+  PENDING_VERIFICATION: "PENDING_VERIFICATION",
   ACTIVE: "ACTIVE",
   SUSPENDED: "SUSPENDED",
   DEACTIVATED: "DEACTIVATED",
-};
+});
 
-export const USER_ROLES = { USER: "USER", ADMIN: "ADMIN" };
+export const USER_ROLES = Object.freeze({ USER: "USER", ADMIN: "ADMIN" });
 
-export const USER_TITLES = {
+export const USER_TITLES = Object.freeze({
   USER: "USER",
   COOK: "COOK",
   HEAD_CHEF: "HEAD_CHEF",
   BARISTA: "BARISTA",
   FOOD_BLOGGER: "FOOD_BLOGGER",
-};
+});
 
 // Authentication and verification
-export const VERIFICATION_CODE_PURPOSES = {
+export const VERIFICATION_CODE_PURPOSES = Object.freeze({
   EMAIL_VERIFICATION: "EMAIL_VERIFICATION",
   PASSWORD_RESET: "PASSWORD_RESET",
-};
+});
 
 // Community interactions
-export const REACTION_TYPES = {
+export const REACTION_TYPES = Object.freeze({
   LIKE: "LIKE",
   DISLIKE: "DISLIKE",
-};
+});
 
-export const NOTIFICATION_TYPES = {
+export const NOTIFICATION_TYPES = Object.freeze({
   RECIPE_RATED: "RECIPE_RATED",
   RECIPE_COMMENTED: "RECIPE_COMMENTED",
   COMMENT_REPLIED: "COMMENT_REPLIED",
@@ -57,27 +58,27 @@ export const NOTIFICATION_TYPES = {
   COMMENT_DISLIKED: "COMMENT_DISLIKED",
   ANNOUNCEMENT: "ANNOUNCEMENT",
   SUPPORT_REPLIED: "SUPPORT_REPLIED",
-};
+});
 
 // Support
-export const TICKET_STATUSES = {
+export const TICKET_STATUSES = Object.freeze({
   OPEN: "OPEN",
   IN_PROGRESS: "IN_PROGRESS",
   RESOLVED: "RESOLVED",
   CLOSED: "CLOSED",
-};
+});
 
 export const MAX_COMMENT_REPLIES = 50;
 
-export const RECIPE_LIMITS = {
+export const RECIPE_LIMITS = Object.freeze({
   MAX_INGREDIENTS: 100,
   MAX_STEPS: 100,
   MAX_INGREDIENT_NAME_LENGTH: 100,
   MAX_STEP_TITLE_LENGTH: 100,
   MAX_STEP_DESCRIPTION_LENGTH: 2000,
-};
+});
 
-export const CURSOR_RESOURCES = {
+export const CURSOR_RESOURCES = Object.freeze({
   USERS: "USERS",
   RECIPES: "RECIPES",
   FOLLOWS: "FOLLOWS",
@@ -85,42 +86,42 @@ export const CURSOR_RESOURCES = {
   BOOKMARKS: "BOOKMARKS",
   NOTIFICATIONS: "NOTIFICATIONS",
   SUPPORT_TICKETS: "SUPPORT_TICKETS",
-};
+});
 
 // List sorting and aggregate-statistic keys
-export const RECIPE_SORTS = {
+export const RECIPE_SORTS = Object.freeze({
   NEWEST: "NEWEST",
   OLDEST: "OLDEST",
   MOST_VIEWED: "MOST_VIEWED",
   HIGHEST_RATED: "HIGHEST_RATED",
-};
+});
 
-export const USER_SORTS = {
+export const USER_SORTS = Object.freeze({
   HIGHEST_RATED: "HIGHEST_RATED",
   MOST_VIEWED: "MOST_VIEWED",
   NEWEST: "NEWEST",
   OLDEST: "OLDEST",
-};
+});
 
-export const RECIPE_STATS = {
+export const RECIPE_STATS = Object.freeze({
   VIEW_COUNT: "stats.viewCount",
   RATING_COUNT: "stats.ratingCount",
   COMMENT_COUNT: "stats.commentCount",
-};
+});
 
-export const USER_STATS = {
+export const USER_STATS = Object.freeze({
   RECIPE_COUNT: "recipeCount",
   TOTAL_RECIPE_VIEWS: "totalRecipeViews",
   RATING_COUNT: "ratingCount",
   RATING_SUM: "ratingSum",
-};
+});
 
-export const COMMENT_STATS = {
+export const COMMENT_STATS = Object.freeze({
   LIKE_COUNT: "likeCount",
   DISLIKE_COUNT: "dislikeCount",
-};
+});
 
-export const FOLLOW_LIST_TYPES = {
+export const FOLLOW_LIST_TYPES = Object.freeze({
   FOLLOWING: "FOLLOWING",
   FOLLOWERS: "FOLLOWERS",
-};
+});

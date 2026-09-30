@@ -173,6 +173,7 @@ export function findActiveUserById(userId, session) {
   const query = User.findOne({
     _id: userId,
     accountStatus: ACCOUNT_STATUSES.ACTIVE,
+    emailVerified: true,
     deletedAt: null,
   });
 
@@ -186,6 +187,7 @@ export function findActiveUserByUsername(username, session) {
   const query = User.findOne({
     username,
     accountStatus: ACCOUNT_STATUSES.ACTIVE,
+    emailVerified: true,
     deletedAt: null,
   });
 
@@ -217,6 +219,7 @@ export function findActiveUsersByIds(userIds, session) {
       $in: userIds,
     },
     accountStatus: ACCOUNT_STATUSES.ACTIVE,
+    emailVerified: true,
     deletedAt: null,
   });
 
@@ -355,17 +358,19 @@ export function updateUserPassword(userId, passwordHash, session) {
  * Only an unverified User is matched,
  * making the operation idempotent.
  */
-export function markEmailAsVerified(userId, session) {
+export function verifyUserEmail(userId, session) {
   const query = User.findOneAndUpdate(
     {
       _id: userId,
       deletedAt: null,
+      accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
       emailVerified: false,
     },
 
     {
       $set: {
         emailVerified: true,
+        accountStatus: ACCOUNT_STATUSES.ACTIVE,
       },
     },
 
@@ -388,22 +393,25 @@ export function markEmailAsVerified(userId, session) {
  * changes may invalidate authentication state.
  */
 export function updateAccountStatus(userId, accountStatus, session) {
-  const query = User.findOneAndUpdate(
-    {
-      _id: userId,
-      deletedAt: null,
-    },
+  const filter = {
+    _id: userId,
+    deletedAt: null,
+  };
 
+  if (accountStatus === ACCOUNT_STATUSES.ACTIVE) {
+    filter.emailVerified = true;
+  }
+
+  const query = User.findOneAndUpdate(
+    filter,
     {
       $set: {
         accountStatus,
       },
-
       $inc: {
         sessionVersion: 1,
       },
     },
-
     {
       new: true,
       runValidators: true,
@@ -533,9 +541,8 @@ export function findActiveUsers({
 }) {
   const queryFilter = {
     ...filter,
-
     accountStatus: ACCOUNT_STATUSES.ACTIVE,
-
+    emailVerified: true,
     deletedAt: null,
   };
 
@@ -734,6 +741,7 @@ export function setUserStats(
  * The new average is calculated from the new count
  * and new sum.
  */
+
 export function updateUserRatingStatsDeltas(
   userId,
   ratingCountDelta,
@@ -741,10 +749,10 @@ export function updateUserRatingStatsDeltas(
   session
 ) {
   if (
-    !Number.isInteger(ratingCountDelta) ||
-    !Number.isInteger(ratingSumDelta)
+    !Number.isSafeInteger(ratingCountDelta) ||
+    !Number.isSafeInteger(ratingSumDelta)
   ) {
-    throw new Error("User rating stat deltas must be integers.");
+    throw new Error("User rating stat deltas must be safe integers.");
   }
 
   if (ratingCountDelta === 0 && ratingSumDelta === 0) {
@@ -774,14 +782,16 @@ export function updateUserRatingStatsDeltas(
   };
 
   /**
-   * New average based on the new values.
+   * New average based on the new count and sum.
+   *
+   * MongoDB $round keeps the stored projection
+   * consistent with the application's two-decimal contract.
    */
   const nextAverage = {
     $cond: [
       {
         $gt: [nextCount, 0],
       },
-
       {
         $round: [
           {
@@ -790,30 +800,59 @@ export function updateUserRatingStatsDeltas(
           2,
         ],
       },
-
       0,
     ],
   };
 
   /**
-   * Rating invariant:
+   * Rating statistics invariant:
    *
-   * ratingCount >= 0
-   * ratingSum >= 0
+   * 1. ratingCount >= 0
+   * 2. ratingSum >= 0
    *
-   * For ratings whose allowed values are 1..5:
+   * When ratingCount === 0:
+   *   ratingSum === 0
    *
-   * ratingCount <= ratingSum
-   * ratingSum <= ratingCount * 5
+   * When ratingCount > 0:
+   *   ratingCount <= ratingSum
+   *   ratingSum <= ratingCount * 5
    *
-   * When ratingCount is zero:
-   *
-   * ratingSum must also be zero.
-   *
-   * These conditions guarantee:
-   *
-   * 0 <= averageRating <= 5
+   * Because all valid Rating values are in the range 1..5,
+   * these constraints keep the calculated average in 0..5.
    */
+  const ratingInvariant = {
+    $or: [
+      {
+        $and: [
+          {
+            $eq: [nextCount, 0],
+          },
+          {
+            $eq: [nextSum, 0],
+          },
+        ],
+      },
+      {
+        $and: [
+          {
+            $gt: [nextCount, 0],
+          },
+          {
+            $gte: [nextSum, nextCount],
+          },
+          {
+            $lte: [
+              nextSum,
+              {
+                $multiply: [nextCount, 5],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
   const query = User.findOneAndUpdate(
     {
       _id: userId,
@@ -824,51 +863,22 @@ export function updateUserRatingStatsDeltas(
           {
             $gte: [nextCount, 0],
           },
-
           {
             $gte: [nextSum, 0],
           },
-
-          {
-            $or: [
-              {
-                $eq: [nextCount, 0],
-              },
-
-              {
-                $and: [
-                  {
-                    $gte: [nextSum, nextCount],
-                  },
-
-                  {
-                    $lte: [
-                      nextSum,
-                      {
-                        $multiply: [nextCount, 5],
-                      },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
+          ratingInvariant,
         ],
       },
     },
-
     [
       {
         $set: {
           "stats.ratingCount": nextCount,
-
           "stats.ratingSum": nextSum,
-
           "stats.averageRating": nextAverage,
         },
       },
     ],
-
     {
       new: true,
     }

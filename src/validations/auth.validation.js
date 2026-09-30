@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { USER_TITLES } from "@/constants/enums";
+import {
+  EMAIL_PATTERN,
+  INSTAGRAM_PATTERN,
+  TELEGRAM_PATTERN,
+  USERNAME_PATTERN,
+  X_PATTERN,
+} from "@/constants/regex";
 
 /**
  * Reusable fields
@@ -11,14 +18,15 @@ const usernameSchema = z
   .min(3, "نام کاربری باید حداقل ۳ کاراکتر باشد.")
   .max(30, "نام کاربری نباید بیشتر از ۳۰ کاراکتر باشد.")
   .regex(
-    /^[a-zA-Z0-9_\u0600-\u06FF]+$/,
-    "نام کاربری فقط می‌تواند شامل حروف، اعداد، نویسه‌های فارسی و زیرخط باشد."
+    USERNAME_PATTERN,
+    "نام کاربری فقط می‌تواند شامل حروف انگلیسی، حروف فارسی، اعداد و زیرخط باشد."
   );
 
 const emailSchema = z
   .string()
   .trim()
-  .email("لطفاً یک نشانی ایمیل معتبر وارد کنید.")
+  .max(254, "نشانی ایمیل نباید بیشتر از ۲۵۴ نویسه باشد.")
+  .regex(EMAIL_PATTERN, "لطفاً یک نشانی ایمیل معتبر وارد کنید.")
   .transform((value) => value.toLowerCase());
 
 const passwordSchema = z
@@ -51,7 +59,7 @@ const instagramUrlSchema = z
   .trim()
   .url("پیوند اینستاگرام باید یک نشانی معتبر باشد.")
   .refine(
-    (value) => /^https:\/\/(www\.)?instagram\.com\//i.test(value),
+    (value) => INSTAGRAM_PATTERN.test(value),
     "نشانی اینستاگرام نامعتبر است."
   );
 
@@ -59,19 +67,13 @@ const telegramUrlSchema = z
   .string()
   .trim()
   .url("پیوند تلگرام باید یک نشانی معتبر باشد.")
-  .refine(
-    (value) => /^https:\/\/(www\.)?(t\.me|telegram\.me)\//i.test(value),
-    "نشانی تلگرام نامعتبر است."
-  );
+  .refine((value) => TELEGRAM_PATTERN.test(value), "نشانی تلگرام نامعتبر است.");
 
 const xUrlSchema = z
   .string()
   .trim()
   .url("پیوند X باید یک نشانی معتبر باشد.")
-  .refine(
-    (value) => /^https:\/\/(www\.)?(x\.com|twitter\.com)\//i.test(value),
-    "نشانی X نامعتبر است."
-  );
+  .refine((value) => X_PATTERN.test(value), "نشانی X نامعتبر است.");
 
 const optionalInstagramUrlSchema = instagramUrlSchema.nullable().optional();
 
@@ -112,7 +114,13 @@ export const registerUserSchema = z
 
 export const loginUserSchema = z
   .object({
-    identifier: z.string().trim().min(3, "نام کاربری یا ایمیل الزامی است."),
+    identifier: z
+      .string()
+      .trim()
+      .min(3, "نام کاربری یا ایمیل الزامی است.")
+      .transform((value) =>
+        value.includes("@") ? value.toLowerCase() : value
+      ),
 
     password: z.string().min(1, "رمز عبور الزامی است."),
   })
