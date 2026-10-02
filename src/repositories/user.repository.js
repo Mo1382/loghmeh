@@ -297,22 +297,20 @@ export function createUser(userData, session) {
  */
 
 /**
- * Update a non-deleted User.
+ * Update a non-deleted User's profile fields.
  *
  * Authorization and allowed-field selection belong
  * to the Service layer.
  */
-export function updateUserById(userId, updates, session) {
+export function updateUserProfileById(userId, updates, session) {
   const query = User.findOneAndUpdate(
     {
       _id: userId,
       deletedAt: null,
     },
-
     {
       $set: updates,
     },
-
     {
       new: true,
       runValidators: true,
@@ -332,17 +330,14 @@ export function updateUserPassword(userId, passwordHash, session) {
       _id: userId,
       deletedAt: null,
     },
-
     {
       $set: {
         password: passwordHash,
       },
-
       $inc: {
         sessionVersion: 1,
       },
     },
-
     {
       new: true,
       runValidators: true,
@@ -366,14 +361,12 @@ export function verifyUserEmail(userId, session) {
       accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
       emailVerified: false,
     },
-
     {
       $set: {
         emailVerified: true,
         accountStatus: ACCOUNT_STATUSES.ACTIVE,
       },
     },
-
     {
       new: true,
       runValidators: true,
@@ -386,16 +379,32 @@ export function verifyUserEmail(userId, session) {
 /**
  * Update a User's account status.
  *
- * Authorization and lifecycle rules belong to
- * the Service layer.
+ * Authorization and lifecycle policy belong to the Service layer.
  *
- * sessionVersion is incremented because account-status
- * changes may invalidate authentication state.
+ * The activation precondition (emailVerified === true) is enforced
+ * atomically at the persistence layer.
+ *
+ * sessionVersion is incremented only when the account status
+ * actually changes.
  */
 export function updateAccountStatus(userId, accountStatus, session) {
+  if (!Object.values(ACCOUNT_STATUSES).includes(accountStatus)) {
+    throw new Error("Invalid account status.");
+  }
+
   const filter = {
     _id: userId,
     deletedAt: null,
+    $expr: {
+      $or: [
+        {
+          $eq: ["$accountStatus", accountStatus],
+        },
+        {
+          $lt: ["$sessionVersion", Number.MAX_SAFE_INTEGER],
+        },
+      ],
+    },
   };
 
   if (accountStatus === ACCOUNT_STATUSES.ACTIVE) {
@@ -404,17 +413,23 @@ export function updateAccountStatus(userId, accountStatus, session) {
 
   const query = User.findOneAndUpdate(
     filter,
-    {
-      $set: {
-        accountStatus,
+    [
+      {
+        $set: {
+          accountStatus,
+          sessionVersion: {
+            $add: [
+              "$sessionVersion",
+              {
+                $cond: [{ $eq: ["$accountStatus", accountStatus] }, 0, 1],
+              },
+            ],
+          },
+        },
       },
-      $inc: {
-        sessionVersion: 1,
-      },
-    },
+    ],
     {
       new: true,
-      runValidators: true,
     }
   );
 
@@ -426,23 +441,23 @@ export function updateAccountStatus(userId, accountStatus, session) {
  *
  * Authorization belongs to the Service layer.
  */
-export function softDeleteUser(userId, deletedAt = new Date(), session) {
+export function softDeleteUser(
+  userId,
+  { deletedAt = new Date(), session } = {}
+) {
   const query = User.findOneAndUpdate(
     {
       _id: userId,
       deletedAt: null,
     },
-
     {
       $set: {
         deletedAt,
       },
-
       $inc: {
         sessionVersion: 1,
       },
     },
-
     {
       new: true,
       runValidators: true,
@@ -463,17 +478,14 @@ export function restoreUser(userId, session) {
         $ne: null,
       },
     },
-
     {
       $set: {
         deletedAt: null,
       },
-
       $inc: {
         sessionVersion: 1,
       },
     },
-
     {
       new: true,
       runValidators: true,
@@ -488,46 +500,6 @@ export function restoreUser(userId, session) {
  * User Lists
  * --------------------------------------------------------------------------
  */
-
-/**
- * Find non-deleted Users using cursor-based pagination.
- *
- * The Service layer is responsible for:
- * - validating sort
- * - decoding cursor
- * - validating cursor context
- * - creating the next cursor
- * - calculating hasMore
- */
-export function findNonDeletedUsers({
-  filter = {},
-  sort = USER_SORTS.MOST_VIEWED,
-  cursor = null,
-  limit = 16,
-  session,
-}) {
-  const queryFilter = {
-    ...filter,
-    deletedAt: null,
-  };
-
-  const cursorFilter = buildCursorFilter(sort, cursor);
-
-  if (cursorFilter) {
-    queryFilter.$and = [
-      {
-        $or: cursorFilter.$or,
-      },
-      ...(queryFilter.$and ?? []),
-    ];
-  }
-
-  const sortOption = buildUserSortOption(sort);
-
-  const query = User.find(queryFilter).sort(sortOption).limit(limit);
-
-  return applySession(query, session);
-}
 
 /**
  * Find active, non-deleted Users using cursor-based pagination.
@@ -596,34 +568,40 @@ export function incrementUserStat(userId, stat, delta = 1, session) {
     throw new Error("Invalid independently incrementable user stat.");
   }
 
-  if (!Number.isInteger(delta) || delta === 0) {
-    throw new Error("User stat delta must be a non-zero integer.");
+  if (!Number.isSafeInteger(delta) || delta === 0) {
+    throw new Error("User stat delta must be a non-zero safe integer.");
   }
 
-  const filter = {
-    _id: userId,
-    deletedAt: null,
+  const statPath = `stats.${stat}`;
+
+  const currentValue = {
+    $ifNull: [`$${statPath}`, 0],
   };
 
-  /**
-   * Prevent independently decrementing a statistic
-   * below zero.
-   */
-  if (delta < 0) {
-    filter[`stats.${stat}`] = {
-      $gte: Math.abs(delta),
-    };
-  }
+  const nextValue = {
+    $add: [currentValue, delta],
+  };
 
   const query = User.findOneAndUpdate(
-    filter,
-
     {
-      $inc: {
-        [`stats.${stat}`]: delta,
+      _id: userId,
+      deletedAt: null,
+      $expr: {
+        $and: [
+          {
+            $gte: [nextValue, 0],
+          },
+          {
+            $lte: [nextValue, Number.MAX_SAFE_INTEGER],
+          },
+        ],
       },
     },
-
+    {
+      $inc: {
+        [statPath]: delta,
+      },
+    },
     {
       new: true,
       runValidators: true,
@@ -685,21 +663,15 @@ export function setUserStats(
       _id: userId,
       deletedAt: null,
     },
-
     {
       $set: {
         "stats.recipeCount": recipeCount,
-
         "stats.totalRecipeViews": totalRecipeViews,
-
         "stats.ratingCount": ratingCount,
-
         "stats.ratingSum": ratingSum,
-
         "stats.averageRating": averageRating,
       },
     },
-
     {
       new: true,
       runValidators: true,
@@ -740,8 +712,10 @@ export function setUserStats(
  *
  * The new average is calculated from the new count
  * and new sum.
+ *
+ * MongoDB $round keeps the stored projection
+ * consistent with the application's two-decimal contract.
  */
-
 export function updateUserRatingStatsDeltas(
   userId,
   ratingCountDelta,
@@ -783,9 +757,6 @@ export function updateUserRatingStatsDeltas(
 
   /**
    * New average based on the new count and sum.
-   *
-   * MongoDB $round keeps the stored projection
-   * consistent with the application's two-decimal contract.
    */
   const nextAverage = {
     $cond: [
@@ -857,7 +828,6 @@ export function updateUserRatingStatsDeltas(
     {
       _id: userId,
       deletedAt: null,
-
       $expr: {
         $and: [
           {

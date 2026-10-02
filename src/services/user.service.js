@@ -10,7 +10,7 @@ import {
   restoreUser,
   softDeleteUser,
   updateAccountStatus,
-  updateUserById,
+  updateUserProfileById,
 } from "@/repositories/user.repository";
 
 import {
@@ -209,7 +209,9 @@ function createNextCursor(user, sort) {
  * Internal/security fields are never exposed.
  */
 function toPublicUser(user) {
-  const publicUser = pickAllowedFields(user, [
+  const data = user.toObject ? user.toObject() : { ...user };
+
+  const publicUser = pickAllowedFields(data, [
     "_id",
     "username",
     "avatar",
@@ -218,7 +220,7 @@ function toPublicUser(user) {
     "socialLinks",
   ]);
 
-  const publicStats = pickAllowedFields(user.stats ?? {}, [
+  const publicStats = pickAllowedFields(data.stats ?? {}, [
     "recipeCount",
     "averageRating",
     "totalRecipeViews",
@@ -446,7 +448,7 @@ export async function updateUserProfile(currentUser, updates) {
     );
   }
 
-  const updatedUser = await updateUserById(user._id, sanitizedUpdates);
+  const updatedUser = await updateUserProfileById(user._id, sanitizedUpdates);
 
   if (!updatedUser) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -577,7 +579,7 @@ export async function deleteUser(currentUser, targetUserId) {
     });
   }
 
-  const deletedUser = await softDeleteUser(targetUserId);
+  await softDeleteUser(targetUserId, { session });
 
   if (!deletedUser) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر حذف نشد.", {
