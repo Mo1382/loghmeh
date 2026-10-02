@@ -145,6 +145,38 @@ function buildUserSortOption(sort) {
 
 /**
  * --------------------------------------------------------------------------
+ * Internal Helpers
+ * --------------------------------------------------------------------------
+ */
+
+/**
+ * Add an atomic guard for mutations that increment sessionVersion by exactly 1.
+ *
+ * Since:
+ *
+ *   sessionVersion + 1 <= Number.MAX_SAFE_INTEGER
+ *
+ * is equivalent to:
+ *
+ *   sessionVersion < Number.MAX_SAFE_INTEGER
+ *
+ * the query must only match Users whose current sessionVersion
+ * is strictly below the maximum safe integer.
+ *
+ * If the guard fails, findOneAndUpdate() returns null instead of
+ * allowing an unsafe increment.
+ */
+function addSessionVersionIncrementGuard(filter) {
+  return {
+    ...filter,
+    $expr: {
+      $lt: ["$sessionVersion", Number.MAX_SAFE_INTEGER],
+    },
+  };
+}
+
+/**
+ * --------------------------------------------------------------------------
  * Read
  * --------------------------------------------------------------------------
  */
@@ -325,11 +357,13 @@ export function updateUserProfileById(userId, updates, session) {
  * existing sessions.
  */
 export function updateUserPassword(userId, passwordHash, session) {
+  const filter = addSessionVersionIncrementGuard({
+    _id: userId,
+    deletedAt: null,
+  });
+
   const query = User.findOneAndUpdate(
-    {
-      _id: userId,
-      deletedAt: null,
-    },
+    filter,
     {
       $set: {
         password: passwordHash,
@@ -386,6 +420,12 @@ export function verifyUserEmail(userId, session) {
  *
  * sessionVersion is incremented only when the account status
  * actually changes.
+ *
+ * If the status is unchanged, the query is allowed even when
+ * sessionVersion is already at Number.MAX_SAFE_INTEGER because
+ * no increment occurs.
+ *
+ * If the status changes, sessionVersion must still be safely incrementable.
  */
 export function updateAccountStatus(userId, accountStatus, session) {
   if (!Object.values(ACCOUNT_STATUSES).includes(accountStatus)) {
@@ -409,6 +449,10 @@ export function updateAccountStatus(userId, accountStatus, session) {
 
   if (accountStatus === ACCOUNT_STATUSES.ACTIVE) {
     filter.emailVerified = true;
+  }
+
+  if (accountStatus === ACCOUNT_STATUSES.PENDING_VERIFICATION) {
+    filter.emailVerified = false;
   }
 
   const query = User.findOneAndUpdate(
@@ -445,11 +489,13 @@ export function softDeleteUser(
   userId,
   { deletedAt = new Date(), session } = {}
 ) {
+  const filter = addSessionVersionIncrementGuard({
+    _id: userId,
+    deletedAt: null,
+  });
+
   const query = User.findOneAndUpdate(
-    {
-      _id: userId,
-      deletedAt: null,
-    },
+    filter,
     {
       $set: {
         deletedAt,
@@ -471,13 +517,15 @@ export function softDeleteUser(
  * Restore a soft-deleted User.
  */
 export function restoreUser(userId, session) {
-  const query = User.findOneAndUpdate(
-    {
-      _id: userId,
-      deletedAt: {
-        $ne: null,
-      },
+  const filter = addSessionVersionIncrementGuard({
+    _id: userId,
+    deletedAt: {
+      $ne: null,
     },
+  });
+
+  const query = User.findOneAndUpdate(
+    filter,
     {
       $set: {
         deletedAt: null,
@@ -834,7 +882,13 @@ export function updateUserRatingStatsDeltas(
             $gte: [nextCount, 0],
           },
           {
+            $lte: [nextCount, Number.MAX_SAFE_INTEGER],
+          },
+          {
             $gte: [nextSum, 0],
+          },
+          {
+            $lte: [nextSum, Number.MAX_SAFE_INTEGER],
           },
           ratingInvariant,
         ],
