@@ -5,13 +5,13 @@ import { ACCOUNT_STATUSES, USER_SORTS, USER_STATS } from "@/constants/enums";
 import { applySession } from "@/lib/helpers/apply-session";
 
 /**
- * --------------------------------------------------------------------------
- * Cursor
- * --------------------------------------------------------------------------
+ * ==========================================================================
+ * Cursor Helpers
+ * ==========================================================================
  */
 
 /**
- * Build a cursor filter according to the selected User sort.
+ * Build a cursor filter for the selected User sort.
  *
  * Cursor structure:
  *
@@ -20,15 +20,19 @@ import { applySession } from "@/lib/helpers/apply-session";
  *   id: ObjectId
  * }
  *
+ * The cursor uses a two-field ordering:
+ *
+ *   primary sort field + _id
+ *
+ * This guarantees a stable and deterministic order even when
+ * multiple Users have the same primary sort value.
+ *
  * Sort direction:
  *
- * HIGHEST_RATED
- * MOST_VIEWED
- * NEWEST
- *   -> descending
- *
- * OLDEST
- *   -> ascending
+ *   HIGHEST_RATED -> descending
+ *   MOST_VIEWED   -> descending
+ *   NEWEST        -> descending
+ *   OLDEST        -> ascending
  */
 function buildCursorFilter(sort, cursor) {
   if (!cursor) {
@@ -110,7 +114,10 @@ function buildCursorFilter(sort, cursor) {
 }
 
 /**
- * Build the MongoDB sort option according to the selected User sort.
+ * Build the MongoDB sort option for the selected User sort.
+ *
+ * _id is used as the deterministic tie-breaker and must use
+ * the same direction as the primary sort field.
  */
 function buildUserSortOption(sort) {
   switch (sort) {
@@ -144,27 +151,25 @@ function buildUserSortOption(sort) {
 }
 
 /**
- * --------------------------------------------------------------------------
+ * ==========================================================================
  * Internal Helpers
- * --------------------------------------------------------------------------
+ * ==========================================================================
  */
 
 /**
- * Add an atomic guard for mutations that increment sessionVersion by exactly 1.
+ * Add an atomic guard for mutations that increment sessionVersion
+ * by exactly one.
  *
- * Since:
+ * The increment is safe only when:
  *
  *   sessionVersion + 1 <= Number.MAX_SAFE_INTEGER
  *
- * is equivalent to:
+ * which is equivalent to:
  *
  *   sessionVersion < Number.MAX_SAFE_INTEGER
  *
- * the query must only match Users whose current sessionVersion
- * is strictly below the maximum safe integer.
- *
- * If the guard fails, findOneAndUpdate() returns null instead of
- * allowing an unsafe increment.
+ * When the guard fails, the mutation matches no document and
+ * findOneAndUpdate() returns null.
  */
 function addSessionVersionIncrementGuard(filter) {
   return {
@@ -176,9 +181,9 @@ function addSessionVersionIncrementGuard(filter) {
 }
 
 /**
- * --------------------------------------------------------------------------
+ * ==========================================================================
  * Read
- * --------------------------------------------------------------------------
+ * ==========================================================================
  */
 
 /**
@@ -186,8 +191,8 @@ function addSessionVersionIncrementGuard(filter) {
  *
  * Account status is intentionally not checked.
  *
- * This method is intended for internal operations where
- * suspended/deactivated Users may still need to be resolved.
+ * This query is used by internal operations that may need to resolve
+ * Users whose account is suspended or deactivated.
  */
 export function findNonDeletedUserById(userId, session) {
   const query = User.findOne({
@@ -199,7 +204,10 @@ export function findNonDeletedUserById(userId, session) {
 }
 
 /**
- * Find an active, non-deleted User by ID.
+ * Find an active, verified, non-deleted User by ID.
+ *
+ * Only Users that are currently available as active accounts
+ * are returned.
  */
 export function findActiveUserById(userId, session) {
   const query = User.findOne({
@@ -213,7 +221,7 @@ export function findActiveUserById(userId, session) {
 }
 
 /**
- * Find an active, non-deleted User by username.
+ * Find an active, verified, non-deleted User by username.
  */
 export function findActiveUserByUsername(username, session) {
   const query = User.findOne({
@@ -229,7 +237,8 @@ export function findActiveUserByUsername(username, session) {
 /**
  * Find a non-deleted User by ID and explicitly include password.
  *
- * Intended for authentication flows.
+ * Intended for authentication-related operations where the password
+ * hash is required.
  */
 export function findUserByIdWithPassword(userId, session) {
   const query = User.findOne({
@@ -241,9 +250,10 @@ export function findUserByIdWithPassword(userId, session) {
 }
 
 /**
- * Find active, non-deleted Users by their IDs.
+ * Find active, verified, non-deleted Users by their IDs.
  *
- * Used for public/user-facing data.
+ * Only Users that are currently eligible as active accounts
+ * are returned.
  */
 export function findActiveUsersByIds(userIds, session) {
   const query = User.find({
@@ -285,7 +295,8 @@ export function findUserByUsername(username, session) {
 /**
  * Find a non-deleted User by email or username.
  *
- * Password is explicitly selected for authentication.
+ * Password is explicitly selected because this query is intended
+ * for authentication.
  */
 export function findUserByIdentifier(identifier, session) {
   const query = User.findOne({
@@ -304,13 +315,16 @@ export function findUserByIdentifier(identifier, session) {
 }
 
 /**
- * --------------------------------------------------------------------------
+ * ==========================================================================
  * Create
- * --------------------------------------------------------------------------
+ * ==========================================================================
  */
 
 /**
  * Create a new User.
+ *
+ * When a session is provided, the creation participates in the
+ * surrounding MongoDB transaction.
  */
 export function createUser(userData, session) {
   if (session) {
@@ -323,16 +337,16 @@ export function createUser(userData, session) {
 }
 
 /**
- * --------------------------------------------------------------------------
+ * ==========================================================================
  * Profile / Account
- * --------------------------------------------------------------------------
+ * ==========================================================================
  */
 
 /**
- * Update a non-deleted User's profile fields.
+ * Update the profile fields of a non-deleted User.
  *
- * Authorization and allowed-field selection belong
- * to the Service layer.
+ * Authorization and allowed-field selection are responsibilities
+ * of the Service layer.
  */
 export function updateUserProfileById(userId, updates, session) {
   const query = User.findOneAndUpdate(
@@ -344,7 +358,7 @@ export function updateUserProfileById(userId, updates, session) {
       $set: updates,
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -353,8 +367,10 @@ export function updateUserProfileById(userId, updates, session) {
 }
 
 /**
- * Update a User's password and invalidate
- * existing sessions.
+ * Update a User's password.
+ *
+ * sessionVersion is incremented so the authentication/session layer
+ * can invalidate previously issued sessions.
  */
 export function updateUserPassword(userId, passwordHash, session) {
   const filter = addSessionVersionIncrementGuard({
@@ -373,7 +389,7 @@ export function updateUserPassword(userId, passwordHash, session) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -384,8 +400,10 @@ export function updateUserPassword(userId, passwordHash, session) {
 /**
  * Mark a User's email as verified.
  *
- * Only an unverified User is matched,
- * making the operation idempotent.
+ * Only the expected pending/unverified state can transition
+ * to active/verified.
+ *
+ * Repeated verification attempts do not match and return null.
  */
 export function verifyUserEmail(userId, session) {
   const query = User.findOneAndUpdate(
@@ -402,7 +420,7 @@ export function verifyUserEmail(userId, session) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -413,19 +431,25 @@ export function verifyUserEmail(userId, session) {
 /**
  * Update a User's account status.
  *
- * Authorization and lifecycle policy belong to the Service layer.
+ * Authorization and lifecycle transition policy belong to the
+ * Service layer.
  *
- * The activation precondition (emailVerified === true) is enforced
- * atomically at the persistence layer.
+ * Persistence-level lifecycle invariants are enforced here:
  *
- * sessionVersion is incremented only when the account status
- * actually changes.
+ *   ACTIVE
+ *     -> emailVerified must be true
  *
- * If the status is unchanged, the query is allowed even when
- * sessionVersion is already at Number.MAX_SAFE_INTEGER because
- * no increment occurs.
+ *   PENDING_VERIFICATION
+ *     -> emailVerified must be false
  *
- * If the status changes, sessionVersion must still be safely incrementable.
+ * sessionVersion is incremented only when the status actually changes.
+ *
+ * When the status remains unchanged, the version increment is zero,
+ * so the operation remains valid even when sessionVersion is already
+ * at Number.MAX_SAFE_INTEGER.
+ *
+ * When the status changes, sessionVersion must still be safely
+ * incrementable.
  */
 export function updateAccountStatus(userId, accountStatus, session) {
   if (!Object.values(ACCOUNT_STATUSES).includes(accountStatus)) {
@@ -465,7 +489,13 @@ export function updateAccountStatus(userId, accountStatus, session) {
             $add: [
               "$sessionVersion",
               {
-                $cond: [{ $eq: ["$accountStatus", accountStatus] }, 0, 1],
+                $cond: [
+                  {
+                    $eq: ["$accountStatus", accountStatus],
+                  },
+                  0,
+                  1,
+                ],
               },
             ],
           },
@@ -473,7 +503,11 @@ export function updateAccountStatus(userId, accountStatus, session) {
       },
     ],
     {
-      new: true,
+      // Deprecated after Mongoose v9
+      // new: true,
+      returnDocument: "after",
+      // Needed after Mongoose v9
+      updatePipeline: true,
     }
   );
 
@@ -483,7 +517,10 @@ export function updateAccountStatus(userId, accountStatus, session) {
 /**
  * Soft-delete a User.
  *
- * Authorization belongs to the Service layer.
+ * Only non-deleted Users can be soft-deleted.
+ *
+ * sessionVersion is incremented to allow the authentication/session
+ * layer to invalidate previously issued sessions.
  */
 export function softDeleteUser(
   userId,
@@ -505,7 +542,7 @@ export function softDeleteUser(
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -515,6 +552,11 @@ export function softDeleteUser(
 
 /**
  * Restore a soft-deleted User.
+ *
+ * Only Users that are currently soft-deleted can be restored.
+ *
+ * sessionVersion is incremented to allow the authentication/session
+ * layer to invalidate previously issued sessions.
  */
 export function restoreUser(userId, session) {
   const filter = addSessionVersionIncrementGuard({
@@ -535,7 +577,7 @@ export function restoreUser(userId, session) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -544,13 +586,24 @@ export function restoreUser(userId, session) {
 }
 
 /**
- * --------------------------------------------------------------------------
+ * ==========================================================================
  * User Lists
- * --------------------------------------------------------------------------
+ * ==========================================================================
  */
 
 /**
- * Find active, non-deleted Users using cursor-based pagination.
+ * Find active, verified, non-deleted Users using cursor-based pagination.
+ *
+ * The Service layer is responsible for:
+ *
+ *   - validating the requested sort
+ *   - decoding and validating the cursor
+ *   - determining the requested page size
+ *   - creating the next cursor
+ *   - calculating hasMore
+ *
+ * This Repository method is responsible for constructing the
+ * database filter, cursor condition, sort and limit.
  */
 export function findActiveUsers({
   filter = {},
@@ -569,50 +622,51 @@ export function findActiveUsers({
   const cursorFilter = buildCursorFilter(sort, cursor);
 
   if (cursorFilter) {
-    queryFilter.$and = [
-      {
-        $or: cursorFilter.$or,
-      },
-      ...(queryFilter.$and ?? []),
-    ];
+    queryFilter.$and = [cursorFilter, ...(queryFilter.$and ?? [])];
   }
 
   const sortOption = buildUserSortOption(sort);
-
   const query = User.find(queryFilter).sort(sortOption).limit(limit);
 
   return applySession(query, session);
 }
 
 /**
- * --------------------------------------------------------------------------
+ * ==========================================================================
  * Simple User Statistics
- * --------------------------------------------------------------------------
+ * ==========================================================================
  */
 
 /**
- * Statistics that may safely be incremented independently.
+ * Statistics that may be incremented independently.
  *
  * Rating statistics are intentionally excluded because:
  *
- * ratingCount
- * ratingSum
- * averageRating
+ *   ratingCount
+ *   ratingSum
+ *   averageRating
  *
- * must always change together.
+ * form a single calculated projection and must be updated together.
  */
-const INDEPENDENT_INCREMENTABLE_USER_STATS = new Set([
+const INDEPENDENT_INCREMENTABLE_USER_STATS = [
   USER_STATS.RECIPE_COUNT,
   USER_STATS.TOTAL_RECIPE_VIEWS,
-]);
+];
 
 /**
  * Increment one independently maintained User statistic.
  *
- * This function intentionally does NOT allow Rating statistics.
+ * The mutation:
+ *
+ *   - accepts only explicitly allowed statistics
+ *   - requires a non-zero safe integer delta
+ *   - prevents the result from becoming negative
+ *   - prevents the result from exceeding Number.MAX_SAFE_INTEGER
+ *
+ * The final-value bounds are checked atomically in MongoDB.
  */
-export function incrementUserStat(userId, stat, delta = 1, session) {
-  if (!INDEPENDENT_INCREMENTABLE_USER_STATS.has(stat)) {
+function incrementUserStat(userId, stat, delta = 1, session) {
+  if (!INDEPENDENT_INCREMENTABLE_USER_STATS.includes(stat)) {
     throw new Error("Invalid independently incrementable user stat.");
   }
 
@@ -651,7 +705,7 @@ export function incrementUserStat(userId, stat, delta = 1, session) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -679,36 +733,187 @@ export function incrementTotalRecipeViews(userId, amount = 1, session) {
 }
 
 /**
- * --------------------------------------------------------------------------
+ * ==========================================================================
  * User Statistics Reconciliation
- * --------------------------------------------------------------------------
- */
-
-/**
- * Replace calculated User statistics.
+ * ==========================================================================
+ *
+ * Replaces the user's stored statistics with a complete, reconciled snapshot.
  *
  * Source of truth:
- * - Recipe collection
- * - Rating collection
+ *   - Recipe collection
+ *   - Rating collection
  *
- * Projection:
- * - recipeCount
- * - totalRecipeViews
- * - ratingCount
- * - ratingSum
- * - averageRating
+ * Reconciled statistics:
+ *   - recipeCount
+ *   - totalRecipeViews
+ *   - ratingCount
+ *   - ratingSum
+ *   - averageRating
  *
- * Used by statistics.service.js during
- * reconciliation and repair operations.
+ * Intended for statistics reconciliation and repair operations.
  */
-export function setUserStats(
-  userId,
-  { recipeCount, totalRecipeViews, ratingCount, ratingSum, averageRating },
-  session
-) {
+
+const SETTABLE_USER_STAT_FIELDS = [
+  "recipeCount",
+  "totalRecipeViews",
+  "ratingCount",
+  "ratingSum",
+  "averageRating",
+];
+
+/**
+ * Calculates the average rating rounded to two decimal places.
+ *
+ * Uses BigInt arithmetic to avoid floating-point precision issues and
+ * reproduce MongoDB's round-half-to-even behavior.
+ */
+function calculateRoundedAverage(ratingSum, ratingCount) {
+  // No ratings means the average rating must be zero.
+  if (ratingCount === 0) {
+    return 0;
+  }
+
+  // Scale the division by 100 so the result can be rounded to two decimals.
+  const numerator = BigInt(ratingSum) * 100n;
+  const denominator = BigInt(ratingCount);
+
+  // Integer division gives the value before rounding.
+  let rounded = numerator / denominator;
+
+  // Determine whether the remainder requires rounding up.
+  const remainder = numerator % denominator;
+  const twiceRemainder = remainder * 2n;
+
+  // Apply round-half-to-even.
+  if (
+    twiceRemainder > denominator ||
+    (twiceRemainder === denominator && rounded % 2n === 1n)
+  ) {
+    rounded += 1n;
+  }
+
+  return Number(rounded) / 100;
+}
+
+/**
+ * Validates a complete user statistics snapshot.
+ *
+ * Ensures:
+ *   - All statistics are provided.
+ *   - Individual field values are valid.
+ *   - Cross-field rating invariants are satisfied.
+ *   - averageRating matches ratingSum / ratingCount.
+ */
+function assertCompleteAndValidUserStats(stats) {
+  // Statistics must be provided as an object.
+  if (!stats || typeof stats !== "object" || Array.isArray(stats)) {
+    throw new TypeError("User stats must be a plain object.");
+  }
+
+  // Reconciliation requires the complete statistics snapshot.
+  for (const field of SETTABLE_USER_STAT_FIELDS) {
+    if (!Object.hasOwn(stats, field) || stats[field] === undefined) {
+      throw new Error(`User stat "${field}" is required.`);
+    }
+  }
+
+  const {
+    recipeCount,
+    totalRecipeViews,
+    ratingCount,
+    ratingSum,
+    averageRating,
+  } = stats;
+
+  // These statistics must be non-negative safe integers.
+  const nonNegativeIntegerFields = [
+    ["recipeCount", recipeCount],
+    ["totalRecipeViews", totalRecipeViews],
+    ["ratingCount", ratingCount],
+    ["ratingSum", ratingSum],
+  ];
+
+  for (const [field, value] of nonNegativeIntegerFields) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new TypeError(
+        `User stat "${field}" must be a non-negative safe integer.`
+      );
+    }
+  }
+
+  // averageRating must be a finite number in the [0, 5] range
+  // with at most two decimal places.
+  if (
+    typeof averageRating !== "number" ||
+    !Number.isFinite(averageRating) ||
+    averageRating < 0 ||
+    averageRating > 5
+  ) {
+    throw new TypeError(
+      'User stat "averageRating" must be a finite number between 0 and 5.'
+    );
+  }
+
+  // When there are no ratings, both their sum and average must be zero.
+  if (ratingCount === 0) {
+    if (ratingSum !== 0 || averageRating !== 0) {
+      throw new Error(
+        "When ratingCount is zero, ratingSum and averageRating must also be zero."
+      );
+    }
+
+    return;
+  }
+
+  const ratingCountBigInt = BigInt(ratingCount);
+  const ratingSumBigInt = BigInt(ratingSum);
+
+  // Because each rating is between 1 and 5:
+  //   ratingCount <= ratingSum <= ratingCount * 5
+  if (
+    ratingSumBigInt < ratingCountBigInt ||
+    ratingSumBigInt > ratingCountBigInt * 5n
+  ) {
+    throw new Error(
+      "ratingSum must be between ratingCount and ratingCount multiplied by 5."
+    );
+  }
+
+  // averageRating must exactly match the reconciled rating sum and count.
+  const expectedAverage = calculateRoundedAverage(ratingSum, ratingCount);
+
+  if (averageRating !== expectedAverage) {
+    throw new Error(
+      "averageRating must equal the rounded average of ratingSum divided by ratingCount."
+    );
+  }
+}
+
+/**
+ * Replaces the user's stored statistics with a complete reconciled snapshot.
+ *
+ * Only non-deleted users can be reconciled. The statistics are replaced
+ * atomically, and Mongoose schema validators are also applied.
+ */
+export function setUserStats(userId, stats, session) {
+  // Validate the complete snapshot and all cross-field invariants
+  // before sending the update to MongoDB.
+  assertCompleteAndValidUserStats(stats);
+
+  const {
+    recipeCount,
+    totalRecipeViews,
+    ratingCount,
+    ratingSum,
+    averageRating,
+  } = stats;
+
+  // Replace all stored statistics in a single update operation.
   const query = User.findOneAndUpdate(
     {
       _id: userId,
+
+      // Statistics reconciliation is allowed only for non-deleted users.
       deletedAt: null,
     },
     {
@@ -721,18 +926,22 @@ export function setUserStats(
       },
     },
     {
-      new: true,
+      // Return the user document after the statistics have been updated.
+      returnDocument: "after",
+
+      // Also enforce the validators defined in the User schema.
       runValidators: true,
     }
   );
 
+  // Execute the query within the provided session when one is supplied.
   return applySession(query, session);
 }
 
 /**
- * --------------------------------------------------------------------------
+ * ==========================================================================
  * User Rating Statistics
- * --------------------------------------------------------------------------
+ * ==========================================================================
  */
 
 /**
@@ -741,28 +950,33 @@ export function setUserStats(
  * This is the normal mutation path for Rating operations.
  *
  * Create:
+ *
  *   ratingCountDelta = +1
  *   ratingSumDelta   = +value
  *
  * Update:
+ *
  *   ratingCountDelta = 0
  *   ratingSumDelta   = newValue - oldValue
  *
  * Delete:
+ *
  *   ratingCountDelta = -1
  *   ratingSumDelta   = -oldValue
  *
  * The following fields are updated together:
  *
- * - stats.ratingCount
- * - stats.ratingSum
- * - stats.averageRating
+ *   - stats.ratingCount
+ *   - stats.ratingSum
+ *   - stats.averageRating
  *
- * The new average is calculated from the new count
- * and new sum.
+ * The new average is calculated from the resulting count and sum.
  *
- * MongoDB $round keeps the stored projection
- * consistent with the application's two-decimal contract.
+ * $round stores the resulting average according to the application's
+ * two-decimal precision contract.
+ *
+ * All relevant numeric and domain invariants are checked atomically
+ * in the query before the update is applied.
  */
 export function updateUserRatingStatsDeltas(
   userId,
@@ -782,7 +996,9 @@ export function updateUserRatingStatsDeltas(
   }
 
   /**
-   * Current projection values.
+   * Current stored projection values.
+   *
+   * $ifNull provides a safe fallback for incomplete legacy data.
    */
   const currentCount = {
     $ifNull: ["$stats.ratingCount", 0],
@@ -793,7 +1009,7 @@ export function updateUserRatingStatsDeltas(
   };
 
   /**
-   * Values after applying the mutation.
+   * Resulting values after applying the requested deltas.
    */
   const nextCount = {
     $add: [currentCount, ratingCountDelta],
@@ -804,7 +1020,9 @@ export function updateUserRatingStatsDeltas(
   };
 
   /**
-   * New average based on the new count and sum.
+   * Recalculate the average from the resulting count and sum.
+   *
+   * When there are no ratings, the average is explicitly reset to zero.
    */
   const nextAverage = {
     $cond: [
@@ -824,20 +1042,18 @@ export function updateUserRatingStatsDeltas(
   };
 
   /**
-   * Rating statistics invariant:
-   *
-   * 1. ratingCount >= 0
-   * 2. ratingSum >= 0
+   * Rating-domain invariant.
    *
    * When ratingCount === 0:
+   *
    *   ratingSum === 0
    *
    * When ratingCount > 0:
-   *   ratingCount <= ratingSum
-   *   ratingSum <= ratingCount * 5
    *
-   * Because all valid Rating values are in the range 1..5,
-   * these constraints keep the calculated average in 0..5.
+   *   ratingCount <= ratingSum <= ratingCount * 5
+   *
+   * Because valid Rating values are restricted to the range 1..5,
+   * these conditions keep the resulting average within 0..5.
    */
   const ratingInvariant = {
     $or: [
@@ -872,6 +1088,16 @@ export function updateUserRatingStatsDeltas(
     ],
   };
 
+  /**
+   * Atomic numeric and domain constraints.
+   *
+   * Both resulting values must remain Safe Integers:
+   *
+   *   0 <= nextCount <= Number.MAX_SAFE_INTEGER
+   *   0 <= nextSum   <= Number.MAX_SAFE_INTEGER
+   *
+   * The rating invariant is also enforced before the update is applied.
+   */
   const query = User.findOneAndUpdate(
     {
       _id: userId,
@@ -904,7 +1130,8 @@ export function updateUserRatingStatsDeltas(
       },
     ],
     {
-      new: true,
+      returnDocument: "after",
+      updatePipeline: true,
     }
   );
 
