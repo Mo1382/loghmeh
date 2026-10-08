@@ -10,6 +10,7 @@ import {
   X_PATTERN,
   DECIMAL_TOLERANCE,
 } from "@/constants/regex";
+import { normalizeUsername } from "@/lib/normalization/normalizeUsername";
 
 /**
  * --------------------------------------------------------------------------
@@ -119,6 +120,7 @@ const userSchema = new mongoose.Schema(
       required: [true, "نام کاربری الزامی است."],
       unique: true,
       trim: true,
+      set: normalizeUsername,
       minlength: [3, "نام کاربری باید حداقل ۳ کاراکتر باشد."],
       maxlength: [30, "نام کاربری نباید بیشتر از ۳۰ کاراکتر باشد."],
       match: [
