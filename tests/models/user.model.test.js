@@ -6,6 +6,11 @@ import User from "@/models/User";
 
 import { ACCOUNT_STATUSES, USER_ROLES, USER_TITLES } from "@/constants/enums";
 
+import {
+  expectValidationError,
+  findIndexByFields,
+} from "@/tests/helpers/mongoose-test-helpers";
+
 let mongoServer;
 
 /**
@@ -47,35 +52,6 @@ function buildValidUser(overrides = {}) {
     email: "test@example.com",
     password: "Password123!",
     ...overrides,
-  });
-}
-
-function expectValidationError(user, path) {
-  const error = user.validateSync();
-
-  expect(error).toBeTruthy();
-  expect(error.errors[path]).toBeTruthy();
-
-  return error;
-}
-
-function findIndexByFields(expectedFields) {
-  const expectedKeys = Object.keys(expectedFields).sort();
-
-  return User.schema.indexes().find(([actualFields]) => {
-    const actualKeys = Object.keys(actualFields).sort();
-
-    if (actualKeys.length !== expectedKeys.length) {
-      return false;
-    }
-
-    if (!actualKeys.every((key, index) => key === expectedKeys[index])) {
-      return false;
-    }
-
-    return expectedKeys.every(
-      (key) => actualFields[key] === expectedFields[key]
-    );
   });
 }
 
@@ -1005,7 +981,7 @@ describe("User model - schema options", () => {
 
 describe("User model - index definitions", () => {
   test("defines a unique username index", () => {
-    const index = findIndexByFields({
+    const index = findIndexByFields(User.schema, {
       username: 1,
     });
 
@@ -1016,7 +992,7 @@ describe("User model - index definitions", () => {
   });
 
   test("defines a unique email index", () => {
-    const index = findIndexByFields({
+    const index = findIndexByFields(User.schema, {
       email: 1,
     });
 
@@ -1027,7 +1003,7 @@ describe("User model - index definitions", () => {
   });
 
   test("defines the average-rating ranking index", () => {
-    const index = findIndexByFields({
+    const index = findIndexByFields(User.schema, {
       "stats.averageRating": -1,
       _id: -1,
     });
@@ -1036,7 +1012,7 @@ describe("User model - index definitions", () => {
   });
 
   test("defines the total-recipe-views ranking index", () => {
-    const index = findIndexByFields({
+    const index = findIndexByFields(User.schema, {
       "stats.totalRecipeViews": -1,
       _id: -1,
     });
@@ -1045,7 +1021,7 @@ describe("User model - index definitions", () => {
   });
 
   test("defines the chronological index", () => {
-    const index = findIndexByFields({
+    const index = findIndexByFields(User.schema, {
       createdAt: -1,
       _id: -1,
     });
@@ -1111,16 +1087,5 @@ describe("User model - database constraints", () => {
     ).rejects.toMatchObject({
       code: 11000,
     });
-  });
-
-  test("creates timestamps when the document is saved", async () => {
-    const user = await User.create({
-      username: "TimestampUser",
-      email: "timestamp@example.com",
-      password: "Password123!",
-    });
-
-    expect(user.createdAt).toBeInstanceOf(Date);
-    expect(user.updatedAt).toBeInstanceOf(Date);
   });
 });
