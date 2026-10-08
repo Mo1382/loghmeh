@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-
+import { isValidEmail } from "@/lib/validation/isValidEmail";
 import { ACCOUNT_STATUSES, USER_ROLES, USER_TITLES } from "@/constants/enums";
 
 import {
@@ -52,26 +52,6 @@ function isValidSocialUrl(value, domainPattern) {
   }
 
   return isValidHttpsUrl(value) && domainPattern.test(value);
-}
-
-/**
- * Validate the persistence-level email format.
- *
- * Email normalization is handled by the schema (`trim` + `lowercase`);
- * this validator is responsible only for validating the resulting format.
- */
-function isValidEmail(value) {
-  if (value == null || typeof value !== "string") {
-    return false;
-  }
-
-  const email = value.trim();
-
-  if (!email || email.length > 254) {
-    return false;
-  }
-
-  return EMAIL_PATTERN.test(email);
 }
 
 /**
@@ -159,6 +139,7 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
+      maxlength: [254, "آدرس ایمیل نباید بیشتر از ۲۵۴ نویسه باشد."],
       validate: {
         validator: isValidEmail,
         message: "لطفاً یک آدرس ایمیل معتبر وارد کنید.",

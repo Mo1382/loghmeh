@@ -39,13 +39,7 @@ export function consumeVerificationCode({
   return applySession(query, session);
 }
 
-/**
- * Find the active verification code for an email and purpose.
- *
- * Only non-expired codes are considered.
- * The newest code is returned when multiple active
- * records exist.
- */
+// Finds the active verification code for the given email and purpose.
 export function findActiveVerificationCode(email, purpose, session) {
   const query = VerificationCode.findOne({
     email,
@@ -53,7 +47,7 @@ export function findActiveVerificationCode(email, purpose, session) {
     expiresAt: {
       $gt: new Date(),
     },
-  });
+  }).select("+codeHash");
 
   return applySession(query, session);
 }
