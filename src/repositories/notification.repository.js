@@ -114,7 +114,7 @@ export function markNotificationAsRead(
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );

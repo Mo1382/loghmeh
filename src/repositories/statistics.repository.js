@@ -128,7 +128,7 @@ export function setRecipeRatingStats(
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -172,7 +172,7 @@ export function setRecipeCommentCount(recipeId, commentCount, session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -261,7 +261,7 @@ export function setCommentReactionStats(
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -350,7 +350,7 @@ export function setReplyReactionStats(
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -570,7 +570,7 @@ export function setUserStats(
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -628,7 +628,7 @@ export function setCategoryRecipeCount(categoryId, recipeCount, session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );

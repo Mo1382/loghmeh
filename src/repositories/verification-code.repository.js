@@ -1,23 +1,17 @@
 import VerificationCode from "@/models/VerificationCode";
+
 import { applySession } from "@/lib/helpers/apply-session";
 
-/**
- * --------------------------------------------------------------------------
+/*
+ * ============================================================================
  * Consume
- * --------------------------------------------------------------------------
+ * ============================================================================
  */
 
 /**
  * Atomically consume a verification code.
  *
- * The verification code is deleted only if:
- * - the verification document ID matches,
- * - the email matches,
- * - the purpose matches,
- * - the code hash is still the same,
- * - and the code has not expired.
- *
- * Returns the deleted document or null.
+ * The code is deleted only when all identifying and validity conditions match.
  */
 export function consumeVerificationCode({
   verificationCodeId,
@@ -39,6 +33,12 @@ export function consumeVerificationCode({
   return applySession(query, session);
 }
 
+/*
+ * ============================================================================
+ * Find active code
+ * ============================================================================
+ */
+
 // Finds the active verification code for the given email and purpose.
 export function findActiveVerificationCode(email, purpose, session) {
   const query = VerificationCode.findOne({
@@ -52,11 +52,16 @@ export function findActiveVerificationCode(email, purpose, session) {
   return applySession(query, session);
 }
 
+/*
+ * ============================================================================
+ * Replace
+ * ============================================================================
+ */
+
 /**
  * Replace the current verification code with a new one.
  *
- * The Service layer is responsible for generating and
- * hashing the new code.
+ * The Service layer is responsible for generating and hashing the new code.
  */
 export function replaceVerificationCode(codeData, session) {
   const query = VerificationCode.findOneAndUpdate(
@@ -69,9 +74,13 @@ export function replaceVerificationCode(codeData, session) {
         codeHash: codeData.codeHash,
         expiresAt: codeData.expiresAt,
       },
+      $setOnInsert: {
+        email: codeData.email,
+        purpose: codeData.purpose,
+      },
     },
     {
-      new: true,
+      returnDocument: "after",
       upsert: true,
       runValidators: true,
       setDefaultsOnInsert: true,

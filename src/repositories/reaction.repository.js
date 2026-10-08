@@ -105,7 +105,7 @@ export function updateReactionTypeByComment(userId, commentId, type, session) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -128,7 +128,7 @@ export function updateReactionTypeByReply(userId, replyId, type, session) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );

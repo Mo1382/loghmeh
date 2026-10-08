@@ -111,7 +111,7 @@ export function updateCategoryById(categoryId, updates, session) {
       $set: updates,
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -131,7 +131,7 @@ export function setCategoryActive(categoryId, isActive, session) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -162,7 +162,7 @@ export function incrementRecipeCount(categoryId, delta = 1, session) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );

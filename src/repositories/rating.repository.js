@@ -47,7 +47,7 @@ export function updateRatingByUserAndRecipe(userId, recipeId, value, session) {
       },
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );

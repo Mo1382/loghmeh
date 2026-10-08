@@ -183,7 +183,7 @@ export function addCommentReply(commentId, replyData, session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -229,7 +229,7 @@ export function softDeleteCommentReplyById(
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -305,7 +305,7 @@ export function restoreCommentReplyById(replyId, session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -338,7 +338,7 @@ export function softDeleteComment(commentId, deletedAt = new Date(), session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -365,7 +365,7 @@ export function restoreComment(commentId, session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -441,7 +441,7 @@ export function updateReactionCountDeltas(
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -561,7 +561,7 @@ export function updateReplyReactionCountDeltas(
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );

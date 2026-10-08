@@ -460,7 +460,7 @@ export function updateRecipeById(recipeId, updates, session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -494,7 +494,7 @@ export function softDeleteRecipe(recipeId, deletedAt = new Date(), session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -521,7 +521,7 @@ export function restoreRecipe(recipeId, session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -606,7 +606,7 @@ export function updateStatCountByDelta(recipeId, stat, delta = 1, session) {
     },
 
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
@@ -742,7 +742,7 @@ export function updateRatingStatsDeltas(
     ],
 
     {
-      new: true,
+      returnDocument: "after",
     }
   );
 
