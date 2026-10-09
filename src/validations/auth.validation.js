@@ -13,6 +13,7 @@ import { normalizeUsername } from "@/lib/normalization/normalizeUsername";
 
 import { isHttpsUrl } from "@/lib/validation/isHttpsUrl";
 import { isValidEmail } from "@/lib/validation/isValidEmail";
+import { normalizeDigits } from "@/lib/normalization/normalizeDigits";
 
 /**
  * Reusable validation schemas.
@@ -133,9 +134,9 @@ export const forgotPasswordSchema = z
   .strict();
 
 /**
- * Verify password reset code — Step 2.
+ * Verify register and password reset code — Step 2.
  */
-export const verifyPasswordResetCodeSchema = z
+export const verificationCodeSchema = z
   .object({
     code: z
       .string()
