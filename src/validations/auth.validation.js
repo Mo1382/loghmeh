@@ -18,7 +18,7 @@ import { normalizeDigits } from "@/lib/normalization/normalizeDigits";
 /**
  * Reusable validation schemas.
  */
-const usernameSchema = z
+export const usernameSchema = z
   .string()
   .trim()
   .transform(normalizeUsername)

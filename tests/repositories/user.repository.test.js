@@ -14,6 +14,8 @@ import {
   USER_TITLES,
 } from "@/constants/enums";
 
+import { ERROR_CODES } from "@/constants/error-codes";
+
 import {
   createUser,
   findActiveUserById,
@@ -134,6 +136,22 @@ async function createActiveUser(overrides = {}) {
     accountStatus: ACCOUNT_STATUSES.ACTIVE,
     emailVerified: true,
     ...overrides,
+  });
+}
+
+function expectMutationSuccess(result) {
+  expect(result).toMatchObject({
+    ok: true,
+    user: expect.anything(),
+  });
+
+  return result.user;
+}
+
+function expectMutationFailure(result, reason) {
+  expect(result).toEqual({
+    ok: false,
+    reason,
   });
 }
 
@@ -811,9 +829,10 @@ describe("account status", () => {
     });
 
     const result = await updateAccountStatus(user._id, targetStatus);
+    const updatedUser = expectMutationSuccess(result);
 
-    expect(result?.accountStatus).toBe(targetStatus);
-    expect(result?.sessionVersion).toBe(4);
+    expect(updatedUser.accountStatus).toBe(targetStatus);
+    expect(updatedUser.sessionVersion).toBe(4);
   });
 
   it("does not increment sessionVersion when the status stays unchanged", async () => {
@@ -823,8 +842,10 @@ describe("account status", () => {
 
     const result = await updateAccountStatus(user._id, ACCOUNT_STATUSES.ACTIVE);
 
-    expect(result?.accountStatus).toBe(ACCOUNT_STATUSES.ACTIVE);
-    expect(result?.sessionVersion).toBe(7);
+    const updatedUser = expectMutationSuccess(result);
+
+    expect(updatedUser.accountStatus).toBe(ACCOUNT_STATUSES.ACTIVE);
+    expect(updatedUser.sessionVersion).toBe(7);
   });
 
   it("allows an unchanged status even when sessionVersion is MAX_SAFE_INTEGER", async () => {
@@ -834,9 +855,10 @@ describe("account status", () => {
 
     const result = await updateAccountStatus(user._id, ACCOUNT_STATUSES.ACTIVE);
 
-    expect(result).not.toBeNull();
-    expect(result.accountStatus).toBe(ACCOUNT_STATUSES.ACTIVE);
-    expect(result.sessionVersion).toBe(MAX_SAFE_INTEGER);
+    const updatedUser = expectMutationSuccess(result);
+
+    expect(updatedUser.accountStatus).toBe(ACCOUNT_STATUSES.ACTIVE);
+    expect(updatedUser.sessionVersion).toBe(MAX_SAFE_INTEGER);
   });
 
   it("blocks a status change at MAX_SAFE_INTEGER", async () => {
@@ -848,7 +870,7 @@ describe("account status", () => {
 
     const result = await updateAccountStatus(user._id, targetStatus);
 
-    expect(result).toBeNull();
+    expectMutationFailure(result, ERROR_CODES.SESSION_VERSION_LIMIT_REACHED);
 
     const stored = await User.findById(user._id);
 
@@ -864,7 +886,7 @@ describe("account status", () => {
 
     const result = await updateAccountStatus(user._id, ACCOUNT_STATUSES.ACTIVE);
 
-    expect(result).toBeNull();
+    expectMutationFailure(result, ERROR_CODES.EMAIL_NOT_VERIFIED);
 
     const stored = await User.findById(user._id);
 
@@ -881,7 +903,7 @@ describe("account status", () => {
       ACCOUNT_STATUSES.PENDING_VERIFICATION
     );
 
-    expect(result).toBeNull();
+    expectMutationFailure(result, ERROR_CODES.USER_LIFECYCLE_CONFLICT);
 
     const stored = await User.findById(user._id);
 
@@ -905,8 +927,9 @@ describe("account status", () => {
       ACCOUNT_STATUSES.ACTIVE
     );
 
-    expect(deletedResult).toBeNull();
-    expect(missingResult).toBeNull();
+    expectMutationFailure(deletedResult, ERROR_CODES.USER_ALREADY_DELETED);
+
+    expectMutationFailure(missingResult, ERROR_CODES.USER_NOT_FOUND);
 
     const stored = await User.findById(deleted._id);
 
@@ -937,8 +960,10 @@ describe("soft delete and restore", () => {
       deletedAt,
     });
 
-    expect(result?.deletedAt?.getTime()).toBe(deletedAt.getTime());
-    expect(result?.sessionVersion).toBe(3);
+    const deletedUser = expectMutationSuccess(result);
+
+    expect(deletedUser.deletedAt.getTime()).toBe(deletedAt.getTime());
+    expect(deletedUser.sessionVersion).toBe(3);
   });
 
   it("does not soft-delete an already deleted user without changing its state", async () => {
@@ -951,7 +976,7 @@ describe("soft delete and restore", () => {
 
     const result = await softDeleteUser(user._id);
 
-    expect(result).toBeNull();
+    expectMutationFailure(result, ERROR_CODES.USER_ALREADY_DELETED);
 
     const stored = await User.findById(user._id);
 
@@ -965,18 +990,19 @@ describe("soft delete and restore", () => {
     const before = Date.now();
 
     const result = await softDeleteUser(user._id);
+    const deletedUser = expectMutationSuccess(result);
 
     const after = Date.now();
 
-    expect(result?.deletedAt).toBeInstanceOf(Date);
-    expect(result?.deletedAt.getTime()).toBeGreaterThanOrEqual(before);
-    expect(result?.deletedAt.getTime()).toBeLessThanOrEqual(after);
+    expect(deletedUser.deletedAt).toBeInstanceOf(Date);
+    expect(deletedUser.deletedAt.getTime()).toBeGreaterThanOrEqual(before);
+    expect(deletedUser.deletedAt.getTime()).toBeLessThanOrEqual(after);
   });
 
   it("returns null when soft-deleting a missing user", async () => {
     const result = await softDeleteUser(new mongoose.Types.ObjectId());
 
-    expect(result).toBeNull();
+    expectMutationFailure(result, ERROR_CODES.USER_NOT_FOUND);
   });
 
   it("blocks soft delete at MAX_SAFE_INTEGER", async () => {
@@ -986,7 +1012,7 @@ describe("soft delete and restore", () => {
 
     const result = await softDeleteUser(user._id);
 
-    expect(result).toBeNull();
+    expectMutationFailure(result, ERROR_CODES.SESSION_VERSION_LIMIT_REACHED);
 
     const stored = await User.findById(user._id);
 
@@ -1002,9 +1028,10 @@ describe("soft delete and restore", () => {
     });
 
     const result = await restoreUser(user._id);
+    const restoredUser = expectMutationSuccess(result);
 
-    expect(result?.deletedAt).toBeNull();
-    expect(result?.sessionVersion).toBe(6);
+    expect(restoredUser.deletedAt).toBeNull();
+    expect(restoredUser.sessionVersion).toBe(6);
   });
 
   it("does not restore a non-deleted user without changing its state", async () => {
@@ -1014,7 +1041,7 @@ describe("soft delete and restore", () => {
 
     const result = await restoreUser(user._id);
 
-    expect(result).toBeNull();
+    expectMutationFailure(result, ERROR_CODES.USER_NOT_DELETED);
 
     const stored = await User.findById(user._id);
 
@@ -1025,7 +1052,7 @@ describe("soft delete and restore", () => {
   it("returns null when restoring a missing user", async () => {
     const result = await restoreUser(new mongoose.Types.ObjectId());
 
-    expect(result).toBeNull();
+    expectMutationFailure(result, ERROR_CODES.USER_NOT_FOUND);
   });
 
   it("blocks restore at MAX_SAFE_INTEGER", async () => {
@@ -1036,7 +1063,7 @@ describe("soft delete and restore", () => {
 
     const result = await restoreUser(user._id);
 
-    expect(result).toBeNull();
+    expectMutationFailure(result, ERROR_CODES.SESSION_VERSION_LIMIT_REACHED);
 
     const stored = await User.findById(user._id);
 
@@ -1972,7 +1999,7 @@ describe("setUserStats", () => {
    * created.
    */
   it.each(
-    Object.keys(stats)
+    Object.keys(validStats)
       .filter((field) => field !== "averageRating")
       .flatMap((field) =>
         [-1, 1.5, MAX_SAFE_INTEGER + 1, NaN, Infinity].map((value) => ({
@@ -1984,7 +2011,7 @@ describe("setUserStats", () => {
     const user = await createFixture();
 
     const invalidStats = {
-      ...stats,
+      ...validStats,
       [field]: value,
     };
 
@@ -2006,7 +2033,7 @@ describe("setUserStats", () => {
       const user = await createFixture();
 
       const invalidStats = {
-        ...stats,
+        ...validStats,
         averageRating: value,
       };
 

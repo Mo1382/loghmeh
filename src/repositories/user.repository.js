@@ -1,5 +1,7 @@
 import User from "@/models/User";
 
+import { ERROR_CODES } from "@/constants/error-codes";
+
 import { ACCOUNT_STATUSES, USER_SORTS, USER_STATS } from "@/constants/enums";
 
 import { applySession } from "@/lib/helpers/apply-session";
@@ -178,6 +180,30 @@ function addSessionVersionIncrementGuard(filter) {
       $lt: ["$sessionVersion", Number.MAX_SAFE_INTEGER],
     },
   };
+}
+
+const mutationSucceeded = (user) => ({
+  ok: true,
+  user,
+});
+
+const mutationFailed = (reason) => ({
+  ok: false,
+  reason,
+});
+
+/**
+ * Read the current state needed to diagnose a failed mutation.
+ *
+ * This query must include soft-deleted Users as well,
+ * so the failure reason can be distinguished.
+ */
+function findUserMutationState(userId, session) {
+  const query = User.findOne({
+    _id: userId,
+  }).select("_id deletedAt accountStatus emailVerified sessionVersion");
+
+  return applySession(query, session);
 }
 
 /**
@@ -451,7 +477,7 @@ export function verifyUserEmail(userId, session) {
  * When the status changes, sessionVersion must still be safely
  * incrementable.
  */
-export function updateAccountStatus(userId, accountStatus, session) {
+export async function updateAccountStatus(userId, accountStatus, session) {
   if (!Object.values(ACCOUNT_STATUSES).includes(accountStatus)) {
     throw new Error("Invalid account status.");
   }
@@ -511,7 +537,44 @@ export function updateAccountStatus(userId, accountStatus, session) {
     }
   );
 
-  return applySession(query, session);
+  const updatedUser = await applySession(query, session);
+
+  if (updatedUser) {
+    return mutationSucceeded(updatedUser);
+  }
+
+  const existingUser = await findUserMutationState(userId, session);
+
+  if (!existingUser) {
+    return mutationFailed(ERROR_CODES.USER_NOT_FOUND);
+  }
+
+  if (existingUser.deletedAt !== null && existingUser.deletedAt !== undefined) {
+    return mutationFailed(ERROR_CODES.USER_ALREADY_DELETED);
+  }
+
+  if (
+    accountStatus === ACCOUNT_STATUSES.ACTIVE &&
+    !existingUser.emailVerified
+  ) {
+    return mutationFailed(ERROR_CODES.EMAIL_NOT_VERIFIED);
+  }
+
+  if (
+    accountStatus === ACCOUNT_STATUSES.PENDING_VERIFICATION &&
+    existingUser.emailVerified
+  ) {
+    return mutationFailed(ERROR_CODES.USER_LIFECYCLE_CONFLICT);
+  }
+
+  if (
+    existingUser.accountStatus !== accountStatus &&
+    existingUser.sessionVersion >= Number.MAX_SAFE_INTEGER
+  ) {
+    return mutationFailed(ERROR_CODES.SESSION_VERSION_LIMIT_REACHED);
+  }
+
+  return mutationFailed(ERROR_CODES.USER_LIFECYCLE_CONFLICT);
 }
 
 /**
@@ -522,7 +585,7 @@ export function updateAccountStatus(userId, accountStatus, session) {
  * sessionVersion is incremented to allow the authentication/session
  * layer to invalidate previously issued sessions.
  */
-export function softDeleteUser(
+export async function softDeleteUser(
   userId,
   { deletedAt = new Date(), session } = {}
 ) {
@@ -547,7 +610,27 @@ export function softDeleteUser(
     }
   );
 
-  return applySession(query, session);
+  const deletedUser = await applySession(query, session);
+
+  if (deletedUser) {
+    return mutationSucceeded(deletedUser);
+  }
+
+  const existingUser = await findUserMutationState(userId, session);
+
+  if (!existingUser) {
+    return mutationFailed(ERROR_CODES.USER_NOT_FOUND);
+  }
+
+  if (existingUser.deletedAt !== null && existingUser.deletedAt !== undefined) {
+    return mutationFailed(ERROR_CODES.USER_ALREADY_DELETED);
+  }
+
+  if (existingUser.sessionVersion >= Number.MAX_SAFE_INTEGER) {
+    return mutationFailed(ERROR_CODES.SESSION_VERSION_LIMIT_REACHED);
+  }
+
+  return mutationFailed(ERROR_CODES.USER_LIFECYCLE_CONFLICT);
 }
 
 /**
@@ -558,7 +641,7 @@ export function softDeleteUser(
  * sessionVersion is incremented to allow the authentication/session
  * layer to invalidate previously issued sessions.
  */
-export function restoreUser(userId, session) {
+export async function restoreUser(userId, session) {
   const filter = addSessionVersionIncrementGuard({
     _id: userId,
     deletedAt: {
@@ -582,7 +665,27 @@ export function restoreUser(userId, session) {
     }
   );
 
-  return applySession(query, session);
+  const restoredUser = await applySession(query, session);
+
+  if (restoredUser) {
+    return mutationSucceeded(restoredUser);
+  }
+
+  const existingUser = await findUserMutationState(userId, session);
+
+  if (!existingUser) {
+    return mutationFailed(ERROR_CODES.USER_NOT_FOUND);
+  }
+
+  if (existingUser.deletedAt === null || existingUser.deletedAt === undefined) {
+    return mutationFailed(ERROR_CODES.USER_NOT_DELETED);
+  }
+
+  if (existingUser.sessionVersion >= Number.MAX_SAFE_INTEGER) {
+    return mutationFailed(ERROR_CODES.SESSION_VERSION_LIMIT_REACHED);
+  }
+
+  return mutationFailed(ERROR_CODES.USER_LIFECYCLE_CONFLICT);
 }
 
 /**

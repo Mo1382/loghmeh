@@ -36,6 +36,7 @@ import { normalizeLimit } from "@/lib/pagination/limit";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
 import { assertEnum } from "@/lib/validation/enum";
+import { usernameSchema } from "@/validations/auth.validation";
 
 /**
  * --------------------------------------------------------------------------
@@ -246,26 +247,28 @@ function toPublicUser(user) {
  * deletedAt and sessionVersion are excluded.
  */
 function toPrivateUser(user) {
-  const stats = pickAllowedFields(user.stats ?? {}, [
+  const data = user.toObject ? user.toObject() : { ...user };
+
+  const stats = pickAllowedFields(data.stats ?? {}, [
     "recipeCount",
     "averageRating",
     "totalRecipeViews",
   ]);
 
   return {
-    id: user._id,
-    username: user.username,
-    email: user.email,
-    avatar: user.avatar,
-    bio: user.bio,
-    title: user.title,
-    role: user.role,
-    socialLinks: user.socialLinks,
+    id: data._id,
+    username: data.username,
+    email: data.email,
+    avatar: data.avatar,
+    bio: data.bio,
+    title: data.title,
+    role: data.role,
+    socialLinks: data.socialLinks,
     stats,
-    emailVerified: user.emailVerified,
-    accountStatus: user.accountStatus,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt,
+    emailVerified: data.emailVerified,
+    accountStatus: data.accountStatus,
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
   };
 }
 
@@ -338,13 +341,15 @@ export async function getUserById(userId) {
  * Get an active public User by username.
  */
 export async function getUserByUsername(username) {
-  if (typeof username !== "string" || !username.trim()) {
+  const result = usernameSchema.safeParse(username);
+
+  if (!result.success) {
     throw new AppError(ERROR_CODES.INVALID_REQUEST, "نام کاربری نامعتبر است.", {
       statusCode: 400,
     });
   }
 
-  const user = await findActiveUserByUsername(username);
+  const user = await findActiveUserByUsername(result.data);
 
   if (!user) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -390,11 +395,10 @@ export async function getUsers({
     MAX_LIST_LIMIT
   );
 
-  let decodedCursor = null;
+  const cursorPayload = decodeCursor(cursor);
 
-  if (cursor) {
-    decodedCursor = validateUserCursor(decodeCursor(cursor), sort);
-  }
+  const decodedCursor =
+    cursorPayload === null ? null : validateUserCursor(cursorPayload, sort);
 
   /**
    * findActiveUsers() is responsible for returning
@@ -533,15 +537,13 @@ export async function changeAccountStatus(
     );
   }
 
-  const updatedUser = await updateAccountStatus(targetUserId, accountStatus);
+  const result = await updateAccountStatus(targetUserId, accountStatus);
 
-  if (!updatedUser) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
-      statusCode: 404,
-    });
+  if (!result.ok) {
+    throwUserMutationFailure(result.reason);
   }
 
-  return toPrivateUser(updatedUser);
+  return toPrivateUser(result.user);
 }
 
 /**
@@ -579,12 +581,10 @@ export async function deleteUser(currentUser, targetUserId) {
     });
   }
 
-  await softDeleteUser(targetUserId, { session });
+  const result = await softDeleteUser(targetUserId);
 
-  if (!deletedUser) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر حذف نشد.", {
-      statusCode: 404,
-    });
+  if (!result.ok) {
+    throwUserMutationFailure(result.reason);
   }
 
   return {
@@ -611,15 +611,11 @@ export async function restoreDeletedUser(currentUser, targetUserId) {
 
   assertValidObjectId(targetUserId, "user ID");
 
-  const restoredUser = await restoreUser(targetUserId);
+  const result = await restoreUser(targetUserId);
 
-  if (!restoredUser) {
-    throw new AppError(
-      ERROR_CODES.USER_NOT_DELETED,
-      "کاربر به‌صورت نرم حذف نشده است.",
-      { statusCode: 400 }
-    );
+  if (!result.ok) {
+    throwUserMutationFailure(result.reason);
   }
 
-  return toPrivateUser(restoredUser);
+  return toPrivateUser(result.user);
 }
