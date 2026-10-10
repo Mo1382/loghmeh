@@ -6,7 +6,6 @@ import {
   findActiveUserById,
   findActiveUserByUsername,
   findActiveUsers,
-  findNonDeletedUserById,
   restoreUser,
   softDeleteUser,
   updateAccountStatus,
@@ -36,7 +35,7 @@ import { normalizeLimit } from "@/lib/pagination/limit";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
 import { assertEnum } from "@/lib/validation/enum";
-import { usernameSchema } from "@/validations/auth.validation";
+import { usernameSchema } from "@/validations/user.validation";
 
 /**
  * --------------------------------------------------------------------------
@@ -328,7 +327,7 @@ function toPublicUser(user) {
   ]);
 
   return {
-    id: publicUser._id,
+    id: publicUser._id.toString(),
     username: publicUser.username,
     avatar: publicUser.avatar,
     bio: publicUser.bio,
@@ -356,7 +355,7 @@ function toPrivateUser(user) {
   ]);
 
   return {
-    id: data._id,
+    id: data._id.toString(),
     username: data.username,
     email: data.email,
     avatar: data.avatar,
@@ -389,6 +388,18 @@ function buildSafeUserFilter(filter = {}) {
     throw new AppError(
       ERROR_CODES.INVALID_REQUEST,
       "فیلتر کاربران نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
+
+  const unknownFields = Object.keys(filter).filter(
+    (field) => !PUBLIC_USER_FILTER_FIELDS.includes(field)
+  );
+
+  if (unknownFields.length > 0) {
+    throw new AppError(
+      ERROR_CODES.INVALID_REQUEST,
+      "فیلتر شامل فیلدهای پشتیبانی‌نشده است.",
       { statusCode: 400 }
     );
   }
@@ -502,7 +513,8 @@ export async function getUsers({
 
   /**
    * findActiveUsers() is responsible for returning
-   * only ACTIVE and non-deleted Users.
+   * only Users whose accounts are ACTIVE, whose emails
+   * are verified, and who have not been soft-deleted.
    */
   const users = await findActiveUsers({
     filter: safeFilter,
@@ -532,6 +544,8 @@ export async function getUsers({
  * --------------------------------------------------------------------------
  */
 
+const SOCIAL_LINK_FIELDS = ["instagram", "telegram", "x"];
+
 /**
  * Update the authenticated user's profile.
  *
@@ -550,6 +564,33 @@ export async function updateUserProfile(currentUser, updates) {
       "حداقل یک فیلد برای ویرایش باید ارسال شود.",
       { statusCode: 400 }
     );
+  }
+
+  if (Object.hasOwn(sanitizedUpdates, "socialLinks")) {
+    const socialLinks = sanitizedUpdates.socialLinks;
+
+    const isValidObject =
+      socialLinks !== null &&
+      typeof socialLinks === "object" &&
+      !Array.isArray(socialLinks);
+
+    const socialLinkFields = isValidObject ? Object.keys(socialLinks) : [];
+
+    const hasUnsupportedFields = socialLinkFields.some(
+      (field) => !SOCIAL_LINK_FIELDS.includes(field)
+    );
+
+    if (
+      !isValidObject ||
+      socialLinkFields.length === 0 ||
+      hasUnsupportedFields
+    ) {
+      throw new AppError(
+        ERROR_CODES.INVALID_REQUEST,
+        "پیوندهای اجتماعی ارسالی نامعتبر هستند.",
+        { statusCode: 400 }
+      );
+    }
   }
 
   const updatedUser = await updateUserProfileById(user._id, sanitizedUpdates);

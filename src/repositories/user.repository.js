@@ -206,6 +206,43 @@ function findUserMutationState(userId, session) {
   return applySession(query, session);
 }
 
+const SOCIAL_LINK_FIELDS = ["instagram", "telegram", "x"];
+
+/**
+ * Build update fields for partial profile updates.
+ *
+ * Social links are updated individually so that omitted
+ * platforms retain their existing values.
+ */
+function buildUserProfileUpdateFields(updates) {
+  const updateFields = {};
+
+  for (const [field, value] of Object.entries(updates)) {
+    if (field !== "socialLinks") {
+      updateFields[field] = value;
+      continue;
+    }
+
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError("socialLinks updates must be an object.");
+    }
+
+    for (const [platform, url] of Object.entries(value)) {
+      if (!SOCIAL_LINK_FIELDS.includes(platform)) {
+        throw new TypeError(`Unsupported social link platform: ${platform}`);
+      }
+
+      updateFields[`socialLinks.${platform}`] = url;
+    }
+  }
+
+  if (Object.keys(updateFields).length === 0) {
+    throw new TypeError("Profile updates must not be empty.");
+  }
+
+  return updateFields;
+}
+
 /**
  * ==========================================================================
  * Read
@@ -375,13 +412,15 @@ export function createUser(userData, session) {
  * of the Service layer.
  */
 export function updateUserProfileById(userId, updates, session) {
+  const updateFields = buildUserProfileUpdateFields(updates);
+
   const query = User.findOneAndUpdate(
     {
       _id: userId,
       deletedAt: null,
     },
     {
-      $set: updates,
+      $set: updateFields,
     },
     {
       returnDocument: "after",

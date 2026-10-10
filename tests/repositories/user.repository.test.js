@@ -1,7 +1,5 @@
-import mongoose from "mongoose";
-
 import { MongoMemoryReplSet } from "mongodb-memory-server";
-
+import mongoose from "mongoose";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import User from "@/models/User";
@@ -10,7 +8,6 @@ import {
   ACCOUNT_STATUSES,
   USER_ROLES,
   USER_SORTS,
-  USER_STATS,
   USER_TITLES,
 } from "@/constants/enums";
 
@@ -29,8 +26,8 @@ import {
   findUserByUsername,
   incrementRecipeCount,
   incrementTotalRecipeViews,
-  setUserStats,
   restoreUser,
+  setUserStats,
   softDeleteUser,
   updateAccountStatus,
   updateUserPassword,
@@ -41,43 +38,24 @@ import {
 
 /*
  * ============================================================================
- * Test Configuration
+ * Test Configuration and Helpers
  * ============================================================================
  */
 
 const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
 
 let mongoServer;
-
 let sequence = 0;
 
-/*
- * ============================================================================
- * Test Helpers
- * ============================================================================
- */
-
-/*
- * Generates deterministic sequence numbers for fixture usernames and emails.
- */
 function nextSequence() {
   sequence += 1;
   return sequence;
 }
 
-/*
- * Creates deterministic ObjectIds for tests where the exact _id ordering
- * is important, especially for cursor pagination and tie-breaker tests.
- */
 function createObjectId(value) {
   return new mongoose.Types.ObjectId(value.padStart(24, "0"));
 }
 
-/*
- * Returns a user title different from the default USER title so that tests
- * can verify filtering by title without depending on a specific secondary
- * title value.
- */
 function getSecondaryTitle() {
   const title = Object.values(USER_TITLES).find(
     (value) => value !== USER_TITLES.USER
@@ -90,10 +68,6 @@ function getSecondaryTitle() {
   return title;
 }
 
-/*
- * Creates a user fixture with predictable defaults while allowing individual
- * fields and statistics to be overridden for boundary and behavior tests.
- */
 async function createFixture(overrides = {}) {
   const id = overrides._id ?? undefined;
   const sequenceNumber = nextSequence();
@@ -127,10 +101,6 @@ async function createFixture(overrides = {}) {
   return User.create(userData);
 }
 
-/*
- * Creates an active and email-verified user fixture while allowing
- * additional fields to be overridden for individual tests.
- */
 async function createActiveUser(overrides = {}) {
   return createFixture({
     accountStatus: ACCOUNT_STATUSES.ACTIVE,
@@ -155,12 +125,6 @@ function expectMutationFailure(result, reason) {
   });
 }
 
-/*
- * Reads only the stored statistics of a user.
- *
- * This helper is mainly used to verify that failed or guarded statistic
- * mutations leave the persisted document unchanged.
- */
 async function getStats(userId) {
   const user = await User.findById(userId);
   return user?.stats;
@@ -173,10 +137,6 @@ async function getStats(userId) {
  */
 
 beforeAll(async () => {
-  /*
-   * A replica set is required because several repository tests verify
-   * MongoDB transaction and rollback behavior.
-   */
   mongoServer = await MongoMemoryReplSet.create({
     replSet: {
       count: 1,
@@ -185,26 +145,15 @@ beforeAll(async () => {
   });
 
   await mongoose.connect(mongoServer.getUri());
-
-  /*
-   * Ensure indexes and schema initialization are completed before tests run.
-   */
   await User.init();
 });
 
 beforeEach(async () => {
-  /*
-   * Each test starts with a clean database and deterministic fixture sequence.
-   */
   await User.deleteMany({});
   sequence = 0;
 });
 
 afterAll(async () => {
-  /*
-   * Close the Mongoose connection and stop the in-memory MongoDB server
-   * after the complete test suite has finished.
-   */
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();
   }
@@ -216,24 +165,11 @@ afterAll(async () => {
 
 /*
  * ============================================================================
- * User Repository Tests
+ * Read Operations
  * ============================================================================
  */
 
-/*
- * ==========================================================================
- * Read Operations
- * ==========================================================================
- *
- * Covers:
- * - non-deleted lookups
- * - active/verified lookups
- * - password field visibility
- * - identifier-based authentication lookup
- * - active-user lookup by multiple ids
- */
 describe("read operations", () => {
-  // findNonDeletedUserById()
   it("finds a non-deleted user by id regardless of account status", async () => {
     const user = await createFixture({
       accountStatus: ACCOUNT_STATUSES.SUSPENDED,
@@ -262,13 +198,12 @@ describe("read operations", () => {
     expect(result).toBeNull();
   });
 
-  // findActiveUserById()
   it("finds an active verified user by id", async () => {
-    const activeUser = await createActiveUser();
+    const user = await createActiveUser();
 
-    const result = await findActiveUserById(activeUser._id);
+    const result = await findActiveUserById(user._id);
 
-    expect(result?._id.toString()).toBe(activeUser._id.toString());
+    expect(result?._id.toString()).toBe(user._id.toString());
     expect(result?.password).toBeUndefined();
   });
 
@@ -288,9 +223,7 @@ describe("read operations", () => {
     });
 
     await expect(findActiveUserById(inactive._id)).resolves.toBeNull();
-
     await expect(findActiveUserById(unverified._id)).resolves.toBeNull();
-
     await expect(findActiveUserById(deleted._id)).resolves.toBeNull();
 
     await expect(
@@ -298,7 +231,6 @@ describe("read operations", () => {
     ).resolves.toBeNull();
   });
 
-  // findActiveUserByUsername()
   it("finds an active verified user by username without selecting password", async () => {
     const user = await createActiveUser();
 
@@ -343,7 +275,6 @@ describe("read operations", () => {
     ).resolves.toBeNull();
   });
 
-  // findUserByEmail()
   it("finds a non-deleted user by email without selecting password", async () => {
     const user = await createFixture();
 
@@ -360,13 +291,11 @@ describe("read operations", () => {
     });
 
     await expect(findUserByEmail(deleted.email)).resolves.toBeNull();
-
     await expect(
       findUserByEmail("missing-email@example.com")
     ).resolves.toBeNull();
   });
 
-  // findUserByUsername()
   it("finds a non-deleted user by username without selecting password", async () => {
     const user = await createFixture();
 
@@ -383,11 +312,9 @@ describe("read operations", () => {
     });
 
     await expect(findUserByUsername(deleted.username)).resolves.toBeNull();
-
     await expect(findUserByUsername("missing-username")).resolves.toBeNull();
   });
 
-  // findUserByIdentifier()
   it("finds a user by email or username and explicitly includes password", async () => {
     const user = await createFixture({
       password: "secret-hash",
@@ -400,7 +327,6 @@ describe("read operations", () => {
     expect(byUsername?.password).toBe("secret-hash");
   });
 
-  // findUserByIdWithPassword()
   it("finds a user by id and explicitly includes password", async () => {
     const user = await createFixture({
       password: "secret-hash",
@@ -411,7 +337,6 @@ describe("read operations", () => {
     expect(result?.password).toBe("secret-hash");
   });
 
-  // findUserByIdentifier() & findUserByIdWithPassword()
   it("returns null from identifier and password lookups for deleted or missing users", async () => {
     const deleted = await createFixture({
       email: "deleted-auth@example.com",
@@ -420,10 +345,7 @@ describe("read operations", () => {
       deletedAt: new Date(),
     });
 
-    const missingId = new mongoose.Types.ObjectId();
-
     await expect(findUserByIdentifier(deleted.email)).resolves.toBeNull();
-
     await expect(findUserByIdentifier(deleted.username)).resolves.toBeNull();
 
     await expect(
@@ -432,13 +354,13 @@ describe("read operations", () => {
 
     await expect(findUserByIdWithPassword(deleted._id)).resolves.toBeNull();
 
-    await expect(findUserByIdWithPassword(missingId)).resolves.toBeNull();
+    await expect(
+      findUserByIdWithPassword(new mongoose.Types.ObjectId())
+    ).resolves.toBeNull();
   });
 
-  // findActiveUsersByIds()
   it("finds only active, verified and non-deleted users by ids", async () => {
     const active1 = await createActiveUser();
-
     const active2 = await createActiveUser();
 
     const suspended = await createFixture({
@@ -470,11 +392,9 @@ describe("read operations", () => {
     const ids = result.map((item) => item._id.toString());
 
     expect(result).toHaveLength(2);
-
     expect(ids).toEqual(
       expect.arrayContaining([active1._id.toString(), active2._id.toString()])
     );
-
     expect(result.every((user) => user.password === undefined)).toBe(true);
   });
 
@@ -492,14 +412,12 @@ describe("read operations", () => {
 });
 
 /*
- * ==========================================================================
+ * ============================================================================
  * User Creation
- * ==========================================================================
- *
- * Covers normal document creation and creation inside a MongoDB transaction.
+ * ============================================================================
  */
+
 describe("createUser", () => {
-  // createUser()
   it("creates a user without a session", async () => {
     const user = await createUser({
       username: "created-user",
@@ -551,21 +469,13 @@ describe("createUser", () => {
 });
 
 /*
- * ==========================================================================
+ * ============================================================================
  * Profile and Password Mutations
- * ==========================================================================
- *
- * Covers:
- * - profile updates
- * - Mongoose field validation
- * - password changes
- * - sessionVersion increments
- * - MAX_SAFE_INTEGER sessionVersion boundaries
- * - deleted/missing user behavior
+ * ============================================================================
  */
+
 describe("profile and password mutations", () => {
-  // updateUserProfileById()
-  it("updates the submitted profile fields and returns the updated document", async () => {
+  it("updates submitted profile fields and returns the updated document", async () => {
     const user = await createFixture({
       bio: "Existing bio",
       avatar: "https://example.com/old-avatar.jpg",
@@ -590,6 +500,53 @@ describe("profile and password mutations", () => {
       telegram: "https://t.me/new-user",
       x: null,
     });
+  });
+
+  it("preserves omitted social links during a partial profile update", async () => {
+    const existingLinks = {
+      instagram: "https://www.instagram.com/old-user",
+      telegram: "https://t.me/old-user",
+      x: "https://x.com/old-user",
+    };
+
+    const user = await createFixture({
+      socialLinks: existingLinks,
+    });
+
+    const result = await updateUserProfileById(user._id, {
+      socialLinks: {
+        telegram: "https://t.me/new-user",
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result.socialLinks.instagram).toBe(existingLinks.instagram);
+    expect(result.socialLinks.telegram).toBe("https://t.me/new-user");
+    expect(result.socialLinks.x).toBe(existingLinks.x);
+
+    const stored = await User.findById(user._id).lean();
+
+    expect(stored?.socialLinks).toEqual({
+      instagram: existingLinks.instagram,
+      telegram: "https://t.me/new-user",
+      x: existingLinks.x,
+    });
+  });
+
+  it("rejects an unsupported social link platform", () => {
+    expect(() =>
+      updateUserProfileById(new mongoose.Types.ObjectId(), {
+        socialLinks: {
+          mastodon: "https://mastodon.social/example",
+        },
+      })
+    ).toThrow("Unsupported social link platform: mastodon");
+  });
+
+  it("rejects an empty profile update", () => {
+    expect(() =>
+      updateUserProfileById(new mongoose.Types.ObjectId(), {})
+    ).toThrow("Profile updates must not be empty.");
   });
 
   it("returns null when updating the profile of a deleted or missing user", async () => {
@@ -631,10 +588,6 @@ describe("profile and password mutations", () => {
     });
   });
 
-  /*
-   * These validation failures originate from the model update operation,
-   * so the repository call is tested through Promise rejection.
-   */
   it.each([
     {
       field: "bio",
@@ -688,7 +641,6 @@ describe("profile and password mutations", () => {
     });
   });
 
-  // updateUserPassword()
   it("updates password and increments sessionVersion", async () => {
     const user = await createFixture({
       sessionVersion: 4,
@@ -750,15 +702,12 @@ describe("profile and password mutations", () => {
 });
 
 /*
- * ==========================================================================
+ * ============================================================================
  * Email Verification
- * ==========================================================================
- *
- * Covers successful verification and the states in which verification
- * should not match a user.
+ * ============================================================================
  */
+
 describe("email verification", () => {
-  // verifyUserEmail()
   it("moves a pending unverified user to active and verified", async () => {
     const user = await createFixture({
       accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
@@ -796,25 +745,17 @@ describe("email verification", () => {
     const stored = await User.findById(deleted._id);
 
     expect(stored?.emailVerified).toBe(false);
-
     expect(stored?.accountStatus).toBe(ACCOUNT_STATUSES.PENDING_VERIFICATION);
   });
 });
 
 /*
- * ==========================================================================
+ * ============================================================================
  * Account Status
- * ==========================================================================
- *
- * Covers status transitions, status invariants, sessionVersion behavior,
- * and MAX_SAFE_INTEGER boundaries.
+ * ============================================================================
  */
+
 describe("account status", () => {
-  /*
-   * Invalid status values are validated synchronously by the repository
-   * before the database query is created.
-   */
-  // updateAccountStatus()
   it("rejects an invalid account status synchronously", () => {
     expect(() =>
       updateAccountStatus(new mongoose.Types.ObjectId(), "NOT_A_REAL_STATUS")
@@ -822,16 +763,18 @@ describe("account status", () => {
   });
 
   it("changes account status and increments sessionVersion", async () => {
-    const targetStatus = ACCOUNT_STATUSES.SUSPENDED;
-
     const user = await createActiveUser({
       sessionVersion: 3,
     });
 
-    const result = await updateAccountStatus(user._id, targetStatus);
+    const result = await updateAccountStatus(
+      user._id,
+      ACCOUNT_STATUSES.SUSPENDED
+    );
+
     const updatedUser = expectMutationSuccess(result);
 
-    expect(updatedUser.accountStatus).toBe(targetStatus);
+    expect(updatedUser.accountStatus).toBe(ACCOUNT_STATUSES.SUSPENDED);
     expect(updatedUser.sessionVersion).toBe(4);
   });
 
@@ -841,7 +784,6 @@ describe("account status", () => {
     });
 
     const result = await updateAccountStatus(user._id, ACCOUNT_STATUSES.ACTIVE);
-
     const updatedUser = expectMutationSuccess(result);
 
     expect(updatedUser.accountStatus).toBe(ACCOUNT_STATUSES.ACTIVE);
@@ -854,7 +796,6 @@ describe("account status", () => {
     });
 
     const result = await updateAccountStatus(user._id, ACCOUNT_STATUSES.ACTIVE);
-
     const updatedUser = expectMutationSuccess(result);
 
     expect(updatedUser.accountStatus).toBe(ACCOUNT_STATUSES.ACTIVE);
@@ -862,13 +803,14 @@ describe("account status", () => {
   });
 
   it("blocks a status change at MAX_SAFE_INTEGER", async () => {
-    const targetStatus = ACCOUNT_STATUSES.SUSPENDED;
-
     const user = await createActiveUser({
       sessionVersion: MAX_SAFE_INTEGER,
     });
 
-    const result = await updateAccountStatus(user._id, targetStatus);
+    const result = await updateAccountStatus(
+      user._id,
+      ACCOUNT_STATUSES.SUSPENDED
+    );
 
     expectMutationFailure(result, ERROR_CODES.SESSION_VERSION_LIMIT_REACHED);
 
@@ -912,7 +854,7 @@ describe("account status", () => {
     expect(stored?.sessionVersion).toBe(0);
   });
 
-  it("returns null for a deleted or missing user", async () => {
+  it("distinguishes deleted users from missing users", async () => {
     const deleted = await createActiveUser({
       deletedAt: new Date(),
     });
@@ -928,7 +870,6 @@ describe("account status", () => {
     );
 
     expectMutationFailure(deletedResult, ERROR_CODES.USER_ALREADY_DELETED);
-
     expectMutationFailure(missingResult, ERROR_CODES.USER_NOT_FOUND);
 
     const stored = await User.findById(deleted._id);
@@ -940,15 +881,12 @@ describe("account status", () => {
 });
 
 /*
- * ==========================================================================
+ * ============================================================================
  * Soft Delete and Restore
- * ==========================================================================
- *
- * Covers soft deletion, restoration, idempotent behavior, timestamps,
- * missing users, and sessionVersion safety boundaries.
+ * ============================================================================
  */
+
 describe("soft delete and restore", () => {
-  // softDeleteUser()
   it("soft-deletes a non-deleted user and increments sessionVersion", async () => {
     const user = await createFixture({
       sessionVersion: 2,
@@ -986,7 +924,6 @@ describe("soft delete and restore", () => {
 
   it("uses the current time for deletedAt when no explicit date is provided", async () => {
     const user = await createFixture();
-
     const before = Date.now();
 
     const result = await softDeleteUser(user._id);
@@ -999,7 +936,7 @@ describe("soft delete and restore", () => {
     expect(deletedUser.deletedAt.getTime()).toBeLessThanOrEqual(after);
   });
 
-  it("returns null when soft-deleting a missing user", async () => {
+  it("reports USER_NOT_FOUND when soft-deleting a missing user", async () => {
     const result = await softDeleteUser(new mongoose.Types.ObjectId());
 
     expectMutationFailure(result, ERROR_CODES.USER_NOT_FOUND);
@@ -1020,7 +957,6 @@ describe("soft delete and restore", () => {
     expect(stored?.sessionVersion).toBe(MAX_SAFE_INTEGER);
   });
 
-  // restoreUser()
   it("restores a soft-deleted user and increments sessionVersion", async () => {
     const user = await createFixture({
       deletedAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -1049,7 +985,7 @@ describe("soft delete and restore", () => {
     expect(stored?.sessionVersion).toBe(4);
   });
 
-  it("returns null when restoring a missing user", async () => {
+  it("reports USER_NOT_FOUND when restoring a missing user", async () => {
     const result = await restoreUser(new mongoose.Types.ObjectId());
 
     expectMutationFailure(result, ERROR_CODES.USER_NOT_FOUND);
@@ -1073,22 +1009,12 @@ describe("soft delete and restore", () => {
 });
 
 /*
- * ==========================================================================
+ * ============================================================================
  * Active Users Cursor Pagination
- * ==========================================================================
- *
- * Covers:
- * - active/verified/non-deleted filtering
- * - conflict resolution between caller filters and active-user conditions
- * - default sorting and limit
- * - simple filters
- * - $or / $and filter preservation
- * - keyset pagination
- * - primary sort value ordering
- * - _id tie-breaker behavior
+ * ============================================================================
  */
+
 describe("active users cursor pagination", () => {
-  // findActiveUsers()
   it("returns only active, verified, non-deleted users", async () => {
     const active = await createActiveUser();
 
@@ -1121,14 +1047,10 @@ describe("active users cursor pagination", () => {
     expect(result[0]._id.toString()).toBe(active._id.toString());
   });
 
-  /*
-   * Verifies that the repository's active-user invariant has precedence over
-   * a conflicting accountStatus supplied by the caller.
-   */
   it("enforces active-user conditions over conflicting accountStatus filters", async () => {
     const active = await createActiveUser();
 
-    const suspended = await createFixture({
+    await createFixture({
       accountStatus: ACCOUNT_STATUSES.SUSPENDED,
       emailVerified: true,
       username: "suspended-user",
@@ -1164,10 +1086,8 @@ describe("active users cursor pagination", () => {
     const result = await findActiveUsers();
 
     expect(result).toHaveLength(16);
-
     expect(result[0]._id.toString()).toBe(users[0]._id.toString());
     expect(result[0].stats.totalRecipeViews).toBe(17);
-
     expect(result[15]._id.toString()).toBe(users[15]._id.toString());
     expect(result[15].stats.totalRecipeViews).toBe(2);
   });
@@ -1193,11 +1113,7 @@ describe("active users cursor pagination", () => {
     expect(result[0]._id.toString()).toBe(matching._id.toString());
   });
 
-  /*
-   * Ensures a caller-provided $or remains logically intact while the
-   * repository also enforces the required active-user conditions.
-   */
-  it("preserves a filter-level $or and combines it with the active-user conditions", async () => {
+  it("preserves a filter-level $or and combines it with active-user conditions", async () => {
     const matching1 = await createActiveUser({
       username: "or-match-1",
     });
@@ -1226,16 +1142,11 @@ describe("active users cursor pagination", () => {
     });
 
     expect(result).toHaveLength(2);
-
     expect(result.map((user) => user.username)).toEqual(
       expect.arrayContaining([matching1.username, matching2.username])
     );
   });
 
-  /*
-   * Verifies that an existing $and filter is preserved while the repository
-   * adds the keyset cursor condition.
-   */
   it("preserves a filter-level $and when adding the cursor condition", async () => {
     const secondaryTitle = getSecondaryTitle();
 
@@ -1309,10 +1220,6 @@ describe("active users cursor pagination", () => {
     expect(secondPage[0].username).toBe(matching2.username);
   });
 
-  /*
-   * Uses deterministic ObjectIds to verify that _id acts as the secondary
-   * ordering key when multiple users have the same primary sort value.
-   */
   it("applies MOST_VIEWED keyset pagination with the _id tie-breaker", async () => {
     const user1 = await createActiveUser({
       _id: createObjectId("1"),
@@ -1366,9 +1273,6 @@ describe("active users cursor pagination", () => {
     ]);
   });
 
-  /*
-   * Confirms the ordering rules for each supported primary sort.
-   */
   it.each([USER_SORTS.HIGHEST_RATED, USER_SORTS.NEWEST, USER_SORTS.OLDEST])(
     "returns users in the exact expected %s order",
     async (sort) => {
@@ -1410,10 +1314,6 @@ describe("active users cursor pagination", () => {
     }
   );
 
-  /*
-   * Walks through multiple pages without equal primary values so that the
-   * basic cursor progression for every supported sort is verified.
-   */
   it.each([USER_SORTS.HIGHEST_RATED, USER_SORTS.NEWEST, USER_SORTS.OLDEST])(
     "paginates all unique primary values in exact order for %s",
     async (sort) => {
@@ -1490,10 +1390,6 @@ describe("active users cursor pagination", () => {
     }
   );
 
-  /*
-   * Exercises pagination when the primary sort value is identical and
-   * _id must uniquely determine which documents come before the cursor.
-   */
   it.each([USER_SORTS.HIGHEST_RATED, USER_SORTS.NEWEST, USER_SORTS.OLDEST])(
     "paginates across a primary-value tie using _id for %s",
     async (sort) => {
@@ -1577,9 +1473,6 @@ describe("active users cursor pagination", () => {
     }
   );
 
-  /*
-   * Invalid sort values are validated synchronously by the repository.
-   */
   it("throws for an invalid sort", () => {
     expect(() =>
       findActiveUsers({
@@ -1593,17 +1486,6 @@ describe("active users cursor pagination", () => {
  * ============================================================================
  * Simple User Statistics
  * ============================================================================
- *
- * Covers independently incrementable statistics through their public
- * repository entry points: recipeCount and totalRecipeViews.
- *
- * Covers:
- * - default and explicit positive deltas
- * - valid negative deltas
- * - invalid delta validation
- * - lower boundary at zero
- * - upper boundary at Number.MAX_SAFE_INTEGER
- * - deleted/missing user behavior
  */
 
 describe("simple user statistics", () => {
@@ -1760,6 +1642,31 @@ describe("simple user statistics", () => {
     }
   );
 
+  it("blocks incrementing a non-integer stored recipeCount", async () => {
+    const user = await createFixture({
+      stats: {
+        recipeCount: 3,
+      },
+    });
+
+    await User.collection.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          "stats.recipeCount": 3.5,
+        },
+      }
+    );
+
+    const result = await incrementRecipeCount(user._id, 1);
+
+    expect(result).toBeNull();
+
+    const stored = await User.findById(user._id).lean();
+
+    expect(stored?.stats.recipeCount).toBe(3.5);
+  });
+
   it.each(statisticCases)(
     "does not update a soft-deleted or missing user for $name",
     async ({ increment, field }) => {
@@ -1783,25 +1690,11 @@ describe("simple user statistics", () => {
 });
 
 /*
- * ==========================================================================
+ * ============================================================================
  * Reconciled User Statistics
- * ==========================================================================
- *
- * setUserStats() replaces the complete statistics snapshot rather than
- * applying individual deltas.
- *
- * The tests cover:
- * - complete replacement
- * - floating-point-safe average values
- * - zero-rating state
- * - round-half-to-even behavior
- * - MAX_SAFE_INTEGER boundaries
- * - required fields
- * - invalid primitive values
- * - cross-field rating invariants
- * - soft-deleted/missing users
- * - transaction rollback
+ * ============================================================================
  */
+
 describe("setUserStats", () => {
   const validStats = {
     recipeCount: 10,
@@ -1811,7 +1704,6 @@ describe("setUserStats", () => {
     averageRating: 4.25,
   };
 
-  // setUserStats()
   it("replaces all reconciled statistics and returns the updated user", async () => {
     const user = await createFixture({
       stats: {
@@ -1828,12 +1720,6 @@ describe("setUserStats", () => {
     expect(result?.stats).toMatchObject(validStats);
   });
 
-  /*
-   * Regression test for JavaScript floating-point representation.
-   *
-   * Values such as 1.15 must remain valid two-decimal ratings without relying
-   * on calculations like Number.isInteger(value * 100).
-   */
   it("accepts a valid two-decimal average affected by floating-point representation", async () => {
     const user = await createFixture();
 
@@ -1874,10 +1760,6 @@ describe("setUserStats", () => {
     expect(result?.stats).toMatchObject(stats);
   });
 
-  /*
-   * Verifies the repository's explicit round-half-to-even implementation
-   * using two exact half-way cases.
-   */
   it("uses round-half-to-even when reconciling averageRating", async () => {
     const user = await createFixture();
 
@@ -1902,11 +1784,6 @@ describe("setUserStats", () => {
     expect(roundsUpToEven?.stats.averageRating).toBe(4.46);
   });
 
-  /*
-   * Confirms that all independently stored integer statistics can legally
-   * reach JavaScript's MAX_SAFE_INTEGER without exceeding it.
-   */
-
   it("accepts safe integer statistics at the MAX_SAFE_INTEGER boundary", async () => {
     const user = await createFixture();
 
@@ -1923,18 +1800,11 @@ describe("setUserStats", () => {
     expect(result?.stats).toEqual(stats);
   });
 
-  /*
-   * Missing fields are rejected synchronously by the repository-level
-   * completeness validation. The persisted snapshot must remain unchanged.
-   */
   it.each(Object.keys(validStats))(
     "rejects an incomplete reconciled snapshot when %s is missing",
     async (missingField) => {
       const user = await createFixture();
-
-      const stats = {
-        ...validStats,
-      };
+      const stats = { ...validStats };
 
       delete stats[missingField];
 
@@ -1954,22 +1824,19 @@ describe("setUserStats", () => {
     }
   );
 
-  /*
-   * Explicit undefined values are treated as missing required fields.
-   * The post-error assertion verifies that validation caused no persisted
-   * mutation.
-   */
   it.each(Object.keys(validStats))(
     "rejects an undefined value when %s is explicitly undefined",
     async (field) => {
+      const initialStats = {
+        recipeCount: 3,
+        totalRecipeViews: 20,
+        ratingCount: 2,
+        ratingSum: 7,
+        averageRating: 3.5,
+      };
+
       const user = await createFixture({
-        stats: {
-          recipeCount: 3,
-          totalRecipeViews: 20,
-          ratingCount: 2,
-          ratingSum: 7,
-          averageRating: 3.5,
-        },
+        stats: initialStats,
       });
 
       const stats = {
@@ -1983,21 +1850,10 @@ describe("setUserStats", () => {
 
       const stored = await User.findById(user._id);
 
-      expect(stored?.stats).toMatchObject({
-        recipeCount: 3,
-        totalRecipeViews: 20,
-        ratingCount: 2,
-        ratingSum: 7,
-        averageRating: 3.5,
-      });
+      expect(stored?.stats).toMatchObject(initialStats);
     }
   );
 
-  /*
-   * Primitive validation failures are checked synchronously because they
-   * are rejected by assertCompleteAndValidUserStats() before the query is
-   * created.
-   */
   it.each(
     Object.keys(validStats)
       .filter((field) => field !== "averageRating")
@@ -2007,7 +1863,8 @@ describe("setUserStats", () => {
           value,
         }))
       )
-  )("rejects an invalid integer stat %s value: %s", async (field, value) => {
+  )("rejects an invalid integer stat $field value: $value", async (data) => {
+    const { field, value } = data;
     const user = await createFixture();
 
     const invalidStats = {
@@ -2018,6 +1875,7 @@ describe("setUserStats", () => {
     expect(() => setUserStats(user._id, invalidStats)).toThrow(TypeError);
 
     const stored = await User.findById(user._id);
+
     expect(stored?.stats).toMatchObject({
       recipeCount: 0,
       totalRecipeViews: 0,
@@ -2040,6 +1898,7 @@ describe("setUserStats", () => {
       expect(() => setUserStats(user._id, invalidStats)).toThrow(TypeError);
 
       const stored = await User.findById(user._id);
+
       expect(stored?.stats).toMatchObject({
         recipeCount: 0,
         totalRecipeViews: 0,
@@ -2050,11 +1909,6 @@ describe("setUserStats", () => {
     }
   );
 
-  /*
-   * Cross-field rating invariants are also checked synchronously because
-   * the repository validates the complete snapshot before building the
-   * update query.
-   */
   it.each([
     {
       caseName: "zero rating count requires zero rating sum",
@@ -2144,13 +1998,10 @@ describe("setUserStats", () => {
     expect(missingResult).toBeNull();
 
     const stored = await User.findById(deleted._id);
+
     expect(stored?.stats).toMatchObject(validStats);
   });
 
-  /*
-   * Verifies that the supplied session is actually used by the repository
-   * and that a transaction abort restores the original statistics.
-   */
   it("propagates the provided session and rolls back the statistics update", async () => {
     const initialStats = {
       recipeCount: 3,
@@ -2178,6 +2029,7 @@ describe("setUserStats", () => {
       ).rejects.toThrow("force setUserStats rollback");
 
       const stored = await User.findById(user._id);
+
       expect(stored?.stats).toMatchObject(initialStats);
     } finally {
       await session.endSession();
@@ -2186,15 +2038,12 @@ describe("setUserStats", () => {
 });
 
 /*
- * ==========================================================================
+ * ============================================================================
  * User Rating Statistics
- * ==========================================================================
- *
- * Covers delta-based rating aggregation for create, update and delete
- * operations, including domain validation and numeric boundaries.
+ * ============================================================================
  */
+
 describe("user rating statistics", () => {
-  // updateUserRatingStatsDeltas()
   it("applies a create-style delta and calculates the rounded average", async () => {
     const user = await createFixture({
       stats: {
@@ -2207,7 +2056,6 @@ describe("user rating statistics", () => {
     const result = await updateUserRatingStatsDeltas(user._id, 1, 4);
 
     expect(result).not.toBeNull();
-
     expect(result?.stats.ratingCount).toBe(11);
     expect(result?.stats.ratingSum).toBe(42);
     expect(result?.stats.averageRating).toBe(3.82);
@@ -2225,7 +2073,6 @@ describe("user rating statistics", () => {
     const result = await updateUserRatingStatsDeltas(user._id, 0, 2);
 
     expect(result).not.toBeNull();
-
     expect(result?.stats.ratingCount).toBe(10);
     expect(result?.stats.ratingSum).toBe(40);
     expect(result?.stats.averageRating).toBe(4);
@@ -2243,16 +2090,11 @@ describe("user rating statistics", () => {
     const result = await updateUserRatingStatsDeltas(user._id, -1, -4);
 
     expect(result).not.toBeNull();
-
     expect(result?.stats.ratingCount).toBe(0);
     expect(result?.stats.ratingSum).toBe(0);
     expect(result?.stats.averageRating).toBe(0);
   });
 
-  /*
-   * Delta validation happens before the database update and is therefore
-   * tested synchronously.
-   */
   it.each([
     {
       ratingCountDelta: 1.5,
@@ -2289,10 +2131,6 @@ describe("user rating statistics", () => {
     ).toThrow("At least one User rating stat delta must be non-zero.");
   });
 
-  /*
-   * The following guarded cases verify that invalid resulting states do not
-   * modify the persisted statistics.
-   */
   it("blocks a result with a negative ratingCount", async () => {
     const initialStats = {
       ratingCount: 1,
@@ -2309,6 +2147,7 @@ describe("user rating statistics", () => {
     expect(result).toBeNull();
 
     const stats = await getStats(user._id);
+
     expect(stats).toMatchObject(initialStats);
   });
 
@@ -2328,6 +2167,7 @@ describe("user rating statistics", () => {
     expect(result).toBeNull();
 
     const stats = await getStats(user._id);
+
     expect(stats).toMatchObject(initialStats);
   });
 
@@ -2347,13 +2187,38 @@ describe("user rating statistics", () => {
     expect(result).toBeNull();
 
     const stats = await getStats(user._id);
+
     expect(stats).toMatchObject(initialStats);
   });
 
-  /*
-   * These tests verify that the repository blocks numeric overflow before
-   * MongoDB can persist a value beyond MAX_SAFE_INTEGER.
-   */
+  it("blocks rating updates when the resulting ratingSum is not an integer", async () => {
+    const user = await createFixture({
+      stats: {
+        ratingCount: 1,
+        ratingSum: 4,
+        averageRating: 4,
+      },
+    });
+
+    await User.collection.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          "stats.ratingSum": 4.5,
+        },
+      }
+    );
+
+    const result = await updateUserRatingStatsDeltas(user._id, 1, 1);
+
+    expect(result).toBeNull();
+
+    const stored = await User.findById(user._id).lean();
+
+    expect(stored?.stats.ratingCount).toBe(1);
+    expect(stored?.stats.ratingSum).toBe(4.5);
+  });
+
   it("blocks ratingCount overflow beyond MAX_SAFE_INTEGER", async () => {
     const initialStats = {
       ratingCount: MAX_SAFE_INTEGER,
@@ -2370,6 +2235,7 @@ describe("user rating statistics", () => {
     expect(result).toBeNull();
 
     const stats = await getStats(user._id);
+
     expect(stats).toMatchObject(initialStats);
   });
 
@@ -2389,6 +2255,7 @@ describe("user rating statistics", () => {
     expect(result).toBeNull();
 
     const stats = await getStats(user._id);
+
     expect(stats).toMatchObject(initialStats);
   });
 
@@ -2454,27 +2321,20 @@ describe("user rating statistics", () => {
     expect(missingResult).toBeNull();
 
     const stats = await getStats(deleted._id);
+
     expect(stats).toMatchObject(initialStats);
   });
 });
 
 /*
- * ==========================================================================
+ * ============================================================================
  * Session Propagation and Transactions
- * ==========================================================================
- *
- * These tests verify that repository methods correctly attach the supplied
- * session to read and write operations and therefore participate in the
- * surrounding MongoDB transaction.
+ * ============================================================================
  */
+
 describe("session propagation", () => {
-  /*
-   * A user created and read inside the same transaction should disappear
-   * from the database after the transaction is intentionally aborted.
-   */
   it("propagates the provided session to a read query", async () => {
     const session = await mongoose.startSession();
-
     let userId;
 
     try {
@@ -2509,15 +2369,9 @@ describe("session propagation", () => {
     }
   });
 
-  /*
-   * Verifies that an update performed with the supplied session is rolled
-   * back together with the rest of the transaction.
-   */
   it("propagates the provided session to an update query and rolls it back", async () => {
     const user = await createActiveUser();
-
     const originalBio = user.bio;
-
     const session = await mongoose.startSession();
 
     try {
@@ -2545,10 +2399,6 @@ describe("session propagation", () => {
     }
   });
 
-  /*
-   * Confirms that repository mutations execute inside a committed
-   * transaction when a session is explicitly supplied.
-   */
   it("executes repository mutations inside the provided session", async () => {
     const session = await mongoose.startSession();
 
@@ -2578,9 +2428,6 @@ describe("session propagation", () => {
     }
   });
 
-  /*
-   * Verifies rollback specifically for a repository statistic mutation.
-   */
   it("rolls back a repository statistic mutation when the transaction aborts", async () => {
     const user = await createActiveUser({
       stats: {
