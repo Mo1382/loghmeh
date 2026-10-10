@@ -2,18 +2,8 @@ import { z } from "zod";
 
 import { USER_TITLES } from "@/constants/enums";
 
-import {
-  INSTAGRAM_PATTERN,
-  TELEGRAM_PATTERN,
-  USERNAME_PATTERN,
-  X_PATTERN,
-} from "@/constants/regex";
-
-import { normalizeUsername } from "@/lib/normalization/normalizeUsername";
-
-import { isHttpsUrl } from "@/lib/validation/isHttpsUrl";
-import { isValidEmail } from "@/lib/validation/isValidEmail";
 import { normalizeDigits } from "@/lib/normalization/normalizeDigits";
+import { isValidEmail } from "@/lib/validation/isValidEmail";
 import { usernameSchema } from "./user.validation";
 
 /**
@@ -41,57 +31,6 @@ const existingPasswordSchema = z
   .string()
   .min(1, "رمز عبور الزامی است.")
   .max(128, "رمز عبور نباید بیشتر از ۱۲۸ کاراکتر باشد.");
-
-const bioSchema = z
-  .string()
-  .trim()
-  .max(300, "معرفی‌نامه نباید بیشتر از ۳۰۰ کاراکتر باشد.");
-
-const avatarSchema = z
-  .string()
-  .trim()
-  .refine(isHttpsUrl, "نشانی تصویر پروفایل باید از HTTPS استفاده کند.");
-
-const optionalAvatarSchema = avatarSchema.nullable().optional();
-
-/**
- * Social link validation.
- */
-const instagramUrlSchema = z
-  .string()
-  .trim()
-  .pipe(z.url("پیوند اینستاگرام باید یک نشانی معتبر باشد."))
-  .refine(
-    (value) => INSTAGRAM_PATTERN.test(value),
-    "نشانی اینستاگرام نامعتبر است."
-  );
-
-const telegramUrlSchema = z
-  .string()
-  .trim()
-  .pipe(z.url("پیوند تلگرام باید یک نشانی معتبر باشد."))
-  .refine((value) => TELEGRAM_PATTERN.test(value), "نشانی تلگرام نامعتبر است.");
-
-const xUrlSchema = z
-  .string()
-  .trim()
-  .pipe(z.url("پیوند X باید یک نشانی معتبر باشد."))
-  .refine((value) => X_PATTERN.test(value), "نشانی X نامعتبر است.");
-
-const optionalInstagramUrlSchema = instagramUrlSchema.nullable().optional();
-
-const optionalTelegramUrlSchema = telegramUrlSchema.nullable().optional();
-
-const optionalXUrlSchema = xUrlSchema.nullable().optional();
-
-const socialLinksSchema = z
-  .object({
-    instagram: optionalInstagramUrlSchema,
-    telegram: optionalTelegramUrlSchema,
-    x: optionalXUrlSchema,
-  })
-  .strict()
-  .optional();
 
 /**
  * User registration.
@@ -175,17 +114,3 @@ export const changePasswordSchema = z
     message: "رمز عبور جدید باید با رمز عبور فعلی متفاوت باشد.",
     path: ["newPassword"],
   });
-
-/**
- * Update editable user profile fields.
- *
- * Username and title are immutable.
- * System-managed fields cannot be updated through this schema.
- */
-export const updateUserProfileSchema = z
-  .object({
-    avatar: optionalAvatarSchema,
-    bio: bioSchema.optional(),
-    socialLinks: socialLinksSchema,
-  })
-  .strict();

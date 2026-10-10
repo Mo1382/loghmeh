@@ -21,54 +21,31 @@ import {
 } from "@/constants/enums";
 
 import AppError from "@/lib/errors/AppError";
-
 import { ERROR_CODES } from "@/constants/error-codes";
-
 import { assertAdmin, requireActiveAuthenticatedUser } from "@/lib/auth/guards";
-
 import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
-
 import { assertCursorResource } from "@/lib/pagination/cursor-context";
-
 import { normalizeLimit } from "@/lib/pagination/limit";
-
 import { assertValidObjectId } from "@/lib/validation/object-id";
-
 import { assertEnum } from "@/lib/validation/enum";
-import { usernameSchema } from "@/validations/user.validation";
 
-/**
- * --------------------------------------------------------------------------
- * Constants
- * --------------------------------------------------------------------------
- */
+import {
+  updateUserProfileSchema,
+  usernameSchema,
+} from "@/validations/user.validation";
 
+// Defaults and allowlists used by the User service.
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
-
 const PUBLIC_USER_FILTER_FIELDS = Object.freeze(["role", "title"]);
 
-const EDITABLE_PROFILE_FIELDS = Object.freeze(["avatar", "bio", "socialLinks"]);
+// Helpers for validating and building signed user-list cursors.
 
 /**
- * --------------------------------------------------------------------------
- * Cursor Helpers
- * --------------------------------------------------------------------------
+ * Validate a decoded cursor and normalize its values for MongoDB.
+ * The cursor must belong to the users resource and use the requested sort.
+ * Its value is validated according to the selected sort field.
  */
-
-/**
- * Validate and normalize a decoded User cursor.
- *
- * Cursor payload:
- * {
- *   v: 1,
- *   resource: CURSOR_RESOURCES.USERS,
- *   sort: String,
- *   value: String | Number,
- *   id: String
- * }
- */
-
 function validateUserCursor(payload, sort) {
   if (
     !payload ||
@@ -86,6 +63,7 @@ function validateUserCursor(payload, sort) {
     );
   }
 
+  // Ensure this cursor was issued for the user-list endpoint.
   assertCursorResource(payload, CURSOR_RESOURCES.USERS);
 
   assertEnum(payload.sort, Object.values(USER_SORTS), {
@@ -191,33 +169,68 @@ function validateUserCursor(payload, sort) {
 }
 
 /**
- * Create the next cursor from the last returned User.
+ * Build a signed next-page cursor from the last user in the current page.
+ * The cursor value must match the field used to sort the list.
  */
 function createNextCursor(user, sort) {
   if (!user?._id) {
-    return null;
+    throw new AppError(
+      ERROR_CODES.INTERNAL_SERVER_ERROR,
+      "ساخت نشانگر صفحه‌بندی برای کاربر نامعتبر ممکن نیست.",
+      { statusCode: 500 }
+    );
   }
 
   let value;
 
   switch (sort) {
-    case USER_SORTS.HIGHEST_RATED:
-      value = user.stats?.averageRating ?? 0;
-      break;
+    case USER_SORTS.HIGHEST_RATED: {
+      value = user.stats?.averageRating;
 
-    case USER_SORTS.MOST_VIEWED:
-      value = user.stats?.totalRecipeViews ?? 0;
-      break;
-
-    case USER_SORTS.NEWEST:
-    case USER_SORTS.OLDEST:
-      value = user.createdAt;
-
-      if (!(value instanceof Date)) {
-        return null;
+      if (
+        typeof value !== "number" ||
+        !Number.isFinite(value) ||
+        value < 0 ||
+        value > 5
+      ) {
+        throw new AppError(
+          ERROR_CODES.INTERNAL_SERVER_ERROR,
+          "مقدار میانگین امتیاز کاربر برای صفحه‌بندی نامعتبر است.",
+          { statusCode: 500 }
+        );
       }
 
       break;
+    }
+
+    case USER_SORTS.MOST_VIEWED: {
+      value = user.stats?.totalRecipeViews;
+
+      if (!Number.isSafeInteger(value) || value < 0) {
+        throw new AppError(
+          ERROR_CODES.INTERNAL_SERVER_ERROR,
+          "مجموع بازدیدهای کاربر برای صفحه‌بندی نامعتبر است.",
+          { statusCode: 500 }
+        );
+      }
+
+      break;
+    }
+
+    case USER_SORTS.NEWEST:
+    case USER_SORTS.OLDEST: {
+      value = user.createdAt;
+
+      if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+        throw new AppError(
+          ERROR_CODES.INTERNAL_SERVER_ERROR,
+          "تاریخ کاربر برای صفحه‌بندی نامعتبر است.",
+          { statusCode: 500 }
+        );
+      }
+
+      break;
+    }
 
     default:
       throw new AppError(
@@ -236,13 +249,8 @@ function createNextCursor(user, sort) {
 }
 
 /**
- * Convert a failed User repository mutation into an AppError.
- *
- * The repository returns structured failures:
- *   { ok: false, reason: ERROR_CODES.* }
- *
- * This helper translates known failure reasons into
- * application-level errors with appropriate HTTP status codes.
+ * Translate structured repository mutation failures into application errors.
+ * Unknown failure reasons are treated as internal server errors.
  */
 function throwUserMutationFailure(reason) {
   switch (reason) {
@@ -297,16 +305,11 @@ function throwUserMutationFailure(reason) {
   }
 }
 
-/**
- * --------------------------------------------------------------------------
- * User Response Helpers
- * --------------------------------------------------------------------------
- */
+// Response mappers explicitly select which fields may leave the service.
 
 /**
- * Convert a User document into a public response.
- *
- * Internal/security fields are never exposed.
+ * Map a User document to the fields that may be shown publicly.
+ * Email, role, password, lifecycle fields and other internal data are excluded.
  */
 function toPublicUser(user) {
   const data = user.toObject ? user.toObject() : { ...user };
@@ -338,12 +341,8 @@ function toPublicUser(user) {
 }
 
 /**
- * Convert a User document into a safe private response.
- *
- * Intended for the authenticated user or an administrator.
- *
- * Sensitive/internal fields such as password,
- * deletedAt and sessionVersion are excluded.
+ * Map a User document to a safe private response for the authenticated user/admin.
+ * Sensitive fields such as password, deletedAt and sessionVersion are omitted.
  */
 function toPrivateUser(user) {
   const data = user.toObject ? user.toObject() : { ...user };
@@ -371,17 +370,10 @@ function toPrivateUser(user) {
   };
 }
 
-/**
- * --------------------------------------------------------------------------
- * User Filter Helpers
- * --------------------------------------------------------------------------
- */
+// Public listing filters are restricted to supported, non-sensitive fields.
 
 /**
- * Build a safe filter for public User queries.
- *
- * Only filters that make sense for the public
- * ACTIVE-only User listing are allowed here.
+ * Validate a public-user filter and reject unsupported fields or enum values.
  */
 function buildSafeUserFilter(filter = {}) {
   if (filter === null || typeof filter !== "object" || Array.isArray(filter)) {
@@ -425,14 +417,10 @@ function buildSafeUserFilter(filter = {}) {
   return safeFilter;
 }
 
-/**
- * --------------------------------------------------------------------------
- * Get User
- * --------------------------------------------------------------------------
- */
+// Public user lookup operations.
 
 /**
- * Get an active public User by ID.
+ * Retrieve an active, verified, non-deleted user by ID.
  */
 export async function getUserById(userId) {
   assertValidObjectId(userId, "user ID");
@@ -449,7 +437,7 @@ export async function getUserById(userId) {
 }
 
 /**
- * Get an active public User by username.
+ * Validate a username, then retrieve the matching public user.
  */
 export async function getUserByUsername(username) {
   const result = usernameSchema.safeParse(username);
@@ -471,20 +459,11 @@ export async function getUserByUsername(username) {
   return toPublicUser(user);
 }
 
-/**
- * --------------------------------------------------------------------------
- * Get Users
- * --------------------------------------------------------------------------
- */
+// Public user listing with cursor-based pagination.
 
 /**
- * Get active public Users using cursor-based pagination.
- *
- * Supported sorting:
- * - HIGHEST_RATED
- * - MOST_VIEWED
- * - NEWEST
- * - OLDEST
+ * Return a page of active, verified and non-deleted users.
+ * Supports rating, view-count, newest and oldest sort orders.
  */
 export async function getUsers({
   filter = {},
@@ -511,11 +490,8 @@ export async function getUsers({
   const decodedCursor =
     cursorPayload === null ? null : validateUserCursor(cursorPayload, sort);
 
-  /**
-   * findActiveUsers() is responsible for returning
-   * only Users whose accounts are ACTIVE, whose emails
-   * are verified, and who have not been soft-deleted.
-   */
+  // The repository applies the active, email-verified and non-deleted constraints.
+  // Fetch one extra record to determine whether another page exists.
   const users = await findActiveUsers({
     filter: safeFilter,
     sort,
@@ -523,12 +499,10 @@ export async function getUsers({
     limit: normalizedLimit + 1,
   });
 
+  // Return only the requested page and build the next cursor from its last user.
   const hasMore = users.length > normalizedLimit;
-
   const visibleUsers = hasMore ? users.slice(0, normalizedLimit) : users;
-
   const lastUser = visibleUsers[visibleUsers.length - 1];
-
   const nextCursor = hasMore ? createNextCursor(lastUser, sort) : null;
 
   return {
@@ -538,62 +512,28 @@ export async function getUsers({
   };
 }
 
-/**
- * --------------------------------------------------------------------------
- * Update User Profile
- * --------------------------------------------------------------------------
- */
-
-const SOCIAL_LINK_FIELDS = ["instagram", "telegram", "x"];
+// Profile update operation.
 
 /**
- * Update the authenticated user's profile.
- *
- * The Service derives the target User from the
- * authenticated account and does not trust a caller-
- * supplied targetUserId for authorization.
+ * Update the authenticated user's editable profile fields.
+ * The target user is derived from the authenticated account, not caller input.
  */
 export async function updateUserProfile(currentUser, updates) {
   const user = await requireActiveAuthenticatedUser(currentUser);
 
-  const sanitizedUpdates = pickAllowedFields(updates, EDITABLE_PROFILE_FIELDS);
+  // Validate profile data at the service boundary before calling the repository.
+  const validation = updateUserProfileSchema.safeParse(updates);
 
-  if (Object.keys(sanitizedUpdates).length === 0) {
+  if (!validation.success) {
     throw new AppError(
       ERROR_CODES.INVALID_REQUEST,
-      "حداقل یک فیلد برای ویرایش باید ارسال شود.",
+      validation.error.issues[0]?.message ??
+        "اطلاعات ارسالی برای ویرایش پروفایل نامعتبر است.",
       { statusCode: 400 }
     );
   }
 
-  if (Object.hasOwn(sanitizedUpdates, "socialLinks")) {
-    const socialLinks = sanitizedUpdates.socialLinks;
-
-    const isValidObject =
-      socialLinks !== null &&
-      typeof socialLinks === "object" &&
-      !Array.isArray(socialLinks);
-
-    const socialLinkFields = isValidObject ? Object.keys(socialLinks) : [];
-
-    const hasUnsupportedFields = socialLinkFields.some(
-      (field) => !SOCIAL_LINK_FIELDS.includes(field)
-    );
-
-    if (
-      !isValidObject ||
-      socialLinkFields.length === 0 ||
-      hasUnsupportedFields
-    ) {
-      throw new AppError(
-        ERROR_CODES.INVALID_REQUEST,
-        "پیوندهای اجتماعی ارسالی نامعتبر هستند.",
-        { statusCode: 400 }
-      );
-    }
-  }
-
-  const updatedUser = await updateUserProfileById(user._id, sanitizedUpdates);
+  const updatedUser = await updateUserProfileById(user._id, validation.data);
 
   if (!updatedUser) {
     throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
@@ -604,20 +544,11 @@ export async function updateUserProfile(currentUser, updates) {
   return toPrivateUser(updatedUser);
 }
 
-/**
- * --------------------------------------------------------------------------
- * Change Account Status
- * --------------------------------------------------------------------------
- */
+// Administrative account-status management.
 
 /**
- * Change a user's account status.
- *
- * Only an ACTIVE administrator can perform this operation.
- *
- * The repository is responsible for atomically updating
- * accountStatus and invalidating the relevant sessions
- * through sessionVersion.
+ * Change a user account status after verifying administrator permissions.
+ * The repository enforces lifecycle invariants and updates sessionVersion atomically.
  */
 export async function changeAccountStatus(
   currentUser,
@@ -628,6 +559,8 @@ export async function changeAccountStatus(
 
   assertValidObjectId(targetUserId, "user ID");
 
+  const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
+
   assertEnum(accountStatus, Object.values(ACCOUNT_STATUSES), {
     errorCode: ERROR_CODES.INVALID_REQUEST,
     message: "وضعیت حساب کاربری نامعتبر است.",
@@ -636,7 +569,7 @@ export async function changeAccountStatus(
 
   // An administrator cannot disable their own account.
   if (
-    admin._id.toString() === targetUserId.toString() &&
+    admin._id.equals(targetObjectId) &&
     accountStatus !== ACCOUNT_STATUSES.ACTIVE
   ) {
     throw new AppError(
@@ -647,7 +580,7 @@ export async function changeAccountStatus(
   }
 
   // The repository atomically checks and updates the account state.
-  const result = await updateAccountStatus(targetUserId, accountStatus);
+  const result = await updateAccountStatus(targetObjectId, accountStatus);
 
   if (!result.ok) {
     throwUserMutationFailure(result.reason);
@@ -655,27 +588,21 @@ export async function changeAccountStatus(
 
   return toPrivateUser(result.user);
 }
-/**
- * --------------------------------------------------------------------------
- * Delete User
- * --------------------------------------------------------------------------
- */
+
+// Administrative soft deletion.
 
 /**
- * Soft-delete a User.
- *
- * Only an ACTIVE administrator can perform this operation.
- *
- * The repository is responsible for atomically setting
- * deletedAt and invalidating existing sessions.
+ * Soft-delete a user and prevent an administrator from deleting their own account.
+ * The repository updates deletedAt and invalidates sessions.
  */
-
 export async function deleteUser(currentUser, targetUserId) {
   const admin = await assertAdmin(currentUser);
 
   assertValidObjectId(targetUserId, "user ID");
 
-  if (admin._id.toString() === targetUserId.toString()) {
+  const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
+
+  if (admin._id.equals(targetObjectId)) {
     throw new AppError(
       ERROR_CODES.FORBIDDEN,
       "شما نمی‌توانید با این عملیات حساب خودتان را حذف کنید.",
@@ -683,7 +610,7 @@ export async function deleteUser(currentUser, targetUserId) {
     );
   }
 
-  const result = await softDeleteUser(targetUserId);
+  const result = await softDeleteUser(targetObjectId);
 
   if (!result.ok) {
     throwUserMutationFailure(result.reason);
@@ -694,26 +621,20 @@ export async function deleteUser(currentUser, targetUserId) {
   };
 }
 
-/**
- * --------------------------------------------------------------------------
- * Restore User
- * --------------------------------------------------------------------------
- */
+// Administrative restoration of soft-deleted users.
 
 /**
- * Restore a soft-deleted User.
- *
- * Only an ACTIVE administrator can perform this operation.
- *
- * Restoring the User must also invalidate previously
- * issued sessions by updating sessionVersion.
+ * Restore a soft-deleted user after checking administrator permissions.
+ * The repository updates the deletion state and invalidates previous sessions.
  */
 export async function restoreDeletedUser(currentUser, targetUserId) {
   await assertAdmin(currentUser);
 
   assertValidObjectId(targetUserId, "user ID");
 
-  const result = await restoreUser(targetUserId);
+  const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
+
+  const result = await restoreUser(targetObjectId);
 
   if (!result.ok) {
     throwUserMutationFailure(result.reason);

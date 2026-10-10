@@ -6,9 +6,10 @@ import {
   loginUserSchema,
   registerUserSchema,
   resetPasswordSchema,
-  updateUserProfileSchema,
   verificationCodeSchema,
 } from "@/validations/auth.validation";
+
+import { updateUserProfileSchema } from "@/validations/user.validation";
 
 import { USER_TITLES } from "@/constants/enums";
 
@@ -1183,8 +1184,15 @@ describe("changePasswordSchema", () => {
 describe("updateUserProfileSchema", () => {
   // The schema accepts an empty object; service-level logic can enforce whether
   // an actual update operation requires at least one changed field.
-  test("accepts an empty update object", () => {
-    expectValid(updateUserProfileSchema, {});
+  test("rejects an empty update object", () => {
+    const result = expectInvalid(updateUserProfileSchema, {});
+
+    expect(result.error.issues).toContainEqual(
+      expect.objectContaining({
+        code: "custom",
+        message: "حداقل یک فیلد برای ویرایش باید ارسال شود.",
+      })
+    );
   });
 
   test("allows socialLinks to be omitted", () => {
@@ -1199,6 +1207,34 @@ describe("updateUserProfileSchema", () => {
       socialLinks: null,
     });
     expect(hasIssueAtPath(result, ["socialLinks"])).toBe(true);
+  });
+
+  test("rejects empty socialLinks even when another profile field is updated", () => {
+    const result = expectInvalid(updateUserProfileSchema, {
+      bio: "Cooking",
+      socialLinks: {},
+    });
+
+    expect(result.error.issues).toContainEqual(
+      expect.objectContaining({
+        code: "custom",
+        path: ["socialLinks"],
+        message: "حداقل یک پیوند اجتماعی باید ارسال شود.",
+      })
+    );
+  });
+
+  test("rejects an empty socialLinks object as the only update", () => {
+    const result = expectInvalid(updateUserProfileSchema, {
+      socialLinks: {},
+    });
+
+    expect(result.error.issues).toContainEqual(
+      expect.objectContaining({
+        code: "custom",
+        message: "حداقل یک فیلد برای ویرایش باید ارسال شود.",
+      })
+    );
   });
 
   // Avatar URLs must be valid HTTPS URLs.
@@ -1274,6 +1310,25 @@ describe("updateUserProfileSchema", () => {
     });
     expect(result.data.bio).toBe("My cooking profile");
   });
+
+  test.each(["instagram", "telegram", "x"])(
+    "rejects explicitly undefined social link: %s",
+    (field) => {
+      const result = expectInvalid(updateUserProfileSchema, {
+        socialLinks: {
+          [field]: undefined,
+        },
+      });
+
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          code: "custom",
+          path: ["socialLinks", field],
+          message: "مقدار پیوند اجتماعی نمی‌تواند undefined باشد.",
+        })
+      );
+    }
+  );
 
   // Each supported social network gets a representative valid URL test.
   test("accepts a valid Instagram URL", () => {
