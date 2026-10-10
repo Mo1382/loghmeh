@@ -69,6 +69,7 @@ const EDITABLE_PROFILE_FIELDS = Object.freeze(["avatar", "bio", "socialLinks"]);
  *   id: String
  * }
  */
+
 function validateUserCursor(payload, sort) {
   if (
     !payload ||
@@ -76,7 +77,8 @@ function validateUserCursor(payload, sort) {
     Array.isArray(payload) ||
     payload.sort === undefined ||
     payload.value === undefined ||
-    !payload.id
+    payload.id === undefined ||
+    payload.id === null
   ) {
     throw new AppError(
       ERROR_CODES.INVALID_CURSOR,
@@ -101,16 +103,36 @@ function validateUserCursor(payload, sort) {
     );
   }
 
-  assertValidObjectId(payload.id, "cursor ID");
+  // شناسه‌ی cursor باید یک رشته‌ی ۲۴ کاراکتری هگزادسیمال باشد.
+  // در صورت نامعتبر بودن، خطا باید از نوع INVALID_CURSOR باشد.
+  if (typeof payload.id !== "string" || !/^[0-9a-fA-F]{24}$/.test(payload.id)) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "شناسه نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
 
   let value;
 
   switch (payload.sort) {
     case USER_SORTS.NEWEST:
     case USER_SORTS.OLDEST: {
+      // cursorهای تاریخی باید رشته‌ی ISO استاندارد باشند.
+      if (typeof payload.value !== "string") {
+        throw new AppError(
+          ERROR_CODES.INVALID_CURSOR,
+          "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+          { statusCode: 400 }
+        );
+      }
+
       value = new Date(payload.value);
 
-      if (Number.isNaN(value.getTime())) {
+      if (
+        Number.isNaN(value.getTime()) ||
+        value.toISOString() !== payload.value
+      ) {
         throw new AppError(
           ERROR_CODES.INVALID_CURSOR,
           "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
@@ -121,15 +143,31 @@ function validateUserCursor(payload, sort) {
       break;
     }
 
-    case USER_SORTS.MOST_VIEWED:
+    case USER_SORTS.MOST_VIEWED: {
+      // تعداد بازدید باید یک عدد صحیح نامنفی و safe integer باشد.
+      if (!Number.isSafeInteger(payload.value) || payload.value < 0) {
+        throw new AppError(
+          ERROR_CODES.INVALID_CURSOR,
+          "تعداد بازدید در نشانگر صفحه‌بندی نامعتبر است.",
+          { statusCode: 400 }
+        );
+      }
+
+      value = payload.value;
+      break;
+    }
+
     case USER_SORTS.HIGHEST_RATED: {
+      // امتیاز میانگین باید در بازه‌ی صفر تا پنج باشد.
       if (
         typeof payload.value !== "number" ||
-        !Number.isFinite(payload.value)
+        !Number.isFinite(payload.value) ||
+        payload.value < 0 ||
+        payload.value > 5
       ) {
         throw new AppError(
           ERROR_CODES.INVALID_CURSOR,
-          "مقدار نشانگر صفحه‌بندی نامعتبر است.",
+          "امتیاز در نشانگر صفحه‌بندی نامعتبر است.",
           { statusCode: 400 }
         );
       }
@@ -196,6 +234,68 @@ function createNextCursor(user, sort) {
     value,
     id: user._id.toString(),
   });
+}
+
+/**
+ * Convert a failed User repository mutation into an AppError.
+ *
+ * The repository returns structured failures:
+ *   { ok: false, reason: ERROR_CODES.* }
+ *
+ * This helper translates known failure reasons into
+ * application-level errors with appropriate HTTP status codes.
+ */
+function throwUserMutationFailure(reason) {
+  switch (reason) {
+    case ERROR_CODES.USER_NOT_FOUND:
+      throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
+        statusCode: 404,
+      });
+
+    case ERROR_CODES.USER_ALREADY_DELETED:
+      throw new AppError(
+        ERROR_CODES.USER_ALREADY_DELETED,
+        "این حساب کاربری قبلاً حذف شده است و این عملیات روی آن امکان‌پذیر نیست.",
+        { statusCode: 409 }
+      );
+
+    case ERROR_CODES.USER_NOT_DELETED:
+      throw new AppError(
+        ERROR_CODES.USER_NOT_DELETED,
+        "حساب کاربری حذف نشده است و امکان بازیابی آن وجود ندارد.",
+        { statusCode: 409 }
+      );
+
+    case ERROR_CODES.EMAIL_NOT_VERIFIED:
+      throw new AppError(
+        ERROR_CODES.EMAIL_NOT_VERIFIED,
+        "تا زمانی که ایمیل کاربر تأیید نشده باشد، حساب او قابل فعال‌سازی نیست.",
+        { statusCode: 409 }
+      );
+
+    case ERROR_CODES.SESSION_VERSION_LIMIT_REACHED:
+      throw new AppError(
+        ERROR_CODES.SESSION_VERSION_LIMIT_REACHED,
+        "به دلیل رسیدن نسخه نشست حساب به حد مجاز، انجام این عملیات ممکن نیست.",
+        { statusCode: 409 }
+      );
+
+    case ERROR_CODES.USER_LIFECYCLE_CONFLICT:
+      throw new AppError(
+        ERROR_CODES.USER_LIFECYCLE_CONFLICT,
+        "وضعیت فعلی حساب با عملیات درخواستی سازگار نیست.",
+        { statusCode: 409 }
+      );
+
+    default:
+      // Unknown repository failure reasons indicate an unexpected
+      // internal condition and must not be reported as a client error.
+      throw new AppError(
+        ERROR_CODES.INTERNAL_SERVER_ERROR,
+        "هنگام انجام عملیات روی حساب کاربری، خطای داخلی رخ داد.",
+        { statusCode: 500 }
+      );
+  }
 }
 
 /**
@@ -493,11 +593,7 @@ export async function changeAccountStatus(
     statusCode: 400,
   });
 
-  /**
-   * An administrator cannot suspend, deactivate,
-   * or otherwise disable their own account through
-   * this operation.
-   */
+  // An administrator cannot disable their own account.
   if (
     admin._id.toString() === targetUserId.toString() &&
     accountStatus !== ACCOUNT_STATUSES.ACTIVE
@@ -509,34 +605,7 @@ export async function changeAccountStatus(
     );
   }
 
-  const user = await findNonDeletedUserById(targetUserId);
-
-  if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
-      statusCode: 404,
-    });
-  }
-
-  /**
-   * Idempotent behavior.
-   *
-   * Avoid unnecessary sessionVersion changes
-   * when the status is already the requested value.
-   */
-  if (user.accountStatus === accountStatus) {
-    return toPrivateUser(user);
-  }
-
-  if (accountStatus === ACCOUNT_STATUSES.ACTIVE && !user.emailVerified) {
-    throw new AppError(
-      ERROR_CODES.EMAIL_NOT_VERIFIED,
-      "کاربر تا زمانی که ایمیل خود را تأیید نکرده باشد نمی‌تواند فعال شود.",
-      {
-        statusCode: 409,
-      }
-    );
-  }
-
+  // The repository atomically checks and updates the account state.
   const result = await updateAccountStatus(targetUserId, accountStatus);
 
   if (!result.ok) {
@@ -545,7 +614,6 @@ export async function changeAccountStatus(
 
   return toPrivateUser(result.user);
 }
-
 /**
  * --------------------------------------------------------------------------
  * Delete User
@@ -560,6 +628,7 @@ export async function changeAccountStatus(
  * The repository is responsible for atomically setting
  * deletedAt and invalidating existing sessions.
  */
+
 export async function deleteUser(currentUser, targetUserId) {
   const admin = await assertAdmin(currentUser);
 
@@ -571,14 +640,6 @@ export async function deleteUser(currentUser, targetUserId) {
       "شما نمی‌توانید با این عملیات حساب خودتان را حذف کنید.",
       { statusCode: 403 }
     );
-  }
-
-  const user = await findNonDeletedUserById(targetUserId);
-
-  if (!user) {
-    throw new AppError(ERROR_CODES.USER_NOT_FOUND, "کاربر پیدا نشد.", {
-      statusCode: 404,
-    });
   }
 
   const result = await softDeleteUser(targetUserId);
