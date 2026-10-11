@@ -1047,6 +1047,29 @@ describe("active users cursor pagination", () => {
     expect(result[0]._id.toString()).toBe(active._id.toString());
   });
 
+  it("excludes active admins from the Community user list", async () => {
+    const regularUser = await createActiveUser({
+      username: "community_user",
+      role: USER_ROLES.USER,
+    });
+
+    const adminUser = await createActiveUser({
+      username: "community_admin",
+      role: USER_ROLES.ADMIN,
+    });
+
+    const users = await findActiveUsers({
+      sort: USER_SORTS.NEWEST,
+      limit: 10,
+    });
+
+    const returnedIds = users.map((user) => user._id.toString());
+
+    expect(returnedIds).toContain(regularUser._id.toString());
+
+    expect(returnedIds).not.toContain(adminUser._id.toString());
+  });
+
   it("enforces active-user conditions over conflicting accountStatus filters", async () => {
     const active = await createActiveUser();
 

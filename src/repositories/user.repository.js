@@ -2,7 +2,12 @@ import User from "@/models/User";
 
 import { ERROR_CODES } from "@/constants/error-codes";
 
-import { ACCOUNT_STATUSES, USER_SORTS, USER_STATS } from "@/constants/enums";
+import {
+  ACCOUNT_STATUSES,
+  USER_ROLES,
+  USER_SORTS,
+  USER_STATS,
+} from "@/constants/enums";
 
 import { applySession } from "@/lib/helpers/apply-session";
 
@@ -756,6 +761,7 @@ export function findActiveUsers({
 }) {
   const queryFilter = {
     ...filter,
+    role: USER_ROLES.USER,
     accountStatus: ACCOUNT_STATUSES.ACTIVE,
     emailVerified: true,
     deletedAt: null,

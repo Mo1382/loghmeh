@@ -37,7 +37,7 @@ import {
 // Defaults and allowlists used by the User service.
 const DEFAULT_LIST_LIMIT = 16;
 const MAX_LIST_LIMIT = 50;
-const PUBLIC_USER_FILTER_FIELDS = Object.freeze(["role", "title"]);
+const PUBLIC_USER_FILTER_FIELDS = Object.freeze(["title"]);
 
 // Helpers for validating and building signed user-list cursors.
 
@@ -397,14 +397,6 @@ function buildSafeUserFilter(filter = {}) {
   }
 
   const safeFilter = pickAllowedFields(filter, PUBLIC_USER_FILTER_FIELDS);
-
-  if (safeFilter.role !== undefined) {
-    assertEnum(safeFilter.role, Object.values(USER_ROLES), {
-      errorCode: ERROR_CODES.INVALID_REQUEST,
-      message: "نقش کاربر نامعتبر است.",
-      statusCode: 400,
-    });
-  }
 
   if (safeFilter.title !== undefined) {
     assertEnum(safeFilter.title, Object.values(USER_TITLES), {
