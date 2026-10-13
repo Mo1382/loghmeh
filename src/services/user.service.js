@@ -6,8 +6,6 @@ import {
   findActiveUserById,
   findActiveUserByUsername,
   findActiveUsers,
-  restoreUser,
-  softDeleteUser,
   updateAccountStatus,
   updateUserProfileById,
 } from "@/repositories/user.repository";
@@ -15,19 +13,18 @@ import {
 import {
   ACCOUNT_STATUSES,
   CURSOR_RESOURCES,
-  USER_ROLES,
   USER_SORTS,
   USER_TITLES,
 } from "@/constants/enums";
 
-import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
 import { assertAdmin, requireActiveAuthenticatedUser } from "@/lib/auth/guards";
+import AppError from "@/lib/errors/AppError";
 import { decodeCursor, encodeCursor } from "@/lib/pagination/cursor";
 import { assertCursorResource } from "@/lib/pagination/cursor-context";
 import { normalizeLimit } from "@/lib/pagination/limit";
-import { assertValidObjectId } from "@/lib/validation/object-id";
 import { assertEnum } from "@/lib/validation/enum";
+import { assertValidObjectId } from "@/lib/validation/object-id";
 
 import {
   updateUserProfileSchema,
@@ -263,13 +260,6 @@ function throwUserMutationFailure(reason) {
       throw new AppError(
         ERROR_CODES.USER_ALREADY_DELETED,
         "این حساب کاربری قبلاً حذف شده است و این عملیات روی آن امکان‌پذیر نیست.",
-        { statusCode: 409 }
-      );
-
-    case ERROR_CODES.USER_NOT_DELETED:
-      throw new AppError(
-        ERROR_CODES.USER_NOT_DELETED,
-        "حساب کاربری حذف نشده است و امکان بازیابی آن وجود ندارد.",
         { statusCode: 409 }
       );
 
@@ -573,60 +563,6 @@ export async function changeAccountStatus(
 
   // The repository atomically checks and updates the account state.
   const result = await updateAccountStatus(targetObjectId, accountStatus);
-
-  if (!result.ok) {
-    throwUserMutationFailure(result.reason);
-  }
-
-  return toPrivateUser(result.user);
-}
-
-// Administrative soft deletion.
-
-/**
- * Soft-delete a user and prevent an administrator from deleting their own account.
- * The repository updates deletedAt and invalidates sessions.
- */
-export async function deleteUser(currentUser, targetUserId) {
-  const admin = await assertAdmin(currentUser);
-
-  assertValidObjectId(targetUserId, "user ID");
-
-  const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
-
-  if (admin._id.equals(targetObjectId)) {
-    throw new AppError(
-      ERROR_CODES.FORBIDDEN,
-      "شما نمی‌توانید با این عملیات حساب خودتان را حذف کنید.",
-      { statusCode: 403 }
-    );
-  }
-
-  const result = await softDeleteUser(targetObjectId);
-
-  if (!result.ok) {
-    throwUserMutationFailure(result.reason);
-  }
-
-  return {
-    success: true,
-  };
-}
-
-// Administrative restoration of soft-deleted users.
-
-/**
- * Restore a soft-deleted user after checking administrator permissions.
- * The repository updates the deletion state and invalidates previous sessions.
- */
-export async function restoreDeletedUser(currentUser, targetUserId) {
-  await assertAdmin(currentUser);
-
-  assertValidObjectId(targetUserId, "user ID");
-
-  const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
-
-  const result = await restoreUser(targetObjectId);
 
   if (!result.ok) {
     throwUserMutationFailure(result.reason);

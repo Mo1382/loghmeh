@@ -1182,8 +1182,8 @@ describe("changePasswordSchema", () => {
  * - Protection of immutable/system-managed fields
  */
 describe("updateUserProfileSchema", () => {
-  // The schema accepts an empty object; service-level logic can enforce whether
-  // an actual update operation requires at least one changed field.
+  // The schema rejects an empty object because at least one field must be
+  // provided for a profile update.
   test("rejects an empty update object", () => {
     const result = expectInvalid(updateUserProfileSchema, {});
 
