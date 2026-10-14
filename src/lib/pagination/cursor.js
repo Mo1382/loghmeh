@@ -1,20 +1,48 @@
 import mongoose from "mongoose";
 import crypto from "node:crypto";
 
-import AppError from "@/lib/errors/AppError";
 import { ERROR_CODES } from "@/constants/error-codes";
-import { assertValidObjectId } from "@/lib/validation/object-id";
+import AppError from "@/lib/errors/AppError";
 
 import { CURSOR_VERSION } from "@/constants/enums";
 
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Check whether a value is a plain object.
+ */
+function isPlainObject(value) {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  try {
+    const prototype = Object.getPrototypeOf(value);
+
+    return prototype === Object.prototype || prototype === null;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get the secret used to sign cursors.
+ *
+ * CURSOR_SECRET must be a cryptographically random,
+ * 64-character hexadecimal string generated from 32 random bytes.
+ *
+ * The value is used directly as a UTF-8 string,
+ * not decoded from hexadecimal into the original bytes.
  */
 function getCursorSecret() {
   const secret = process.env.CURSOR_SECRET;
 
-  if (!secret) {
-    throw new Error("متغیر CURSOR_SECRET تنظیم نشده است.");
+  if (typeof secret !== "string" || !/^[0-9a-f]{64}$/i.test(secret)) {
+    throw new AppError(
+      ERROR_CODES.INTERNAL_SERVER_ERROR,
+      "پیکربندی کلید محرمانهٔ نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 500 }
+    );
   }
 
   return secret;
@@ -27,11 +55,7 @@ function getCursorSecret() {
  * domain-specific cursor fields.
  */
 export function encodeCursor(payload) {
-  if (
-    payload === null ||
-    typeof payload !== "object" ||
-    Array.isArray(payload)
-  ) {
+  if (!isPlainObject(payload)) {
     throw new AppError(
       ERROR_CODES.INVALID_CURSOR,
       "داده نشانگر صفحه‌بندی نامعتبر است.",
@@ -39,14 +63,14 @@ export function encodeCursor(payload) {
     );
   }
 
-  const finalPayload = {
-    ...payload,
-    v: CURSOR_VERSION,
-  };
-
   let payloadBase64;
 
   try {
+    const finalPayload = {
+      ...payload,
+      v: CURSOR_VERSION,
+    };
+
     payloadBase64 = Buffer.from(JSON.stringify(finalPayload), "utf8").toString(
       "base64url"
     );
@@ -67,13 +91,6 @@ export function encodeCursor(payload) {
 }
 
 /**
- * Decode and verify a signed cursor.
- *
- * This function only validates the signature and cursor version.
- * Domain-specific validation belongs to the corresponding Service.
- */
-
-/**
  * Create a fresh INVALID_CURSOR error.
  *
  * A factory is used instead of a shared Error instance so
@@ -87,51 +104,62 @@ function createInvalidCursorError() {
   );
 }
 
+/**
+ * Decode and verify a signed cursor.
+ *
+ * This function validates the cursor format, Base64URL encoding,
+ * signature, and cursor version.
+ * Domain-specific validation belongs to the corresponding Service.
+ */
 export function decodeCursor(cursor) {
-  /**
-   * An omitted cursor represents the first page.
-   */
+  // An omitted cursor represents the first page.
   if (cursor === null || cursor === undefined || cursor === "") {
     return null;
   }
 
-  /**
-   * Cursor must always be a string once provided.
-   */
+  // Cursor must always be a string once provided.
   if (typeof cursor !== "string") {
     throw createInvalidCursorError();
   }
 
+  // Cursor format: payloadBase64.signatureBase64
   const parts = cursor.split(".");
 
-  /**
-   * Cursor format:
-   *
-   * payloadBase64.signatureBase64
-   */
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
     throw createInvalidCursorError();
   }
 
   const [payloadBase64, signatureBase64] = parts;
 
-  let expectedSignature;
-  let providedSignature;
-
-  try {
-    expectedSignature = crypto
-      .createHmac("sha256", getCursorSecret())
-      .update(payloadBase64)
-      .digest();
-
-    providedSignature = Buffer.from(signatureBase64, "base64url");
-  } catch {
+  // Validate the Base64URL alphabet before decoding.
+  if (
+    !BASE64URL_PATTERN.test(payloadBase64) ||
+    !BASE64URL_PATTERN.test(signatureBase64)
+  ) {
     throw createInvalidCursorError();
   }
 
-  /**
-   * Verify the HMAC signature using a timing-safe comparison.
-   */
+  const payloadBuffer = Buffer.from(payloadBase64, "base64url");
+  const providedSignature = Buffer.from(signatureBase64, "base64url");
+
+  // Require canonical, unpadded Base64URL representations.
+  if (
+    payloadBuffer.toString("base64url") !== payloadBase64 ||
+    providedSignature.toString("base64url") !== signatureBase64
+  ) {
+    throw createInvalidCursorError();
+  }
+
+  // Keep configuration errors outside the signature-validation flow.
+  // A missing or invalid secret must remain an internal server error.
+  const secret = getCursorSecret();
+
+  const expectedSignature = crypto
+    .createHmac("sha256", secret)
+    .update(payloadBase64)
+    .digest();
+
+  // Verify the HMAC signature using a timing-safe comparison.
   if (
     providedSignature.length !== expectedSignature.length ||
     !crypto.timingSafeEqual(providedSignature, expectedSignature)
@@ -142,17 +170,12 @@ export function decodeCursor(cursor) {
   let payload;
 
   try {
-    payload = JSON.parse(
-      Buffer.from(payloadBase64, "base64url").toString("utf8")
-    );
+    payload = JSON.parse(payloadBuffer.toString("utf8"));
   } catch {
     throw createInvalidCursorError();
   }
 
-  /**
-   * The decoded value must be a valid cursor payload
-   * for the currently supported cursor version.
-   */
+  // Validate the payload structure and cursor version.
   if (
     !payload ||
     typeof payload !== "object" ||
@@ -176,11 +199,7 @@ export function decodeCursor(cursor) {
  * are intentionally ignored here.
  */
 export function normalizeCreatedAtIdCursor(payload) {
-  if (
-    payload === null ||
-    typeof payload !== "object" ||
-    Array.isArray(payload)
-  ) {
+  if (!isPlainObject(payload)) {
     throw new AppError(
       ERROR_CODES.INVALID_CURSOR,
       "نشانگر صفحه‌بندی نامعتبر است.",
@@ -217,7 +236,13 @@ export function normalizeCreatedAtIdCursor(payload) {
     );
   }
 
-  assertValidObjectId(payload.id, "cursor ID");
+  if (!/^[0-9a-fA-F]{24}$/.test(payload.id)) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "شناسه نشانگر صفحه‌بندی نامعتبر است.",
+      { statusCode: 400 }
+    );
+  }
 
   return {
     createdAt,

@@ -255,16 +255,37 @@ function validateRecipeCursor(payload, sort) {
     );
   }
 
-  assertValidObjectId(payload.id, "cursor ID");
+  if (typeof payload.id !== "string" || !/^[0-9a-fA-F]{24}$/.test(payload.id)) {
+    throw new AppError(
+      ERROR_CODES.INVALID_CURSOR,
+      "شناسه نشانگر صفحه‌بندی نامعتبر است.",
+      {
+        statusCode: 400,
+      }
+    );
+  }
 
   let value;
 
   switch (payload.sort) {
     case RECIPE_SORTS.NEWEST:
     case RECIPE_SORTS.OLDEST: {
+      if (typeof payload.value !== "string") {
+        throw new AppError(
+          ERROR_CODES.INVALID_CURSOR,
+          "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
+          {
+            statusCode: 400,
+          }
+        );
+      }
+
       value = new Date(payload.value);
 
-      if (Number.isNaN(value.getTime())) {
+      if (
+        Number.isNaN(value.getTime()) ||
+        value.toISOString() !== payload.value
+      ) {
         throw new AppError(
           ERROR_CODES.INVALID_CURSOR,
           "تاریخ نشانگر صفحه‌بندی نامعتبر است.",
@@ -277,23 +298,34 @@ function validateRecipeCursor(payload, sort) {
       break;
     }
 
-    case RECIPE_SORTS.MOST_VIEWED:
-    case RECIPE_SORTS.HIGHEST_RATED: {
-      if (
-        typeof payload.value !== "number" ||
-        !Number.isFinite(payload.value)
-      ) {
+    case RECIPE_SORTS.MOST_VIEWED: {
+      if (!Number.isSafeInteger(payload.value) || payload.value < 0) {
         throw new AppError(
           ERROR_CODES.INVALID_CURSOR,
-          "مقدار نشانگر صفحه‌بندی نامعتبر است.",
-          {
-            statusCode: 400,
-          }
+          "تعداد بازدید در نشانگر صفحه‌بندی نامعتبر است.",
+          { statusCode: 400 }
         );
       }
 
       value = payload.value;
+      break;
+    }
 
+    case RECIPE_SORTS.HIGHEST_RATED: {
+      if (
+        typeof payload.value !== "number" ||
+        !Number.isFinite(payload.value) ||
+        payload.value < 0 ||
+        payload.value > 5
+      ) {
+        throw new AppError(
+          ERROR_CODES.INVALID_CURSOR,
+          "امتیاز در نشانگر صفحه‌بندی نامعتبر است.",
+          { statusCode: 400 }
+        );
+      }
+
+      value = payload.value;
       break;
     }
 
