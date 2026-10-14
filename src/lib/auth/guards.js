@@ -11,7 +11,7 @@ export function assertAuthenticated(currentUser) {
   if (!currentUser) {
     throw new AppError(
       ERROR_CODES.UNAUTHORIZED,
-      "برای نجام اینکار باید ابتدا وارد حساب کاربری خود شوید.",
+      "برای انجام این کار باید ابتدا وارد حساب کاربری خود شوید.",
       { statusCode: 401 }
     );
   }
@@ -22,12 +22,17 @@ export function assertAuthenticated(currentUser) {
 export async function requireActiveAuthenticatedUser(currentUser, session) {
   assertAuthenticated(currentUser);
   assertValidObjectId(currentUser._id, "user ID");
+
   const user = await findActiveUserById(currentUser._id, session);
+
   if (!user) {
-    throw new AppError(ERROR_CODES.FORBIDDEN, "حساب کاربری شما فعال نیست.", {
-      statusCode: 403,
-    });
+    throw new AppError(
+      ERROR_CODES.FORBIDDEN,
+      "حساب کاربری شما در حال حاضر قابل استفاده نیست.",
+      { statusCode: 403 }
+    );
   }
+
   return user;
 }
 
