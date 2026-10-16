@@ -13,8 +13,8 @@ export function assertEnum(
     statusCode = 400,
   } = {}
 ) {
-  if (!Array.isArray(allowedValues)) {
-    throw new TypeError("allowedValues must be an array.");
+  if (!Array.isArray(allowedValues) || allowedValues.length === 0) {
+    throw new TypeError("allowedValues must be a non-empty array.");
   }
 
   if (!allowedValues.includes(value)) {
