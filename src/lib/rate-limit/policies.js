@@ -2,19 +2,26 @@ import { Ratelimit } from "@upstash/ratelimit";
 
 import { redis } from "./redis";
 
-function createLimiter({ name, requests, window }) {
+const DEFAULT_RATE_LIMIT_TIMEOUT_MS = 1_500;
+
+function createLimiter({
+  name,
+  requests,
+  window,
+  timeout = DEFAULT_RATE_LIMIT_TIMEOUT_MS,
+}) {
   return new Ratelimit({
     redis,
     limiter: Ratelimit.slidingWindow(requests, window),
     prefix: `loghmeh:${name}`,
     analytics: true,
+    timeout,
   });
 }
 
 /*
  * Authentication
  */
-
 export const loginIpLimiter = createLimiter({
   name: "auth:login:ip",
   requests: 5,
@@ -58,7 +65,7 @@ export const forgotPasswordEmailLimiter = createLimiter({
 });
 
 export const verifyPasswordResetLimiter = createLimiter({
-  name: "auth:verify-reset",
+  name: "auth:verify-password-reset",
   requests: 5,
   window: "10 m",
 });
@@ -72,7 +79,6 @@ export const resetPasswordLimiter = createLimiter({
 /*
  * Content / Social
  */
-
 export const createRecipeLimiter = createLimiter({
   name: "recipe:create",
   requests: 5,
@@ -118,7 +124,6 @@ export const bookmarkLimiter = createLimiter({
 /*
  * Support
  */
-
 export const createTicketLimiter = createLimiter({
   name: "support:create",
   requests: 3,
