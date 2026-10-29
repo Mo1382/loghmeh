@@ -442,10 +442,26 @@ export function updateUserProfileById(userId, updates, session) {
  * sessionVersion is incremented so the authentication/session layer
  * can invalidate previously issued sessions.
  */
-export function updateUserPassword(userId, passwordHash, session) {
+export function updateUserPassword(
+  userId,
+  passwordHash,
+  { session, expectedSessionVersion } = {}
+) {
+  if (
+    !Number.isSafeInteger(expectedSessionVersion) ||
+    expectedSessionVersion < 0
+  ) {
+    throw new TypeError(
+      "expectedSessionVersion must be a non-negative safe integer."
+    );
+  }
+
   const filter = addSessionVersionIncrementGuard({
     _id: userId,
     deletedAt: null,
+    accountStatus: ACCOUNT_STATUSES.ACTIVE,
+    emailVerified: true,
+    sessionVersion: expectedSessionVersion,
   });
 
   const query = User.findOneAndUpdate(

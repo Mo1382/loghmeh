@@ -75,17 +75,7 @@ const socialLinksSchema = z
   })
   .strict()
   .superRefine((socialLinks, ctx) => {
-    const fields = Object.keys(socialLinks);
-
-    if (fields.length === 0) {
-      ctx.addIssue({
-        code: "custom",
-        message: "حداقل یک پیوند اجتماعی باید ارسال شود.",
-      });
-      return;
-    }
-
-    for (const field of fields) {
+    for (const field of Object.keys(socialLinks)) {
       if (socialLinks[field] === undefined) {
         ctx.addIssue({
           code: "custom",
@@ -105,13 +95,6 @@ export const updateUserProfileSchema = z
   })
   .strict()
   .superRefine((data, ctx) => {
-    if (Object.keys(data).length === 0) {
-      ctx.addIssue({
-        code: "custom",
-        message: "حداقل یک فیلد برای ویرایش باید ارسال شود.",
-      });
-    }
-
     for (const field of ["avatar", "bio", "socialLinks"]) {
       if (Object.hasOwn(data, field) && data[field] === undefined) {
         ctx.addIssue({

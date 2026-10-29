@@ -13,6 +13,10 @@ import {
   findIndexByFields,
 } from "@/tests/helpers/mongoose-test-helpers";
 
+import { randomUUID } from "node:crypto";
+
+import { isStrictGenerationId } from "@/lib/validation/generation-id";
+
 let mongoServer;
 
 /*
@@ -36,7 +40,9 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await mongoose.disconnect();
+  if (mongoose.connection.readyState !== 0) {
+    await mongoose.disconnect();
+  }
 
   if (mongoServer) {
     await mongoServer.stop();
@@ -49,12 +55,29 @@ afterAll(async () => {
  * ============================================================================
  */
 
+const EXPIRED_CODE_RETENTION_MS = 60 * 60 * 1000;
+
 function buildValidVerificationCode(overrides = {}) {
+  const defaultExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+  const expiresAt = Object.prototype.hasOwnProperty.call(overrides, "expiresAt")
+    ? overrides.expiresAt
+    : defaultExpiresAt;
+
+  const expiresAtDate =
+    expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
+
+  const purgeAt = Number.isNaN(expiresAtDate.getTime())
+    ? new Date(Date.now() + 70 * 60 * 1000)
+    : new Date(expiresAtDate.getTime() + EXPIRED_CODE_RETENTION_MS);
+
   return new VerificationCode({
     email: "test@example.com",
     codeHash: "hashed-verification-code",
     purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    expiresAt,
+    purgeAt,
+    generationId: randomUUID(),
     ...overrides,
   });
 }
@@ -110,6 +133,14 @@ describe("VerificationCode model - required fields", () => {
     });
 
     expectValidationError(verificationCode, "expiresAt");
+  });
+
+  test("requires purgeAt", () => {
+    const verificationCode = buildValidVerificationCode({
+      purgeAt: undefined,
+    });
+
+    expectValidationError(verificationCode, "purgeAt");
   });
 });
 
@@ -276,6 +307,85 @@ describe("VerificationCode model - expiresAt", () => {
 
 /*
  * ============================================================================
+ * purgeAt
+ * ============================================================================
+ */
+
+describe("VerificationCode model - purgeAt", () => {
+  test("accepts a valid purge date", () => {
+    const verificationCode = buildValidVerificationCode({
+      purgeAt: new Date(Date.now() + 60 * 60 * 1000),
+    });
+
+    expect(verificationCode.validateSync()).toBeUndefined();
+  });
+
+  test("rejects a non-date purgeAt value", () => {
+    const verificationCode = buildValidVerificationCode({
+      purgeAt: "not-a-date",
+    });
+
+    expectValidationError(verificationCode, "purgeAt");
+  });
+
+  test("allows purgeAt to be later than expiresAt", () => {
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const purgeAt = new Date(expiresAt.getTime() + EXPIRED_CODE_RETENTION_MS);
+
+    const verificationCode = buildValidVerificationCode({
+      expiresAt,
+      purgeAt,
+    });
+
+    expect(verificationCode.validateSync()).toBeUndefined();
+    expect(verificationCode.purgeAt.getTime()).toBeGreaterThan(
+      verificationCode.expiresAt.getTime()
+    );
+  });
+});
+
+/*
+ * ============================================================================
+ * generationId
+ * ============================================================================
+ */
+
+describe("VerificationCode model - generationId", () => {
+  test("accepts a valid UUID v4 generationId", () => {
+    const generationId = randomUUID();
+
+    const verificationCode = buildValidVerificationCode({
+      generationId,
+    });
+
+    expect(verificationCode.validateSync()).toBeUndefined();
+    expect(verificationCode.generationId).toBe(generationId);
+  });
+
+  test("requires generationId", () => {
+    const verificationCode = buildValidVerificationCode({
+      generationId: undefined,
+    });
+
+    expectValidationError(verificationCode, "generationId");
+  });
+
+  test.each([
+    "",
+    "not-a-uuid",
+    "123e4567-e89b-12d3-a456-426614174000",
+    "123e4567-e89b-42d3-7456-426614174000",
+  ])("rejects an invalid generationId: %s", (generationId) => {
+    const verificationCode = buildValidVerificationCode({
+      generationId,
+    });
+
+    expectValidationError(verificationCode, "generationId");
+  });
+});
+
+/*
+ * ============================================================================
  * Timestamps
  * ============================================================================
  */
@@ -314,15 +424,23 @@ describe("VerificationCode model - index definitions", () => {
     });
   });
 
-  test("defines an expiresAt TTL index", () => {
+  test("defines a purgeAt TTL index", () => {
     const index = findIndexByFields(VerificationCode.schema, {
-      expiresAt: 1,
+      purgeAt: 1,
     });
 
     expect(index).toBeDefined();
     expect(index[1]).toMatchObject({
       expireAfterSeconds: 0,
     });
+  });
+
+  test("does not define a TTL index on expiresAt", () => {
+    const index = findIndexByFields(VerificationCode.schema, {
+      expiresAt: 1,
+    });
+
+    expect(index).toBeUndefined();
   });
 });
 

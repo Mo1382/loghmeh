@@ -2,6 +2,10 @@ import VerificationCode from "@/models/VerificationCode";
 
 import { applySession } from "@/lib/helpers/apply-session";
 
+import { randomUUID } from "node:crypto";
+
+const EXPIRED_CODE_RETENTION_MS = 60 * 60 * 1000;
+
 /*
  * ============================================================================
  * Consume
@@ -18,16 +22,20 @@ export function consumeVerificationCode({
   email,
   purpose,
   codeHash,
+  generationId,
   session,
 }) {
+  if (typeof generationId !== "string" || generationId.length === 0) {
+    throw new TypeError("generationId must be a non-empty string.");
+  }
+
   const query = VerificationCode.findOneAndDelete({
     _id: verificationCodeId,
     email,
     purpose,
     codeHash,
-    expiresAt: {
-      $gt: new Date(),
-    },
+    generationId,
+    expiresAt: { $gt: new Date() },
   });
 
   return applySession(query, session);
@@ -52,6 +60,22 @@ export function findActiveVerificationCode(email, purpose, session) {
   return applySession(query, session);
 }
 
+/**
+ * Find the current verification code regardless of expiration.
+ *
+ * Used only when the caller needs to distinguish an actually
+ * expired code from a missing or incorrect code.
+ */
+export function findVerificationCode(email, purpose, session) {
+  const query = VerificationCode.findOne({
+    email,
+    purpose,
+    purgeAt: { $gt: new Date() },
+  }).select("+codeHash");
+
+  return applySession(query, session);
+}
+
 /*
  * ============================================================================
  * Replace
@@ -64,6 +88,16 @@ export function findActiveVerificationCode(email, purpose, session) {
  * The Service layer is responsible for generating and hashing the new code.
  */
 export function replaceVerificationCode(codeData, session) {
+  const expiresAt = new Date(codeData.expiresAt);
+
+  if (Number.isNaN(expiresAt.getTime())) {
+    throw new TypeError("expiresAt must be a valid date.");
+  }
+
+  const purgeAt = new Date(expiresAt.getTime() + EXPIRED_CODE_RETENTION_MS);
+
+  const generationId = randomUUID();
+
   const query = VerificationCode.findOneAndUpdate(
     {
       email: codeData.email,
@@ -72,7 +106,9 @@ export function replaceVerificationCode(codeData, session) {
     {
       $set: {
         codeHash: codeData.codeHash,
-        expiresAt: codeData.expiresAt,
+        expiresAt,
+        purgeAt,
+        generationId,
       },
       $setOnInsert: {
         email: codeData.email,

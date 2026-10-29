@@ -10,4 +10,9 @@ export default defineConfig({
     restoreMocks: true,
     testTimeout: 10000,
   },
+
+  env: {
+    AUTH_SECRET: "test-only-auth-secret-that-is-long-enough-123",
+    PASSWORD_RESET_TOKEN_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  },
 });

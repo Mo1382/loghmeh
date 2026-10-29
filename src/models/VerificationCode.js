@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 import { VERIFICATION_CODE_PURPOSES } from "@/constants/enums";
 import { isValidEmail } from "@/lib/validation/isValidEmail";
 
+import { GENERATION_ID_REGEX } from "@/lib/validation/generation-id";
+
 /*
  * ============================================================================
  * Verification Code Schema
@@ -46,10 +48,21 @@ const verificationCodeSchema = new mongoose.Schema(
       required: true,
     },
 
+    generationId: {
+      type: String,
+      required: true,
+      match: GENERATION_ID_REGEX,
+    },
+
     /*
      * Determines when the code expires.
      */
     expiresAt: {
+      type: Date,
+      required: true,
+    },
+
+    purgeAt: {
       type: Date,
       required: true,
     },
@@ -68,8 +81,11 @@ const verificationCodeSchema = new mongoose.Schema(
 /* Allows only one code per email and purpose. */
 verificationCodeSchema.index({ email: 1, purpose: 1 }, { unique: true });
 
-/* Removes expired documents automatically. */
-verificationCodeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+/*
+ * Automatically removes documents after their retention period ends.
+ * Code validity is determined by expiresAt, not purgeAt.
+ */
+verificationCodeSchema.index({ purgeAt: 1 }, { expireAfterSeconds: 0 });
 
 /*
  * ============================================================================

@@ -642,34 +642,98 @@ describe("profile and password mutations", () => {
   });
 
   it("updates password and increments sessionVersion", async () => {
-    const user = await createFixture({
+    const user = await createActiveUser({
       sessionVersion: 4,
       password: "old-hash",
     });
 
-    const result = await updateUserPassword(user._id, "new-hash");
+    const result = await updateUserPassword(user._id, "new-hash", {
+      expectedSessionVersion: 4,
+    });
 
     expect(result?.password).toBe("new-hash");
     expect(result?.sessionVersion).toBe(5);
   });
 
-  it("allows the final safe sessionVersion increment from MAX_SAFE_INTEGER - 1", async () => {
+  it("does not update the password when sessionVersion is stale", async () => {
+    const user = await createActiveUser({
+      sessionVersion: 4,
+      password: "old-hash",
+    });
+
+    const result = await updateUserPassword(user._id, "new-hash", {
+      expectedSessionVersion: 3,
+    });
+
+    expect(result).toBeNull();
+
+    const stored = await User.findById(user._id).select("+password");
+
+    expect(stored?.password).toBe("old-hash");
+    expect(stored?.sessionVersion).toBe(4);
+  });
+
+  it("does not update the password when the account is not active", async () => {
     const user = await createFixture({
+      accountStatus: ACCOUNT_STATUSES.SUSPENDED,
+      emailVerified: true,
+      sessionVersion: 4,
+      password: "old-hash",
+    });
+
+    const result = await updateUserPassword(user._id, "new-hash", {
+      expectedSessionVersion: 4,
+    });
+
+    expect(result).toBeNull();
+
+    const stored = await User.findById(user._id).select("+password");
+
+    expect(stored?.password).toBe("old-hash");
+    expect(stored?.sessionVersion).toBe(4);
+  });
+
+  it("does not update the password when the email is not verified", async () => {
+    const user = await createFixture({
+      accountStatus: ACCOUNT_STATUSES.ACTIVE,
+      emailVerified: false,
+      sessionVersion: 4,
+      password: "old-hash",
+    });
+
+    const result = await updateUserPassword(user._id, "new-hash", {
+      expectedSessionVersion: 4,
+    });
+
+    expect(result).toBeNull();
+
+    const stored = await User.findById(user._id).select("+password");
+
+    expect(stored?.password).toBe("old-hash");
+    expect(stored?.sessionVersion).toBe(4);
+  });
+
+  it("allows the final safe sessionVersion increment from MAX_SAFE_INTEGER - 1", async () => {
+    const user = await createActiveUser({
       sessionVersion: MAX_SAFE_INTEGER - 1,
     });
 
-    const result = await updateUserPassword(user._id, "new-hash");
+    const result = await updateUserPassword(user._id, "new-hash", {
+      expectedSessionVersion: MAX_SAFE_INTEGER - 1,
+    });
 
     expect(result?.sessionVersion).toBe(MAX_SAFE_INTEGER);
   });
 
   it("blocks password update at MAX_SAFE_INTEGER without changing the document", async () => {
-    const user = await createFixture({
+    const user = await createActiveUser({
       sessionVersion: MAX_SAFE_INTEGER,
       password: "old-hash",
     });
 
-    const result = await updateUserPassword(user._id, "new-hash");
+    const result = await updateUserPassword(user._id, "new-hash", {
+      expectedSessionVersion: MAX_SAFE_INTEGER,
+    });
 
     expect(result).toBeNull();
 
@@ -680,16 +744,19 @@ describe("profile and password mutations", () => {
   });
 
   it("returns null when changing the password of a deleted or missing user", async () => {
-    const deleted = await createFixture({
+    const deleted = await createActiveUser({
       deletedAt: new Date(),
       password: "old-hash",
     });
 
-    const deletedResult = await updateUserPassword(deleted._id, "new-hash");
+    const deletedResult = await updateUserPassword(deleted._id, "new-hash", {
+      expectedSessionVersion: 0,
+    });
 
     const missingResult = await updateUserPassword(
       new mongoose.Types.ObjectId(),
-      "new-hash"
+      "new-hash",
+      { expectedSessionVersion: 0 }
     );
 
     expect(deletedResult).toBeNull();
@@ -698,6 +765,38 @@ describe("profile and password mutations", () => {
     const stored = await User.findById(deleted._id).select("+password");
 
     expect(stored?.password).toBe("old-hash");
+  });
+
+  it("rolls back the password update and sessionVersion increment when the transaction aborts", async () => {
+    const user = await createActiveUser({
+      sessionVersion: 4,
+      password: "old-hash",
+    });
+
+    const session = await mongoose.startSession();
+
+    try {
+      await expect(
+        session.withTransaction(async () => {
+          const result = await updateUserPassword(user._id, "new-hash", {
+            expectedSessionVersion: 4,
+            session,
+          });
+
+          expect(result?.password).toBe("new-hash");
+          expect(result?.sessionVersion).toBe(5);
+
+          throw new Error("force password rollback");
+        })
+      ).rejects.toThrow("force password rollback");
+
+      const stored = await User.findById(user._id).select("+password");
+
+      expect(stored?.password).toBe("old-hash");
+      expect(stored?.sessionVersion).toBe(4);
+    } finally {
+      await session.endSession();
+    }
   });
 });
 

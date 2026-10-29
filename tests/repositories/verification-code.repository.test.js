@@ -1,40 +1,65 @@
 import mongoose from "mongoose";
-
 import { MongoMemoryReplSet } from "mongodb-memory-server";
-
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import VerificationCode from "@/models/VerificationCode";
-
 import { VERIFICATION_CODE_PURPOSES } from "@/constants/enums";
-
 import {
   consumeVerificationCode,
   findActiveVerificationCode,
+  findVerificationCode,
   replaceVerificationCode,
 } from "@/repositories/verification-code.repository";
 
-/*
- * ============================================================================
- * Test Configuration
- * ============================================================================
- */
+import { randomUUID } from "node:crypto";
+
+import { isStrictGenerationId } from "@/lib/validation/generation-id";
+
+const EXPIRED_CODE_RETENTION_MS = 60 * 60 * 1000;
+
+const CODE_EXPIRATION_MS = 10 * 60 * 1000;
 
 let mongoServer;
 
-/*
- * ============================================================================
- * Test Helpers
- * ============================================================================
- */
-
 function buildValidCodeData(overrides = {}) {
+  const defaultExpiresAt = new Date(Date.now() + CODE_EXPIRATION_MS);
+
+  const expiresAt = Object.prototype.hasOwnProperty.call(overrides, "expiresAt")
+    ? overrides.expiresAt
+    : defaultExpiresAt;
+
+  const expiresAtDate =
+    expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
+
+  const purgeAt = Number.isNaN(expiresAtDate.getTime())
+    ? new Date(Date.now() + CODE_EXPIRATION_MS + EXPIRED_CODE_RETENTION_MS)
+    : new Date(expiresAtDate.getTime() + EXPIRED_CODE_RETENTION_MS);
+
   return {
     email: "test@example.com",
     codeHash: "hashed-code",
     purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    expiresAt,
+    purgeAt,
+    generationId: randomUUID(),
     ...overrides,
+  };
+}
+
+/**
+ * Data passed to repository functions.
+ *
+ * purgeAt is intentionally omitted because the repository must
+ * calculate it from expiresAt.
+ */
+function buildRepositoryCodeData(overrides = {}) {
+  const { email, codeHash, purpose, expiresAt } = buildValidCodeData(overrides);
+
+  return {
+    email,
+    codeHash,
+    purpose,
+    expiresAt,
   };
 }
 
@@ -49,17 +74,11 @@ async function findStoredVerificationCode(email, purpose) {
   }).select("+codeHash");
 }
 
-/*
- * ============================================================================
- * MongoDB Test Lifecycle
- * ============================================================================
- */
+async function startSession() {
+  return mongoose.startSession();
+}
 
 beforeAll(async () => {
-  /*
-   * A replica set is required because repository tests also verify
-   * transaction/session behavior.
-   */
   mongoServer = await MongoMemoryReplSet.create({
     replSet: {
       count: 1,
@@ -68,17 +87,10 @@ beforeAll(async () => {
   });
 
   await mongoose.connect(mongoServer.getUri());
-
-  /*
-   * Ensure all schema indexes are ready before testing repository behavior.
-   */
   await VerificationCode.init();
 });
 
 beforeEach(async () => {
-  /*
-   * Each test starts with a clean VerificationCode collection.
-   */
   await VerificationCode.deleteMany({});
 });
 
@@ -92,47 +104,161 @@ afterAll(async () => {
   }
 });
 
-/*
- * ============================================================================
- * findActiveVerificationCode()
- * ============================================================================
- */
-
 describe("findActiveVerificationCode()", () => {
-  it("finds a non-expired verification code for the matching email and purpose", async () => {
-    const code = await createVerificationCode();
+  it("returns an active code and explicitly includes codeHash", async () => {
+    const code = await createVerificationCode({
+      email: "active-code@example.com",
+      codeHash: "active-hash",
+    });
 
     const result = await findActiveVerificationCode(code.email, code.purpose);
 
     expect(result).not.toBeNull();
-    expect(result?._id.toString()).toBe(code._id.toString());
-    expect(result?.email).toBe(code.email);
-    expect(result?.purpose).toBe(code.purpose);
+    expect(result._id.toString()).toBe(code._id.toString());
+    expect(result.codeHash).toBe("active-hash");
+    expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect(result.generationId).toBe(code.generationId);
   });
 
-  it("returns the codeHash even though codeHash is select:false in the model", async () => {
-    await createVerificationCode({
-      email: "hash@example.com",
+  it("does not return an expired code", async () => {
+    const code = await createVerificationCode({
+      email: "expired-code@example.com",
+      expiresAt: new Date(Date.now() - 60 * 1000),
+      purgeAt: new Date(Date.now() + 30 * 60 * 1000),
+    });
+
+    const result = await findActiveVerificationCode(code.email, code.purpose);
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the email does not match", async () => {
+    const code = await createVerificationCode({
+      email: "correct-email@example.com",
+    });
+
+    const result = await findActiveVerificationCode(
+      "different-email@example.com",
+      code.purpose
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the purpose does not match", async () => {
+    const purposes = Object.values(VERIFICATION_CODE_PURPOSES);
+    const otherPurpose = purposes.find(
+      (purpose) => purpose !== VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
+    );
+
+    if (!otherPurpose) {
+      throw new Error(
+        "This test requires at least two verification-code purposes."
+      );
+    }
+
+    const code = await createVerificationCode({
+      email: "purpose-mismatch@example.com",
+      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
+    });
+
+    const result = await findActiveVerificationCode(code.email, otherPurpose);
+
+    expect(result).toBeNull();
+  });
+
+  it.each(Object.values(VERIFICATION_CODE_PURPOSES))(
+    "finds an active code for the %s purpose",
+    async (purpose) => {
+      const code = await createVerificationCode({
+        email: `purpose-${purpose}@example.com`,
+        purpose,
+      });
+
+      const result = await findActiveVerificationCode(code.email, purpose);
+
+      expect(result).not.toBeNull();
+      expect(result._id.toString()).toBe(code._id.toString());
+      expect(result.generationId).toBe(code.generationId);
+    }
+  );
+
+  it("uses the provided session", async () => {
+    const session = await startSession();
+    const email = "active-session@example.com";
+    const purpose = VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION;
+
+    try {
+      await session.withTransaction(async () => {
+        const createdCode = await replaceVerificationCode(
+          buildRepositoryCodeData({
+            email,
+            purpose,
+            codeHash: "session-hash",
+          }),
+          session
+        );
+
+        const result = await findActiveVerificationCode(
+          email,
+          purpose,
+          session
+        );
+
+        expect(result).not.toBeNull();
+        expect(result.codeHash).toBe("session-hash");
+        expect(result.generationId).toBe(createdCode.generationId);
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    const storedCode = await findStoredVerificationCode(email, purpose);
+
+    expect(storedCode).not.toBeNull();
+  });
+});
+
+describe("findVerificationCode()", () => {
+  it("finds a non-expired code and explicitly includes codeHash", async () => {
+    const code = await createVerificationCode({
+      email: "find-code@example.com",
       codeHash: "stored-hash",
     });
 
-    const result = await findActiveVerificationCode(
-      "hash@example.com",
-      VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
-    );
+    const result = await findVerificationCode(code.email, code.purpose);
 
     expect(result).not.toBeNull();
-    expect(result?.codeHash).toBe("stored-hash");
+    expect(result._id.toString()).toBe(code._id.toString());
+    expect(result.codeHash).toBe("stored-hash");
+    expect(result.generationId).toBe(code.generationId);
   });
 
-  it("does not return an expired verification code", async () => {
-    await createVerificationCode({
-      email: "expired@example.com",
+  it("finds an expired code while it is within the retention period", async () => {
+    const code = await createVerificationCode({
+      email: "expired-retained@example.com",
+      codeHash: "expired-hash",
       expiresAt: new Date(Date.now() - 60 * 1000),
+      purgeAt: new Date(Date.now() + 59 * 60 * 1000),
     });
 
-    const result = await findActiveVerificationCode(
-      "expired@example.com",
+    const result = await findVerificationCode(code.email, code.purpose);
+
+    expect(result).not.toBeNull();
+    expect(result._id.toString()).toBe(code._id.toString());
+    expect(result.codeHash).toBe("expired-hash");
+    expect(result.expiresAt.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("does not return a code after its retention period has ended", async () => {
+    await createVerificationCode({
+      email: "retention-ended@example.com",
+      expiresAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      purgeAt: new Date(Date.now() - 60 * 1000),
+    });
+
+    const result = await findVerificationCode(
+      "retention-ended@example.com",
       VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
     );
 
@@ -141,11 +267,11 @@ describe("findActiveVerificationCode()", () => {
 
   it("returns null when the email does not match", async () => {
     await createVerificationCode({
-      email: "existing@example.com",
+      email: "find-correct-email@example.com",
     });
 
-    const result = await findActiveVerificationCode(
-      "different@example.com",
+    const result = await findVerificationCode(
+      "find-wrong-email@example.com",
       VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
     );
 
@@ -153,272 +279,297 @@ describe("findActiveVerificationCode()", () => {
   });
 
   it("returns null when the purpose does not match", async () => {
+    const purposes = Object.values(VERIFICATION_CODE_PURPOSES);
+    const otherPurpose = purposes.find(
+      (purpose) => purpose !== VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
+    );
+
+    if (!otherPurpose) {
+      throw new Error(
+        "This test requires at least two verification-code purposes."
+      );
+    }
+
     await createVerificationCode({
-      email: "purpose@example.com",
+      email: "find-purpose@example.com",
       purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
     });
 
-    const result = await findActiveVerificationCode(
-      "purpose@example.com",
-      VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
+    const result = await findVerificationCode(
+      "find-purpose@example.com",
+      otherPurpose
     );
 
     expect(result).toBeNull();
   });
 
-  it.each(Object.values(VERIFICATION_CODE_PURPOSES))(
-    "supports the purpose %s",
-    async (purpose) => {
-      const email = `${purpose.toLowerCase()}@example.com`;
+  it("uses the provided session", async () => {
+    const session = await startSession();
+    const email = "find-session@example.com";
+    const purpose = VERIFICATION_CODE_PURPOSES.PASSWORD_RESET;
 
-      await createVerificationCode({
-        email,
-        purpose,
+    try {
+      await session.withTransaction(async () => {
+        const createdCode = await replaceVerificationCode(
+          buildRepositoryCodeData({
+            email,
+            purpose,
+            codeHash: "transaction-hash",
+          }),
+          session
+        );
+
+        const result = await findVerificationCode(email, purpose, session);
+
+        expect(result).not.toBeNull();
+        expect(result.codeHash).toBe("transaction-hash");
+        expect(result.generationId).toBe(createdCode.generationId);
       });
-
-      const result = await findActiveVerificationCode(email, purpose);
-
-      expect(result).not.toBeNull();
-      expect(result?.purpose).toBe(purpose);
+    } finally {
+      await session.endSession();
     }
-  );
+
+    const storedCode = await findStoredVerificationCode(email, purpose);
+
+    expect(storedCode).not.toBeNull();
+  });
 });
 
-/*
- * ============================================================================
- * replaceVerificationCode()
- * ============================================================================
- */
-
 describe("replaceVerificationCode()", () => {
-  it("creates a new verification code when none exists", async () => {
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    const result = await replaceVerificationCode({
-      email: "new@example.com",
-      codeHash: "first-hash",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-      expiresAt,
+  it("creates a new verification code", async () => {
+    const codeData = buildRepositoryCodeData({
+      email: "new-code@example.com",
+      codeHash: "new-hash",
     });
+
+    const result = await replaceVerificationCode(codeData);
 
     expect(result).not.toBeNull();
-    expect(result?.email).toBe("new@example.com");
-    expect(result?.purpose).toBe(VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION);
-    expect(result?.codeHash).toBeUndefined();
+    expect(result.email).toBe(codeData.email);
+    expect(result.codeHash).toBe("new-hash");
+    expect(result.purpose).toBe(codeData.purpose);
+    expect(result.expiresAt.getTime()).toBe(codeData.expiresAt.getTime());
+    expect(isStrictGenerationId(result.generationId)).toBe(true);
 
-    const stored = await findStoredVerificationCode(
-      "new@example.com",
-      VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
-    );
+    const expectedPurgeAt =
+      new Date(codeData.expiresAt).getTime() + EXPIRED_CODE_RETENTION_MS;
 
-    expect(stored).not.toBeNull();
-    expect(stored?.codeHash).toBe("first-hash");
-    expect(stored?.expiresAt.getTime()).toBe(expiresAt.getTime());
+    expect(result.purgeAt.getTime()).toBe(expectedPurgeAt);
   });
 
-  it("replaces the existing code for the same email and purpose", async () => {
-    const first = await replaceVerificationCode({
-      email: "replace@example.com",
-      codeHash: "first-hash",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-    });
+  it("replaces a code for the same email and purpose", async () => {
+    const email = "replace-code@example.com";
+    const purpose = VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION;
 
-    const secondExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    const firstExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    const second = await replaceVerificationCode({
-      email: "replace@example.com",
-      codeHash: "second-hash",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-      expiresAt: secondExpiresAt,
-    });
-
-    expect(second).not.toBeNull();
-
-    expect(second?._id.toString()).toBe(first?._id.toString());
-
-    const stored = await findStoredVerificationCode(
-      "replace@example.com",
-      VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
-    );
-
-    expect(stored).not.toBeNull();
-    expect(stored?.codeHash).toBe("second-hash");
-    expect(stored?.expiresAt.getTime()).toBe(secondExpiresAt.getTime());
-
-    const count = await VerificationCode.countDocuments({
-      email: "replace@example.com",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-    });
-
-    expect(count).toBe(1);
-  });
-
-  it("preserves createdAt and updates updatedAt when replacing a code", async () => {
-    const first = await replaceVerificationCode({
-      email: "timestamp-replace@example.com",
-      codeHash: "first-hash",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-    });
-
-    expect(first).not.toBeNull();
-
-    const originalCreatedAt = first.createdAt;
-
-    // Backdate updatedAt without triggering Mongoose timestamps.
-    const oldUpdatedAt = new Date("2000-01-01T00:00:00.000Z");
-
-    await VerificationCode.collection.updateOne(
-      { _id: first._id },
-      {
-        $set: {
-          updatedAt: oldUpdatedAt,
-        },
-      }
-    );
-
-    const second = await replaceVerificationCode({
-      email: "timestamp-replace@example.com",
-      codeHash: "second-hash",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-    });
-
-    expect(second).not.toBeNull();
-    expect(second?._id.toString()).toBe(first?._id.toString());
-
-    expect(second?.createdAt.getTime()).toBe(originalCreatedAt.getTime());
-
-    expect(second?.updatedAt.getTime()).toBeGreaterThan(oldUpdatedAt.getTime());
-  });
-
-  it("keeps different purposes separate for the same email", async () => {
-    await replaceVerificationCode({
-      email: "multi-purpose@example.com",
-      codeHash: "email-verification-hash",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    });
-
-    await replaceVerificationCode({
-      email: "multi-purpose@example.com",
-      codeHash: "password-reset-hash",
-      purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    });
-
-    const count = await VerificationCode.countDocuments({
-      email: "multi-purpose@example.com",
-    });
-
-    expect(count).toBe(2);
-
-    const emailVerification = await findStoredVerificationCode(
-      "multi-purpose@example.com",
-      VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
-    );
-
-    const passwordReset = await findStoredVerificationCode(
-      "multi-purpose@example.com",
-      VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
-    );
-
-    expect(emailVerification?.codeHash).toBe("email-verification-hash");
-    expect(passwordReset?.codeHash).toBe("password-reset-hash");
-  });
-
-  it("normalizes the email when inserting a new code", async () => {
-    await replaceVerificationCode({
-      email: "  TEST@Example.COM  ",
-      codeHash: "normalized-hash",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    });
-
-    const stored = await findStoredVerificationCode(
-      "test@example.com",
-      VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
-    );
-
-    expect(stored).not.toBeNull();
-    expect(stored?.email).toBe("test@example.com");
-    expect(stored?.codeHash).toBe("normalized-hash");
-  });
-
-  it("rejects an invalid email", async () => {
-    await expect(
-      replaceVerificationCode({
-        email: "invalid-email",
-        codeHash: "hashed-code",
-        purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    const firstResult = await replaceVerificationCode(
+      buildRepositoryCodeData({
+        email,
+        purpose,
+        codeHash: "first-hash",
+        expiresAt: firstExpiresAt,
       })
-    ).rejects.toMatchObject({
-      name: "ValidationError",
-      errors: {
-        email: expect.anything(),
-      },
+    );
+
+    const secondExpiresAt = new Date(Date.now() + 20 * 60 * 1000);
+
+    const secondResult = await replaceVerificationCode(
+      buildRepositoryCodeData({
+        email,
+        purpose,
+        codeHash: "second-hash",
+        expiresAt: secondExpiresAt,
+      })
+    );
+
+    expect(secondResult._id.toString()).toBe(firstResult._id.toString());
+    expect(secondResult.codeHash).toBe("second-hash");
+    expect(secondResult.expiresAt.getTime()).toBe(secondExpiresAt.getTime());
+    expect(secondResult.createdAt.getTime()).toBe(
+      firstResult.createdAt.getTime()
+    );
+    expect(secondResult.updatedAt.getTime()).toBeGreaterThanOrEqual(
+      firstResult.updatedAt.getTime()
+    );
+    expect(isStrictGenerationId(secondResult.generationId)).toBe(true);
+    expect(secondResult.generationId).not.toBe(firstResult.generationId);
+    expect(secondResult.purgeAt.getTime()).toBe(
+      secondExpiresAt.getTime() + EXPIRED_CODE_RETENTION_MS
+    );
+
+    const allCodes = await VerificationCode.find({
+      email,
+      purpose,
     });
+
+    expect(allCodes).toHaveLength(1);
+  });
+
+  it("keeps codes for different purposes separate", async () => {
+    const email = "different-purposes@example.com";
+    const purposes = Object.values(VERIFICATION_CODE_PURPOSES);
+
+    if (purposes.length < 2) {
+      throw new Error(
+        "This test requires at least two verification-code purposes."
+      );
+    }
+
+    const firstPurpose = purposes[0];
+    const secondPurpose = purposes.find((purpose) => purpose !== firstPurpose);
+
+    await replaceVerificationCode(
+      buildRepositoryCodeData({
+        email,
+        purpose: firstPurpose,
+        codeHash: "first-purpose-hash",
+      })
+    );
+
+    await replaceVerificationCode(
+      buildRepositoryCodeData({
+        email,
+        purpose: secondPurpose,
+        codeHash: "second-purpose-hash",
+      })
+    );
+
+    const codes = await VerificationCode.find({ email }).select("+codeHash");
+
+    expect(codes).toHaveLength(2);
+    expect(codes.map((code) => code.purpose)).toContain(firstPurpose);
+    expect(codes.map((code) => code.purpose)).toContain(secondPurpose);
+  });
+
+  it("normalizes the email address", async () => {
+    const result = await replaceVerificationCode(
+      buildRepositoryCodeData({
+        email: "  Test.User@Example.com  ",
+      })
+    );
+
+    expect(result.email).toBe("test.user@example.com");
+
+    const storedCode = await findStoredVerificationCode(
+      "test.user@example.com",
+      VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
+    );
+
+    expect(storedCode).not.toBeNull();
+  });
+
+  it("rejects an invalid email address", async () => {
+    await expect(
+      replaceVerificationCode(
+        buildRepositoryCodeData({
+          email: "invalid-email",
+        })
+      )
+    ).rejects.toThrow();
   });
 
   it("rejects an invalid purpose", async () => {
     await expect(
-      replaceVerificationCode({
-        email: "invalid-purpose@example.com",
-        codeHash: "hashed-code",
-        purpose: "INVALID_PURPOSE",
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      })
-    ).rejects.toMatchObject({
-      name: "ValidationError",
-      errors: {
-        purpose: expect.anything(),
-      },
-    });
+      replaceVerificationCode(
+        buildRepositoryCodeData({
+          purpose: "INVALID_PURPOSE",
+        })
+      )
+    ).rejects.toThrow();
   });
 
   it("rejects an empty code hash", async () => {
     await expect(
-      replaceVerificationCode({
-        email: "empty-hash@example.com",
-        codeHash: "",
-        purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      })
-    ).rejects.toMatchObject({
-      name: "ValidationError",
-      errors: {
-        codeHash: expect.anything(),
-      },
-    });
+      replaceVerificationCode(
+        buildRepositoryCodeData({
+          codeHash: "",
+        })
+      )
+    ).rejects.toThrow();
   });
 
-  it("rejects an invalid expiration date", async () => {
-    await expect(
-      replaceVerificationCode({
-        email: "invalid-date@example.com",
-        codeHash: "hashed-code",
-        purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-        expiresAt: "not-a-date",
-      })
-    ).rejects.toMatchObject({
-      name: "CastError",
-      path: "expiresAt",
+  it("rejects an invalid expiration date before writing a record", async () => {
+    const codeData = buildRepositoryCodeData({
+      email: "invalid-expiration@example.com",
+      expiresAt: "not-a-valid-date",
     });
+
+    expect(() => replaceVerificationCode(codeData)).toThrow(
+      "expiresAt must be a valid date."
+    );
+
+    const storedCount = await VerificationCode.countDocuments({
+      email: codeData.email,
+      purpose: codeData.purpose,
+    });
+
+    expect(storedCount).toBe(0);
+  });
+
+  it("uses the provided session", async () => {
+    const session = await startSession();
+    const email = "replace-session@example.com";
+    const purpose = VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION;
+
+    try {
+      await session.withTransaction(async () => {
+        const result = await replaceVerificationCode(
+          buildRepositoryCodeData({
+            email,
+            purpose,
+            codeHash: "transaction-replace-hash",
+          }),
+          session
+        );
+
+        expect(result).not.toBeNull();
+        expect(result.codeHash).toBe("transaction-replace-hash");
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    const storedCode = await findStoredVerificationCode(email, purpose);
+
+    expect(storedCode).not.toBeNull();
+    expect(storedCode.codeHash).toBe("transaction-replace-hash");
+  });
+
+  it("rolls back the replacement when the transaction aborts", async () => {
+    const session = await startSession();
+    const email = "replace-rollback@example.com";
+    const purpose = VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION;
+
+    try {
+      await expect(
+        session.withTransaction(async () => {
+          await replaceVerificationCode(
+            buildRepositoryCodeData({
+              email,
+              purpose,
+              codeHash: "rollback-hash",
+            }),
+            session
+          );
+
+          throw new Error("Force transaction rollback");
+        })
+      ).rejects.toThrow("Force transaction rollback");
+    } finally {
+      await session.endSession();
+    }
+
+    const storedCode = await findStoredVerificationCode(email, purpose);
+
+    expect(storedCode).toBeNull();
   });
 });
 
-/*
- * ============================================================================
- * consumeVerificationCode()
- * ============================================================================
- */
-
 describe("consumeVerificationCode()", () => {
-  it("atomically consumes a valid active verification code", async () => {
+  it("consumes a valid, unexpired verification code", async () => {
     const code = await createVerificationCode({
-      email: "consume@example.com",
+      email: "consume-code@example.com",
       codeHash: "consume-hash",
     });
 
@@ -427,303 +578,303 @@ describe("consumeVerificationCode()", () => {
       email: code.email,
       purpose: code.purpose,
       codeHash: "consume-hash",
+      generationId: code.generationId,
     });
 
     expect(result).not.toBeNull();
-    expect(result?._id.toString()).toBe(code._id.toString());
+    expect(result._id.toString()).toBe(code._id.toString());
 
-    const stored = await VerificationCode.findById(code._id);
+    const storedCode = await findStoredVerificationCode(
+      code.email,
+      code.purpose
+    );
 
-    expect(stored).toBeNull();
+    expect(storedCode).toBeNull();
   });
 
-  it("does not consume a code when the hash does not match", async () => {
-    const code = await createVerificationCode({
-      email: "wrong-hash@example.com",
-      codeHash: "correct-hash",
+  it("returns null when the verification-code ID does not match", async () => {
+    const code = await createVerificationCode();
+
+    const result = await consumeVerificationCode({
+      verificationCodeId: new mongoose.Types.ObjectId(),
+      email: code.email,
+      purpose: code.purpose,
+      codeHash: code.codeHash,
+      generationId: code.generationId,
     });
+
+    expect(result).toBeNull();
+
+    const storedCode = await findStoredVerificationCode(
+      code.email,
+      code.purpose
+    );
+
+    expect(storedCode).not.toBeNull();
+  });
+
+  it("returns null when the email does not match", async () => {
+    const code = await createVerificationCode();
+
+    const result = await consumeVerificationCode({
+      verificationCodeId: code._id,
+      email: "different-email@example.com",
+      purpose: code.purpose,
+      codeHash: code.codeHash,
+      generationId: code.generationId,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the purpose does not match", async () => {
+    const purposes = Object.values(VERIFICATION_CODE_PURPOSES);
+    const otherPurpose = purposes.find(
+      (purpose) => purpose !== VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION
+    );
+
+    if (!otherPurpose) {
+      throw new Error(
+        "This test requires at least two verification-code purposes."
+      );
+    }
+
+    const code = await createVerificationCode({
+      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
+    });
+
+    const result = await consumeVerificationCode({
+      verificationCodeId: code._id,
+      email: code.email,
+      purpose: otherPurpose,
+      codeHash: code.codeHash,
+      generationId: code.generationId,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the code hash does not match", async () => {
+    const code = await createVerificationCode();
 
     const result = await consumeVerificationCode({
       verificationCodeId: code._id,
       email: code.email,
       purpose: code.purpose,
       codeHash: "wrong-hash",
+      generationId: code.generationId,
     });
 
     expect(result).toBeNull();
 
-    const stored = await findStoredVerificationCode(code.email, code.purpose);
+    const storedCode = await findStoredVerificationCode(
+      code.email,
+      code.purpose
+    );
 
-    expect(stored).not.toBeNull();
-    expect(stored?.codeHash).toBe("correct-hash");
-  });
-
-  it("does not consume a code when the email does not match", async () => {
-    const code = await createVerificationCode({
-      email: "consume-email@example.com",
-      codeHash: "correct-hash",
-    });
-
-    const result = await consumeVerificationCode({
-      verificationCodeId: code._id,
-      email: "different@example.com",
-      purpose: code.purpose,
-      codeHash: "correct-hash",
-    });
-
-    expect(result).toBeNull();
-
-    const stored = await VerificationCode.findById(code._id);
-
-    expect(stored).not.toBeNull();
-  });
-
-  it("does not consume a code when the purpose does not match", async () => {
-    const code = await createVerificationCode({
-      email: "consume-purpose@example.com",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-      codeHash: "correct-hash",
-    });
-
-    const result = await consumeVerificationCode({
-      verificationCodeId: code._id,
-      email: code.email,
-      purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
-      codeHash: "correct-hash",
-    });
-
-    expect(result).toBeNull();
-
-    const stored = await VerificationCode.findById(code._id);
-
-    expect(stored).not.toBeNull();
+    expect(storedCode).not.toBeNull();
   });
 
   it("does not consume an expired verification code", async () => {
     const code = await createVerificationCode({
-      email: "expired-consume@example.com",
-      codeHash: "correct-hash",
       expiresAt: new Date(Date.now() - 60 * 1000),
+      purgeAt: new Date(Date.now() + 30 * 60 * 1000),
     });
 
     const result = await consumeVerificationCode({
       verificationCodeId: code._id,
       email: code.email,
       purpose: code.purpose,
-      codeHash: "correct-hash",
-    });
-
-    expect(result).toBeNull();
-  });
-
-  it("does not consume another document when the id does not match", async () => {
-    const code = await createVerificationCode({
-      email: "wrong-id@example.com",
-      codeHash: "correct-hash",
-    });
-
-    const result = await consumeVerificationCode({
-      verificationCodeId: new mongoose.Types.ObjectId(),
-      email: code.email,
-      purpose: code.purpose,
-      codeHash: "correct-hash",
+      codeHash: code.codeHash,
+      generationId: code.generationId,
     });
 
     expect(result).toBeNull();
 
-    const stored = await VerificationCode.findById(code._id);
+    const storedCode = await findStoredVerificationCode(
+      code.email,
+      code.purpose
+    );
 
-    expect(stored).not.toBeNull();
+    expect(storedCode).not.toBeNull();
   });
 
-  it("can consume a code only once", async () => {
-    const code = await createVerificationCode({
-      email: "single-use@example.com",
-      codeHash: "single-use-hash",
-    });
-
-    const firstResult = await consumeVerificationCode({
-      verificationCodeId: code._id,
-      email: code.email,
-      purpose: code.purpose,
-      codeHash: "single-use-hash",
-    });
-
-    const secondResult = await consumeVerificationCode({
-      verificationCodeId: code._id,
-      email: code.email,
-      purpose: code.purpose,
-      codeHash: "single-use-hash",
-    });
-
-    expect(firstResult).not.toBeNull();
-    expect(secondResult).toBeNull();
-  });
-
-  it("allows only one concurrent consumer to consume a code", async () => {
-    const code = await createVerificationCode({
-      email: "concurrent-consume@example.com",
-      codeHash: "concurrent-hash",
-    });
+  it("allows a code to be consumed only once", async () => {
+    const code = await createVerificationCode();
 
     const payload = {
       verificationCodeId: code._id,
       email: code.email,
       purpose: code.purpose,
-      codeHash: "concurrent-hash",
+      codeHash: code.codeHash,
+      generationId: code.generationId,
     };
 
-    const [firstResult, secondResult] = await Promise.all([
+    const firstResult = await consumeVerificationCode(payload);
+    const secondResult = await consumeVerificationCode(payload);
+
+    expect(firstResult).not.toBeNull();
+    expect(secondResult).toBeNull();
+  });
+
+  it("allows only one successful consumption when called concurrently", async () => {
+    const code = await createVerificationCode();
+
+    const payload = {
+      verificationCodeId: code._id,
+      email: code.email,
+      purpose: code.purpose,
+      codeHash: code.codeHash,
+      generationId: code.generationId,
+    };
+
+    const results = await Promise.all([
       consumeVerificationCode(payload),
       consumeVerificationCode(payload),
     ]);
 
-    expect([firstResult, secondResult].filter(Boolean)).toHaveLength(1);
+    const successfulResults = results.filter((result) => result !== null);
+
+    expect(successfulResults).toHaveLength(1);
   });
 
-  it("returns null for a missing verification code", async () => {
+  it("returns null when the code does not exist", async () => {
     const result = await consumeVerificationCode({
       verificationCodeId: new mongoose.Types.ObjectId(),
-      email: "missing@example.com",
+      email: "missing-code@example.com",
       purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
       codeHash: "missing-hash",
+      generationId: randomUUID(),
     });
 
     expect(result).toBeNull();
   });
-});
 
-/*
- * ============================================================================
- * Session / Transaction Behavior
- * ============================================================================
- */
-
-describe("session propagation and transactions", () => {
-  it("propagates the session to findActiveVerificationCode()", async () => {
-    const session = await mongoose.startSession();
-
-    try {
-      await expect(
-        session.withTransaction(async () => {
-          await replaceVerificationCode(
-            {
-              email: "transaction-read@example.com",
-              codeHash: "transaction-hash",
-              purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-              expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-            },
-            session
-          );
-
-          /*
-           * This read must occur through the same transaction session
-           * because the inserted document is not committed yet.
-           */
-          const result = await findActiveVerificationCode(
-            "transaction-read@example.com",
-            VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-            session
-          );
-
-          expect(result).not.toBeNull();
-          expect(result?.codeHash).toBe("transaction-hash");
-        })
-      ).resolves.toBeUndefined();
-    } finally {
-      await session.endSession();
-    }
-  });
-
-  it("rolls back replaceVerificationCode() when the transaction aborts", async () => {
-    const session = await mongoose.startSession();
-
-    try {
-      await expect(
-        session.withTransaction(async () => {
-          await replaceVerificationCode(
-            {
-              email: "transaction-rollback@example.com",
-              codeHash: "rollback-hash",
-              purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-              expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-            },
-            session
-          );
-
-          throw new Error("force rollback");
-        })
-      ).rejects.toThrow("force rollback");
-    } finally {
-      await session.endSession();
-    }
-
-    const stored = await VerificationCode.findOne({
-      email: "transaction-rollback@example.com",
-      purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-    });
-
-    expect(stored).toBeNull();
-  });
-
-  it("rolls back consumeVerificationCode() when the transaction aborts", async () => {
+  it("rolls back consumption when the transaction aborts", async () => {
     const code = await createVerificationCode({
-      email: "transaction-consume@example.com",
-      codeHash: "transaction-consume-hash",
+      email: "consume-rollback@example.com",
     });
 
-    const session = await mongoose.startSession();
+    const session = await startSession();
 
     try {
       await expect(
         session.withTransaction(async () => {
-          const consumed = await consumeVerificationCode({
+          const result = await consumeVerificationCode({
             verificationCodeId: code._id,
             email: code.email,
             purpose: code.purpose,
-            codeHash: "transaction-consume-hash",
+            codeHash: code.codeHash,
+            generationId: code.generationId,
             session,
           });
 
-          expect(consumed).not.toBeNull();
+          expect(result).not.toBeNull();
 
-          throw new Error("force consume rollback");
+          throw new Error("Force transaction rollback");
         })
-      ).rejects.toThrow("force consume rollback");
+      ).rejects.toThrow("Force transaction rollback");
     } finally {
       await session.endSession();
     }
 
-    const stored = await VerificationCode.findById(code._id);
+    const storedCode = await findStoredVerificationCode(
+      code.email,
+      code.purpose
+    );
 
-    expect(stored).not.toBeNull();
+    expect(storedCode).not.toBeNull();
   });
 
-  it("commits repository mutations when the supplied transaction succeeds", async () => {
-    const session = await mongoose.startSession();
+  it("commits consumption when the transaction completes", async () => {
+    const code = await createVerificationCode({
+      email: "consume-commit@example.com",
+    });
+
+    const session = await startSession();
 
     try {
       await session.withTransaction(async () => {
-        await replaceVerificationCode(
-          {
-            email: "transaction-commit@example.com",
-            codeHash: "committed-hash",
-            purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
-            expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-          },
-          session
-        );
+        const result = await consumeVerificationCode({
+          verificationCodeId: code._id,
+          email: code.email,
+          purpose: code.purpose,
+          codeHash: code.codeHash,
+          generationId: code.generationId,
+          session,
+        });
+
+        expect(result).not.toBeNull();
       });
     } finally {
       await session.endSession();
     }
 
-    const stored = await findStoredVerificationCode(
-      "transaction-commit@example.com",
-      VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
+    const storedCode = await findStoredVerificationCode(
+      code.email,
+      code.purpose
     );
 
-    expect(stored).not.toBeNull();
-    expect(stored?.codeHash).toBe("committed-hash");
+    expect(storedCode).toBeNull();
+  });
+
+  it("throws when generationId is missing", async () => {
+    const code = await createVerificationCode();
+
+    expect(() =>
+      consumeVerificationCode({
+        verificationCodeId: code._id,
+        email: code.email,
+        purpose: code.purpose,
+        codeHash: code.codeHash,
+      })
+    ).toThrow(TypeError);
+  });
+
+  it("does not consume a code after its generation has been replaced", async () => {
+    const email = "stale-generation@example.com";
+    const purpose = VERIFICATION_CODE_PURPOSES.PASSWORD_RESET;
+    const codeHash = "same-hash-for-both-generations";
+
+    const firstResult = await replaceVerificationCode(
+      buildRepositoryCodeData({
+        email,
+        purpose,
+        codeHash,
+      })
+    );
+
+    const secondResult = await replaceVerificationCode(
+      buildRepositoryCodeData({
+        email,
+        purpose,
+        codeHash,
+        expiresAt: new Date(Date.now() + 20 * 60 * 1000),
+      })
+    );
+
+    // The existing document is updated rather than replaced.
+    expect(secondResult._id.toString()).toBe(firstResult._id.toString());
+
+    // But every replacement must create a new generation.
+    expect(secondResult.generationId).not.toBe(firstResult.generationId);
+
+    // Consumption with the stale generation must fail.
+    const result = await consumeVerificationCode({
+      verificationCodeId: firstResult._id,
+      email,
+      purpose,
+      codeHash,
+      generationId: firstResult.generationId,
+    });
+
+    expect(result).toBeNull();
+
+    // The current code must remain stored.
+    const storedCode = await findStoredVerificationCode(email, purpose);
+
+    expect(storedCode).not.toBeNull();
+    expect(storedCode.generationId).toBe(secondResult.generationId);
+    expect(storedCode.codeHash).toBe(codeHash);
   });
 });

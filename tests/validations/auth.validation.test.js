@@ -9,8 +9,6 @@ import {
   verificationCodeSchema,
 } from "@/validations/auth.validation";
 
-import { updateUserProfileSchema } from "@/validations/user.validation";
-
 import { USER_TITLES } from "@/constants/enums";
 
 /**
@@ -21,6 +19,7 @@ import { USER_TITLES } from "@/constants/enums";
  * Shared helpers keep the individual tests focused on the behavior being
  * verified instead of repeating the same safeParse/assertion logic.
  */
+
 /**
  * Assert that a schema accepts the provided input.
  *
@@ -28,7 +27,9 @@ import { USER_TITLES } from "@/constants/enums";
  */
 function expectValid(schema, value) {
   const result = schema.safeParse(value);
+
   expect(result.success).toBe(true);
+
   return result;
 }
 
@@ -39,7 +40,9 @@ function expectValid(schema, value) {
  */
 function expectInvalid(schema, value) {
   const result = schema.safeParse(value);
+
   expect(result.success).toBe(false);
+
   return result;
 }
 
@@ -105,6 +108,119 @@ function createValidChangePassword(overrides = {}) {
 
 /**
  * ============================================================================
+ * bcrypt Password Byte Limit
+ * ============================================================================
+ */
+
+const bcryptPasswordFieldCases = [
+  {
+    field: "registerUserSchema.password",
+    path: ["password"],
+    schema: registerUserSchema,
+    createInput: (password) => createValidRegistration({ password }),
+  },
+  {
+    field: "loginUserSchema.password",
+    path: ["password"],
+    schema: loginUserSchema,
+    createInput: (password) => createValidLogin({ password }),
+  },
+  {
+    field: "resetPasswordSchema.newPassword",
+    path: ["newPassword"],
+    schema: resetPasswordSchema,
+    createInput: (password) =>
+      createValidResetPassword({
+        newPassword: password,
+        confirmPassword: password,
+      }),
+  },
+  {
+    field: "changePasswordSchema.currentPassword",
+    path: ["currentPassword"],
+    schema: changePasswordSchema,
+    createInput: (password) =>
+      createValidChangePassword({
+        currentPassword: password,
+      }),
+  },
+  {
+    field: "changePasswordSchema.newPassword",
+    path: ["newPassword"],
+    schema: changePasswordSchema,
+    createInput: (password) =>
+      createValidChangePassword({
+        newPassword: password,
+        confirmPassword: password,
+      }),
+  },
+];
+
+const validBcryptPasswordValues = [
+  {
+    label: "72 ASCII bytes",
+    value: "a".repeat(72),
+  },
+  {
+    label: "36 two-byte Persian characters",
+    value: "ا".repeat(36),
+  },
+  {
+    label: "18 four-byte emoji",
+    value: "😀".repeat(18),
+  },
+];
+
+const invalidBcryptPasswordValues = [
+  {
+    label: "73 ASCII bytes",
+    value: "a".repeat(73),
+  },
+  {
+    label: "37 two-byte Persian characters",
+    value: "ا".repeat(37),
+  },
+  {
+    label: "19 four-byte emoji",
+    value: "😀".repeat(19),
+  },
+];
+
+const validBcryptPasswordTests = bcryptPasswordFieldCases.flatMap((fieldCase) =>
+  validBcryptPasswordValues.map((passwordCase) => ({
+    ...fieldCase,
+    ...passwordCase,
+  }))
+);
+
+const invalidBcryptPasswordTests = bcryptPasswordFieldCases.flatMap(
+  (fieldCase) =>
+    invalidBcryptPasswordValues.map((passwordCase) => ({
+      ...fieldCase,
+      ...passwordCase,
+    }))
+);
+
+describe("bcrypt password UTF-8 byte limit", () => {
+  test.each(validBcryptPasswordTests)(
+    "$field accepts $label",
+    ({ schema, createInput, value }) => {
+      expectValid(schema, createInput(value));
+    }
+  );
+
+  test.each(invalidBcryptPasswordTests)(
+    "$field rejects $label",
+    ({ schema, createInput, path, value }) => {
+      const result = expectInvalid(schema, createInput(value));
+
+      expect(hasIssueAtPath(result, path)).toBe(true);
+    }
+  );
+});
+
+/**
+ * ============================================================================
  * registerUserSchema
  * ============================================================================
  *
@@ -116,6 +232,7 @@ function createValidChangePassword(overrides = {}) {
  * - User title defaults and allowed values
  * - Strict object behavior
  */
+
 describe("registerUserSchema", () => {
   test("accepts a valid registration payload", () => {
     expectValid(registerUserSchema, createValidRegistration());
@@ -126,8 +243,11 @@ describe("registerUserSchema", () => {
     "rejects registration without %s",
     (field) => {
       const data = createValidRegistration();
+
       delete data[field];
+
       const result = expectInvalid(registerUserSchema, data);
+
       expect(hasIssueAtPath(result, [field])).toBe(true);
     }
   );
@@ -140,6 +260,7 @@ describe("registerUserSchema", () => {
         username: 123,
       })
     );
+
     expect(hasIssueAtPath(result, ["username"])).toBe(true);
   });
 
@@ -151,6 +272,7 @@ describe("registerUserSchema", () => {
         username: "  Cook_123  ",
       })
     );
+
     expect(result.data.username).toBe("Cook_123");
   });
 
@@ -162,6 +284,7 @@ describe("registerUserSchema", () => {
         username: "علي",
       })
     );
+
     expect(result.data.username).toBe("علی");
   });
 
@@ -173,6 +296,7 @@ describe("registerUserSchema", () => {
         username: "كوك",
       })
     );
+
     expect(result.data.username).toBe("کوک");
   });
 
@@ -184,6 +308,7 @@ describe("registerUserSchema", () => {
         username: "CoOk_123",
       })
     );
+
     expect(result.data.username).toBe("CoOk_123");
   });
 
@@ -215,6 +340,7 @@ describe("registerUserSchema", () => {
         username: "ab",
       })
     );
+
     expect(hasIssueAtPath(result, ["username"])).toBe(true);
   });
 
@@ -235,6 +361,7 @@ describe("registerUserSchema", () => {
         username: "a".repeat(31),
       })
     );
+
     expect(hasIssueAtPath(result, ["username"])).toBe(true);
   });
 
@@ -252,6 +379,7 @@ describe("registerUserSchema", () => {
       registerUserSchema,
       createValidRegistration({ username })
     );
+
     expect(hasIssueAtPath(result, ["username"])).toBe(true);
   });
 
@@ -263,6 +391,7 @@ describe("registerUserSchema", () => {
         email: "  TEST@Example.COM  ",
       })
     );
+
     expect(result.data.email).toBe("test@example.com");
   });
 
@@ -271,7 +400,9 @@ describe("registerUserSchema", () => {
     const localPart = "a".repeat(64);
     const domain = `${"a.".repeat(93)}aaa`;
     const email = `${localPart}@${domain}`;
+
     expect(email.length).toBe(254);
+
     expectValid(registerUserSchema, createValidRegistration({ email }));
   });
 
@@ -280,11 +411,14 @@ describe("registerUserSchema", () => {
     const localPart = "a".repeat(64);
     const domain = `${"a.".repeat(94)}aa`;
     const email = `${localPart}@${domain}`;
+
     expect(email.length).toBe(255);
+
     const result = expectInvalid(
       registerUserSchema,
       createValidRegistration({ email })
     );
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         code: "too_big",
@@ -309,6 +443,7 @@ describe("registerUserSchema", () => {
       registerUserSchema,
       createValidRegistration({ email })
     );
+
     expect(hasIssueAtPath(result, ["email"])).toBe(true);
   });
 
@@ -322,16 +457,6 @@ describe("registerUserSchema", () => {
     );
   });
 
-  // Maximum new-password length is inclusive.
-  test("accepts a 128-character password", () => {
-    expectValid(
-      registerUserSchema,
-      createValidRegistration({
-        password: "a".repeat(128),
-      })
-    );
-  });
-
   test("rejects password shorter than 8 characters", () => {
     const result = expectInvalid(
       registerUserSchema,
@@ -339,22 +464,14 @@ describe("registerUserSchema", () => {
         password: "1234567",
       })
     );
-    expect(hasIssueAtPath(result, ["password"])).toBe(true);
-  });
 
-  test("rejects password longer than 128 characters", () => {
-    const result = expectInvalid(
-      registerUserSchema,
-      createValidRegistration({
-        password: "a".repeat(129),
-      })
-    );
     expect(hasIssueAtPath(result, ["password"])).toBe(true);
   });
 
   // Title defaults to a regular user when it is omitted.
   test("uses USER title by default", () => {
     const result = expectValid(registerUserSchema, createValidRegistration());
+
     expect(result.data.title).toBe(USER_TITLES.USER);
   });
 
@@ -370,6 +487,7 @@ describe("registerUserSchema", () => {
         title: "INVALID_TITLE",
       })
     );
+
     expect(hasIssueAtPath(result, ["title"])).toBe(true);
   });
 
@@ -381,6 +499,7 @@ describe("registerUserSchema", () => {
         unexpectedField: true,
       })
     );
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         code: "unrecognized_keys",
@@ -402,6 +521,7 @@ describe("registerUserSchema", () => {
  * - Existing-password validation
  * - Strict object behavior
  */
+
 describe("loginUserSchema", () => {
   test("accepts a username identifier", () => {
     expectValid(loginUserSchema, createValidLogin());
@@ -409,6 +529,7 @@ describe("loginUserSchema", () => {
 
   test.each(["identifier", "password"])("rejects login without %s", (field) => {
     const data = createValidLogin();
+
     delete data[field];
 
     const result = expectInvalid(loginUserSchema, data);
@@ -431,6 +552,7 @@ describe("loginUserSchema", () => {
       loginUserSchema,
       createValidLogin({ identifier: 123 })
     );
+
     expect(hasIssueAtPath(result, ["identifier"])).toBe(true);
   });
 
@@ -442,6 +564,7 @@ describe("loginUserSchema", () => {
         identifier: "  كوك  ",
       })
     );
+
     expect(result.data.identifier).toBe("کوک");
   });
 
@@ -453,6 +576,7 @@ describe("loginUserSchema", () => {
         identifier: "  TEST@Example.COM  ",
       })
     );
+
     expect(result.data.identifier).toBe("test@example.com");
   });
 
@@ -474,10 +598,13 @@ describe("loginUserSchema", () => {
         identifier: "a".repeat(31),
       })
     );
+
     const unionIssue = result.error.issues.find(
       (issue) => issue.code === "invalid_union"
     );
+
     expect(unionIssue).toBeDefined();
+
     expect(
       unionIssue.errors.some((branchIssues) =>
         branchIssues.some(
@@ -491,7 +618,9 @@ describe("loginUserSchema", () => {
     const localPart = "a".repeat(64);
     const domain = `${"a.".repeat(93)}aaa`;
     const email = `${localPart}@${domain}`;
+
     expect(email.length).toBe(254);
+
     expectValid(
       loginUserSchema,
       createValidLogin({
@@ -506,18 +635,24 @@ describe("loginUserSchema", () => {
     const localPart = "a".repeat(64);
     const domain = `${"a.".repeat(94)}aa`;
     const email = `${localPart}@${domain}`;
+
     expect(email.length).toBe(255);
+
     const result = expectInvalid(
       loginUserSchema,
       createValidLogin({
         identifier: email,
       })
     );
+
     expect(hasIssueAtPath(result, ["identifier"])).toBe(true);
+
     const unionIssue = result.error.issues.find(
       (issue) => issue.code === "invalid_union"
     );
+
     expect(unionIssue).toBeDefined();
+
     expect(
       unionIssue.errors.some((branchIssues) =>
         branchIssues.some(
@@ -535,6 +670,7 @@ describe("loginUserSchema", () => {
         loginUserSchema,
         createValidLogin({ identifier })
       );
+
       expect(hasIssueAtPath(result, ["identifier"])).toBe(true);
     }
   );
@@ -546,25 +682,17 @@ describe("loginUserSchema", () => {
         identifier: "invalid-email",
       })
     );
+
     expect(hasIssueAtPath(result, ["identifier"])).toBe(true);
   });
 
-  // Existing credentials only need to be non-empty; password creation policy is
-  // covered separately by passwordSchema in registration/reset/change flows.
+  // Existing passwords do not use the 8-character creation minimum, but must
+  // remain within bcrypt's 72-byte input limit.
   test("accepts an existing password with exactly 1 character", () => {
     expectValid(
       loginUserSchema,
       createValidLogin({
         password: "a",
-      })
-    );
-  });
-
-  test("accepts an existing password with exactly 128 characters", () => {
-    expectValid(
-      loginUserSchema,
-      createValidLogin({
-        password: "a".repeat(128),
       })
     );
   });
@@ -576,16 +704,7 @@ describe("loginUserSchema", () => {
         password: "",
       })
     );
-    expect(hasIssueAtPath(result, ["password"])).toBe(true);
-  });
 
-  test("rejects a login password longer than 128 characters", () => {
-    const result = expectInvalid(
-      loginUserSchema,
-      createValidLogin({
-        password: "a".repeat(129),
-      })
-    );
     expect(hasIssueAtPath(result, ["password"])).toBe(true);
   });
 
@@ -597,6 +716,7 @@ describe("loginUserSchema", () => {
         unexpectedField: true,
       })
     );
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         code: "unrecognized_keys",
@@ -617,6 +737,7 @@ describe("loginUserSchema", () => {
  * - Maximum email length
  * - Strict object behavior
  */
+
 describe("forgotPasswordSchema", () => {
   test("accepts a valid email", () => {
     expectValid(forgotPasswordSchema, {
@@ -626,6 +747,7 @@ describe("forgotPasswordSchema", () => {
 
   test("rejects a forgot-password request without email", () => {
     const result = expectInvalid(forgotPasswordSchema, {});
+
     expect(hasIssueAtPath(result, ["email"])).toBe(true);
   });
 
@@ -633,6 +755,7 @@ describe("forgotPasswordSchema", () => {
     const result = expectValid(forgotPasswordSchema, {
       email: "  TEST@Example.COM  ",
     });
+
     expect(result.data.email).toBe("test@example.com");
   });
 
@@ -648,6 +771,7 @@ describe("forgotPasswordSchema", () => {
     "",
   ])("rejects invalid email: %s", (email) => {
     const result = expectInvalid(forgotPasswordSchema, { email });
+
     expect(hasIssueAtPath(result, ["email"])).toBe(true);
   });
 
@@ -659,6 +783,7 @@ describe("forgotPasswordSchema", () => {
     expect(email.length).toBe(255);
 
     const result = expectInvalid(forgotPasswordSchema, { email });
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         code: "too_big",
@@ -674,6 +799,7 @@ describe("forgotPasswordSchema", () => {
       email: "test@example.com",
       unexpectedField: true,
     });
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         code: "unrecognized_keys",
@@ -695,6 +821,7 @@ describe("forgotPasswordSchema", () => {
  * - String input contract
  * - Strict object behavior
  */
+
 describe("verificationCodeSchema", () => {
   test("accepts a six-digit ASCII code", () => {
     expectValid(verificationCodeSchema, {
@@ -704,6 +831,7 @@ describe("verificationCodeSchema", () => {
 
   test("rejects a verification-code payload without code", () => {
     const result = expectInvalid(verificationCodeSchema, {});
+
     expect(hasIssueAtPath(result, ["code"])).toBe(true);
   });
 
@@ -712,6 +840,7 @@ describe("verificationCodeSchema", () => {
     const result = expectValid(verificationCodeSchema, {
       code: "۱۲۳۴۵۶",
     });
+
     expect(result.data.code).toBe("123456");
   });
 
@@ -720,6 +849,7 @@ describe("verificationCodeSchema", () => {
     const result = expectValid(verificationCodeSchema, {
       code: "١٢٣٤٥٦",
     });
+
     expect(result.data.code).toBe("123456");
   });
 
@@ -728,6 +858,7 @@ describe("verificationCodeSchema", () => {
     const result = expectValid(verificationCodeSchema, {
       code: " ۱۲۳۴۵۶ ",
     });
+
     expect(result.data.code).toBe("123456");
   });
 
@@ -736,6 +867,7 @@ describe("verificationCodeSchema", () => {
     "rejects an invalid verification code: %s",
     (code) => {
       const result = expectInvalid(verificationCodeSchema, { code });
+
       expect(hasIssueAtPath(result, ["code"])).toBe(true);
     }
   );
@@ -746,6 +878,7 @@ describe("verificationCodeSchema", () => {
     const result = expectInvalid(verificationCodeSchema, {
       code: 123456,
     });
+
     expect(hasIssueAtPath(result, ["code"])).toBe(true);
   });
 
@@ -755,6 +888,7 @@ describe("verificationCodeSchema", () => {
       code: "123456",
       email: "test@example.com",
     });
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         code: "unrecognized_keys",
@@ -776,6 +910,7 @@ describe("verificationCodeSchema", () => {
  * - Preservation of password whitespace
  * - Strict object behavior
  */
+
 describe("resetPasswordSchema", () => {
   test("accepts matching passwords", () => {
     expectValid(resetPasswordSchema, createValidResetPassword());
@@ -785,6 +920,7 @@ describe("resetPasswordSchema", () => {
     "rejects password reset without %s",
     (field) => {
       const data = createValidResetPassword();
+
       delete data[field];
 
       const result = expectInvalid(resetPasswordSchema, data);
@@ -801,29 +937,12 @@ describe("resetPasswordSchema", () => {
     });
   });
 
-  // Maximum new-password length is inclusive.
-  test("accepts a 128-character new password", () => {
-    const password = "a".repeat(128);
-    expectValid(resetPasswordSchema, {
-      newPassword: password,
-      confirmPassword: password,
-    });
-  });
-
   test("rejects a new password shorter than 8 characters", () => {
     const result = expectInvalid(resetPasswordSchema, {
       newPassword: "1234567",
       confirmPassword: "1234567",
     });
-    expect(hasIssueAtPath(result, ["newPassword"])).toBe(true);
-  });
 
-  test("rejects a new password longer than 128 characters", () => {
-    const password = "a".repeat(129);
-    const result = expectInvalid(resetPasswordSchema, {
-      newPassword: password,
-      confirmPassword: password,
-    });
     expect(hasIssueAtPath(result, ["newPassword"])).toBe(true);
   });
 
@@ -834,6 +953,7 @@ describe("resetPasswordSchema", () => {
         confirmPassword: "",
       })
     );
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         path: ["confirmPassword"],
@@ -849,9 +969,11 @@ describe("resetPasswordSchema", () => {
       newPassword: "abcdefgh",
       confirmPassword: "a",
     });
+
     const confirmPasswordIssues = result.error.issues.filter(
       (issue) => issue.path.length === 1 && issue.path[0] === "confirmPassword"
     );
+
     expect(confirmPasswordIssues).toEqual([
       expect.objectContaining({
         path: ["confirmPassword"],
@@ -867,6 +989,7 @@ describe("resetPasswordSchema", () => {
       newPassword: "NewPassword123",
       confirmPassword: "a".repeat(129),
     });
+
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -883,6 +1006,7 @@ describe("resetPasswordSchema", () => {
       newPassword: "NewPassword123",
       confirmPassword: "DifferentPassword123",
     });
+
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -900,6 +1024,7 @@ describe("resetPasswordSchema", () => {
       newPassword: " password123 ",
       confirmPassword: " password123 ",
     });
+
     expect(result.data.newPassword).toBe(" password123 ");
     expect(result.data.confirmPassword).toBe(" password123 ");
   });
@@ -912,6 +1037,7 @@ describe("resetPasswordSchema", () => {
         resetToken: "token",
       })
     );
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         code: "unrecognized_keys",
@@ -935,6 +1061,7 @@ describe("resetPasswordSchema", () => {
  * - Multiple simultaneous validation errors
  * - Strict object behavior
  */
+
 describe("changePasswordSchema", () => {
   test("accepts valid password-change data", () => {
     expectValid(changePasswordSchema, createValidChangePassword());
@@ -944,6 +1071,7 @@ describe("changePasswordSchema", () => {
     "rejects password change without %s",
     (field) => {
       const data = createValidChangePassword();
+
       delete data[field];
 
       const result = expectInvalid(changePasswordSchema, data);
@@ -952,22 +1080,12 @@ describe("changePasswordSchema", () => {
     }
   );
 
-  // Existing passwords only need to be non-empty.
+  // The current password has no creation minimum but must respect the byte limit.
   test("accepts a 1-character current password", () => {
     expectValid(
       changePasswordSchema,
       createValidChangePassword({
         currentPassword: "a",
-      })
-    );
-  });
-
-  // Maximum existing-password length is inclusive.
-  test("accepts a 128-character current password", () => {
-    expectValid(
-      changePasswordSchema,
-      createValidChangePassword({
-        currentPassword: "a".repeat(128),
       })
     );
   });
@@ -979,16 +1097,7 @@ describe("changePasswordSchema", () => {
         currentPassword: "",
       })
     );
-    expect(hasIssueAtPath(result, ["currentPassword"])).toBe(true);
-  });
 
-  test("rejects current password longer than 128 characters", () => {
-    const result = expectInvalid(
-      changePasswordSchema,
-      createValidChangePassword({
-        currentPassword: "a".repeat(129),
-      })
-    );
     expect(hasIssueAtPath(result, ["currentPassword"])).toBe(true);
   });
 
@@ -1001,11 +1110,13 @@ describe("changePasswordSchema", () => {
         confirmPassword: "1234567",
       })
     );
+
     expect(hasIssueAtPath(result, ["newPassword"])).toBe(true);
   });
 
   test("accepts an 8-character new password", () => {
     const password = "12345678";
+
     expectValid(
       changePasswordSchema,
       createValidChangePassword({
@@ -1013,29 +1124,6 @@ describe("changePasswordSchema", () => {
         confirmPassword: password,
       })
     );
-  });
-
-  test("accepts a 128-character new password", () => {
-    const password = "a".repeat(128);
-    expectValid(
-      changePasswordSchema,
-      createValidChangePassword({
-        newPassword: password,
-        confirmPassword: password,
-      })
-    );
-  });
-
-  test("rejects a new password longer than 128 characters", () => {
-    const password = "a".repeat(129);
-    const result = expectInvalid(
-      changePasswordSchema,
-      createValidChangePassword({
-        newPassword: password,
-        confirmPassword: password,
-      })
-    );
-    expect(hasIssueAtPath(result, ["newPassword"])).toBe(true);
   });
 
   // Verify the confirmation field's own maximum independently.
@@ -1045,6 +1133,7 @@ describe("changePasswordSchema", () => {
       newPassword: "NewPassword123",
       confirmPassword: "a".repeat(129),
     });
+
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1063,6 +1152,7 @@ describe("changePasswordSchema", () => {
         confirmPassword: "",
       })
     );
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         path: ["confirmPassword"],
@@ -1081,9 +1171,11 @@ describe("changePasswordSchema", () => {
         confirmPassword: "a",
       })
     );
+
     const confirmPasswordIssues = result.error.issues.filter(
       (issue) => issue.path.length === 1 && issue.path[0] === "confirmPassword"
     );
+
     expect(confirmPasswordIssues).toEqual([
       expect.objectContaining({
         path: ["confirmPassword"],
@@ -1099,6 +1191,7 @@ describe("changePasswordSchema", () => {
         confirmPassword: "DifferentPassword123",
       })
     );
+
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1112,6 +1205,7 @@ describe("changePasswordSchema", () => {
   // Reusing the current password as the new password is explicitly forbidden.
   test("rejects using the current password as the new password", () => {
     const password = "SamePassword123";
+
     const result = expectInvalid(
       changePasswordSchema,
       createValidChangePassword({
@@ -1120,6 +1214,7 @@ describe("changePasswordSchema", () => {
         confirmPassword: password,
       })
     );
+
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1137,6 +1232,7 @@ describe("changePasswordSchema", () => {
       newPassword: "SamePassword123",
       confirmPassword: "DifferentPassword123",
     });
+
     expect(result.error.issues).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1159,424 +1255,11 @@ describe("changePasswordSchema", () => {
         verificationCode: "123456",
       })
     );
+
     expect(result.error.issues).toContainEqual(
       expect.objectContaining({
         code: "unrecognized_keys",
         keys: ["verificationCode"],
-      })
-    );
-  });
-});
-
-/**
- * ============================================================================
- * updateUserProfileSchema
- * ============================================================================
- *
- * Covers:
- * - Optional profile fields
- * - Avatar URL rules
- * - Bio boundaries and normalization
- * - Social-link validation
- * - Nested strictness
- * - Protection of immutable/system-managed fields
- */
-describe("updateUserProfileSchema", () => {
-  // The schema rejects an empty object because at least one field must be
-  // provided for a profile update.
-  test("rejects an empty update object", () => {
-    const result = expectInvalid(updateUserProfileSchema, {});
-
-    expect(result.error.issues).toContainEqual(
-      expect.objectContaining({
-        code: "custom",
-        message: "حداقل یک فیلد برای ویرایش باید ارسال شود.",
-      })
-    );
-  });
-
-  test("allows socialLinks to be omitted", () => {
-    expectValid(updateUserProfileSchema, {
-      bio: "Cooking",
-    });
-  });
-
-  // socialLinks is optional, but null is not part of its outer contract.
-  test("rejects null socialLinks", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      socialLinks: null,
-    });
-    expect(hasIssueAtPath(result, ["socialLinks"])).toBe(true);
-  });
-
-  test("rejects empty socialLinks even when another profile field is updated", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      bio: "Cooking",
-      socialLinks: {},
-    });
-
-    expect(result.error.issues).toContainEqual(
-      expect.objectContaining({
-        code: "custom",
-        path: ["socialLinks"],
-        message: "حداقل یک پیوند اجتماعی باید ارسال شود.",
-      })
-    );
-  });
-
-  test("rejects an empty socialLinks object as the only update", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      socialLinks: {},
-    });
-
-    expect(result.error.issues).toContainEqual(
-      expect.objectContaining({
-        code: "custom",
-        message: "حداقل یک فیلد برای ویرایش باید ارسال شود.",
-      })
-    );
-  });
-
-  // Avatar URLs must be valid HTTPS URLs.
-  test("accepts a valid HTTPS avatar", () => {
-    expectValid(updateUserProfileSchema, {
-      avatar: "https://example.com/avatar.jpg",
-    });
-  });
-
-  // Nullable avatar allows explicit removal/reset of the current avatar.
-  test("accepts null avatar", () => {
-    const result = expectValid(updateUserProfileSchema, {
-      avatar: null,
-    });
-    expect(result.data.avatar).toBeNull();
-  });
-
-  test("rejects an empty avatar string", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      avatar: "",
-    });
-    expect(hasIssueAtPath(result, ["avatar"])).toBe(true);
-  });
-
-  // Avatar values are trimmed before URL validation/output.
-  test("trims avatar", () => {
-    const result = expectValid(updateUserProfileSchema, {
-      avatar: "  https://example.com/avatar.jpg  ",
-    });
-    expect(result.data.avatar).toBe("https://example.com/avatar.jpg");
-  });
-
-  // Non-secure HTTP avatar URLs are forbidden.
-  test("rejects HTTP avatar URL", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      avatar: "http://example.com/avatar.jpg",
-    });
-    expect(hasIssueAtPath(result, ["avatar"])).toBe(true);
-  });
-
-  test("rejects malformed avatar URL", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      avatar: "not-a-url",
-    });
-    expect(hasIssueAtPath(result, ["avatar"])).toBe(true);
-  });
-
-  // Bio maximum length is inclusive.
-  test("accepts a 300-character bio", () => {
-    expectValid(updateUserProfileSchema, {
-      bio: "a".repeat(300),
-    });
-  });
-
-  test("rejects a non-string bio", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      bio: 123,
-    });
-    expect(hasIssueAtPath(result, ["bio"])).toBe(true);
-  });
-
-  test("rejects a bio longer than 300 characters", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      bio: "a".repeat(301),
-    });
-    expect(hasIssueAtPath(result, ["bio"])).toBe(true);
-  });
-
-  // Bio whitespace is presentation-only and is removed during normalization.
-  test("trims bio", () => {
-    const result = expectValid(updateUserProfileSchema, {
-      bio: "  My cooking profile  ",
-    });
-    expect(result.data.bio).toBe("My cooking profile");
-  });
-
-  test.each(["instagram", "telegram", "x"])(
-    "rejects explicitly undefined social link: %s",
-    (field) => {
-      const result = expectInvalid(updateUserProfileSchema, {
-        socialLinks: {
-          [field]: undefined,
-        },
-      });
-
-      expect(result.error.issues).toContainEqual(
-        expect.objectContaining({
-          code: "custom",
-          path: ["socialLinks", field],
-          message: "مقدار پیوند اجتماعی نمی‌تواند undefined باشد.",
-        })
-      );
-    }
-  );
-
-  // Each supported social network gets a representative valid URL test.
-  test("accepts a valid Instagram URL", () => {
-    expectValid(updateUserProfileSchema, {
-      socialLinks: {
-        instagram: "https://instagram.com/test-user",
-      },
-    });
-  });
-
-  test("accepts www Instagram URL", () => {
-    expectValid(updateUserProfileSchema, {
-      socialLinks: {
-        instagram: "https://www.instagram.com/test-user",
-      },
-    });
-  });
-
-  test("accepts a valid Telegram URL", () => {
-    expectValid(updateUserProfileSchema, {
-      socialLinks: {
-        telegram: "https://t.me/test-user",
-      },
-    });
-  });
-
-  test("accepts telegram.me URL", () => {
-    expectValid(updateUserProfileSchema, {
-      socialLinks: {
-        telegram: "https://telegram.me/test-user",
-      },
-    });
-  });
-
-  test("accepts a valid X URL", () => {
-    expectValid(updateUserProfileSchema, {
-      socialLinks: {
-        x: "https://x.com/test-user",
-      },
-    });
-  });
-
-  test("accepts twitter.com URL", () => {
-    expectValid(updateUserProfileSchema, {
-      socialLinks: {
-        x: "https://twitter.com/test-user",
-      },
-    });
-  });
-
-  // Individual social-link values are nullable even though the socialLinks
-  // object itself is not nullable.
-  test("accepts null values for social links", () => {
-    expectValid(updateUserProfileSchema, {
-      socialLinks: {
-        instagram: null,
-        telegram: null,
-        x: null,
-      },
-    });
-  });
-
-  test("rejects an empty Instagram URL", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      socialLinks: {
-        instagram: "",
-      },
-    });
-    expect(hasIssueAtPath(result, ["socialLinks", "instagram"])).toBe(true);
-  });
-
-  // Social URLs are normalized by removing surrounding whitespace.
-  test("trims social URLs", () => {
-    const result = expectValid(updateUserProfileSchema, {
-      socialLinks: {
-        instagram: "  https://instagram.com/test-user  ",
-      },
-    });
-    expect(result.data.socialLinks.instagram).toBe(
-      "https://instagram.com/test-user"
-    );
-  });
-
-  // All social links require HTTPS.
-  test.each([
-    {
-      platform: "Instagram",
-      field: "instagram",
-      url: "http://instagram.com/test-user",
-    },
-    {
-      platform: "Telegram",
-      field: "telegram",
-      url: "http://t.me/test-user",
-    },
-    {
-      platform: "X",
-      field: "x",
-      url: "http://x.com/test-user",
-    },
-  ])("rejects HTTP $platform URL", ({ field, url }) => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      socialLinks: {
-        [field]: url,
-      },
-    });
-    expect(hasIssueAtPath(result, ["socialLinks", field])).toBe(true);
-  });
-
-  // Each social field must match its own allowed platform domain.
-  test.each([
-    { platform: "Instagram", field: "instagram" },
-    { platform: "Telegram", field: "telegram" },
-    { platform: "X", field: "x" },
-  ])("rejects non-$platform domains", ({ field }) => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      socialLinks: {
-        [field]: "https://example.com/test-user",
-      },
-    });
-    expect(hasIssueAtPath(result, ["socialLinks", field])).toBe(true);
-  });
-
-  // Hostnames that contain an allowed domain name must still be rejected.
-  test.each([
-    {
-      platform: "Instagram",
-      field: "instagram",
-      url: "https://instagram.com.evil.example/user",
-    },
-    {
-      platform: "Instagram",
-      field: "instagram",
-      url: "https://evil-instagram.com/user",
-    },
-    {
-      platform: "Telegram",
-      field: "telegram",
-      url: "https://t.me.evil.example/user",
-    },
-    {
-      platform: "Telegram",
-      field: "telegram",
-      url: "https://evil-t.me/user",
-    },
-    {
-      platform: "X",
-      field: "x",
-      url: "https://x.com.example.org/user",
-    },
-    {
-      platform: "X",
-      field: "x",
-      url: "https://evil-x.com/user",
-    },
-    {
-      platform: "X",
-      field: "x",
-      url: "https://twitter.com.evil.example/user",
-    },
-  ])("rejects lookalike $platform domain: $url", ({ field, url }) => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      socialLinks: {
-        [field]: url,
-      },
-    });
-    expect(hasIssueAtPath(result, ["socialLinks", field])).toBe(true);
-  });
-
-  // Nested socialLinks objects are strict as well.
-  test("rejects unknown social-link fields because the nested object is strict", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      socialLinks: {
-        instagram: "https://instagram.com/test-user",
-        facebook: "https://facebook.com/test-user",
-      },
-    });
-    expect(result.error.issues).toContainEqual(
-      expect.objectContaining({
-        code: "unrecognized_keys",
-        path: ["socialLinks"],
-        keys: ["facebook"],
-      })
-    );
-  });
-
-  test.each([
-    {
-      field: "username",
-      value: { username: "NewUsername" },
-      expectedKeys: ["username"],
-    },
-    {
-      field: "title",
-      value: { title: USER_TITLES.COOK },
-      expectedKeys: ["title"],
-    },
-    {
-      field: "role",
-      value: { role: "ADMIN" },
-      expectedKeys: ["role"],
-    },
-    {
-      field: "accountStatus",
-      value: { accountStatus: "ACTIVE" },
-      expectedKeys: ["accountStatus"],
-    },
-    {
-      field: "emailVerified",
-      value: { emailVerified: true },
-      expectedKeys: ["emailVerified"],
-    },
-    {
-      field: "stats",
-      value: { stats: { recipeCount: 10 } },
-      expectedKeys: ["stats"],
-    },
-    {
-      field: "timestamps",
-      value: {
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      expectedKeys: ["createdAt", "updatedAt"],
-    },
-  ])(
-    "rejects immutable or system-managed field(s): $field",
-    ({ value, expectedKeys }) => {
-      const result = expectInvalid(updateUserProfileSchema, value);
-      expect(result.error.issues).toContainEqual(
-        expect.objectContaining({
-          code: "unrecognized_keys",
-          keys: expectedKeys,
-        })
-      );
-    }
-  );
-
-  // Any other undeclared top-level field must also be rejected.
-  test("rejects unknown top-level fields", () => {
-    const result = expectInvalid(updateUserProfileSchema, {
-      bio: "Cooking",
-      unexpectedField: true,
-    });
-    expect(result.error.issues).toContainEqual(
-      expect.objectContaining({
-        code: "unrecognized_keys",
-        keys: ["unexpectedField"],
       })
     );
   });

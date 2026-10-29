@@ -6,6 +6,8 @@ import { normalizeDigits } from "@/lib/normalization/normalizeDigits";
 import { isValidEmail } from "@/lib/validation/isValidEmail";
 import { usernameSchema } from "./user.validation";
 
+import { isBcryptCompatiblePassword } from "@/lib/validation/password";
+
 /**
  * Reusable validation schemas.
  */
@@ -25,7 +27,10 @@ const identifierSchema = z.union([emailSchema, usernameSchema]);
 const passwordSchema = z
   .string()
   .min(8, "رمز عبور باید حداقل ۸ کاراکتر باشد.")
-  .max(128, "رمز عبور نباید بیشتر از ۱۲۸ کاراکتر باشد.");
+  .max(128, "رمز عبور نمی‌تواند بیشتر از ۱۲۸ کاراکتر باشد.")
+  .refine(isBcryptCompatiblePassword, {
+    message: "رمز عبور نباید بیشتر از ۷۲ بایت در UTF-8 باشد.",
+  });
 
 const existingPasswordSchema = z
   .string()
