@@ -9,10 +9,13 @@ export default defineConfig({
     clearMocks: true,
     restoreMocks: true,
     testTimeout: 10000,
-  },
 
-  env: {
-    AUTH_SECRET: "test-only-auth-secret-that-is-long-enough-123",
-    PASSWORD_RESET_TOKEN_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    env: {
+      AUTH_SECRET: "test-only-auth-secret-that-is-long-enough-123",
+      PASSWORD_RESET_TOKEN_SECRET:
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      RESEND_API_KEY: "re_test_only_key",
+      RESEND_FROM_EMAIL: "no-reply@example.com",
+    },
   },
 });

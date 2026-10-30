@@ -27,6 +27,20 @@ const passwordResetTokenSecretSchema = z
 const serverEnvSchema = z.object({
   AUTH_SECRET: authSecretSchema,
   PASSWORD_RESET_TOKEN_SECRET: passwordResetTokenSecretSchema,
+  RESEND_API_KEY: resendApiKeySchema,
+  RESEND_FROM_EMAIL: resendFromEmailSchema,
+});
+
+const resendApiKeySchema = z
+  .string()
+  .min(1, "RESEND_API_KEY is required.")
+  .max(256, "RESEND_API_KEY is too long.")
+  .refine((value) => value.trim() === value, {
+    message: "RESEND_API_KEY must not contain surrounding whitespace.",
+  });
+
+const resendFromEmailSchema = z.email({
+  error: "RESEND_FROM_EMAIL must be a valid email address.",
 });
 
 let validatedEnv;
@@ -35,6 +49,8 @@ export function validateServerEnv() {
   const result = serverEnvSchema.safeParse({
     AUTH_SECRET: process.env.AUTH_SECRET,
     PASSWORD_RESET_TOKEN_SECRET: process.env.PASSWORD_RESET_TOKEN_SECRET,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
   });
 
   if (!result.success) {

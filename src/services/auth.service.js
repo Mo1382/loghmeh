@@ -32,6 +32,11 @@ import { requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 
 import { getServerEnv } from "@/lib/config/env";
 
+import {
+  sendVerificationCodeEmail,
+  sendPasswordResetCodeEmail,
+} from "@/lib/email";
+
 import { isStrictGenerationId } from "@/lib/validation/generation-id";
 
 import { isBcryptCompatiblePassword } from "@/lib/validation/password";
@@ -113,15 +118,17 @@ function toSafeUser(user) {
 function passwordResetRequestResponse() {
   return {
     message:
-      "اگر حسابی با این ایمیل وجود داشته باشد، کد بازنشانی رمز عبور ارسال شده است.",
+      "اگر حسابی با این ایمیل وجود داشته باشد، درخواست بازنشانی رمز عبور ثبت شده است.",
   };
 }
 
 /**
- * Get the secret used to sign password-reset tokens.
+ * Get the decoded 32-byte key used to sign password-reset tokens.
  */
-function getPasswordResetTokenSecret() {
-  return getServerEnv().PASSWORD_RESET_TOKEN_SECRET;
+function getPasswordResetTokenKey() {
+  const encodedKey = getServerEnv().PASSWORD_RESET_TOKEN_SECRET;
+
+  return crypto.createSecretKey(Buffer.from(encodedKey, "base64url"));
 }
 
 /**
@@ -136,7 +143,7 @@ function createPasswordResetToken(payload) {
   );
 
   const signature = crypto
-    .createHmac("sha256", getPasswordResetTokenSecret())
+    .createHmac("sha256", getPasswordResetTokenKey())
     .update(encodedPayload)
     .digest("base64url");
 
@@ -206,7 +213,7 @@ function verifyPasswordResetToken(token) {
   const [encodedPayload, signature] = parts;
 
   const expectedSignature = crypto
-    .createHmac("sha256", getPasswordResetTokenSecret())
+    .createHmac("sha256", getPasswordResetTokenKey())
     .update(encodedPayload)
     .digest("base64url");
 
@@ -331,6 +338,58 @@ function assertBcryptPasswordLimit(password, errorFactory) {
 }
 
 /**
+ * Log an email submission failure.
+ */
+function logEmailSubmissionFailure(event, user, error) {
+  console.error(`${event} failed.`, {
+    userId: user._id.toString(),
+    errorName: error?.name,
+    providerErrorCode: error?.cause?.code,
+    providerStatusCode: error?.cause?.statusCode,
+  });
+}
+
+export async function resendVerificationCode({ email }) {
+  const user = await findUserByEmail(email);
+
+  if (
+    !user ||
+    user.emailVerified === true ||
+    user.accountStatus !== ACCOUNT_STATUSES.PENDING_VERIFICATION
+  ) {
+    return {
+      message: "در صورت واجد شرایط بودن حساب، کد تأیید ارسال خواهد شد.",
+    };
+  }
+
+  const verificationCode = generateVerificationCode();
+  const codeHash = await hashVerificationCode(verificationCode);
+
+  const expiresAt = new Date(Date.now() + VERIFICATION_CODE_TTL_MS);
+
+  await replaceVerificationCode({
+    email: user.email,
+    codeHash,
+    purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
+    expiresAt,
+  });
+
+  try {
+    await sendVerificationCodeEmail({
+      to: user.email,
+      code: verificationCode,
+      expiresInMinutes: VERIFICATION_CODE_TTL_MS / 60_000,
+    });
+  } catch (error) {
+    logEmailSubmissionFailure("Verification email resend", user, error);
+  }
+
+  return {
+    message: "در صورت واجد شرایط بودن حساب، کد تأیید ارسال خواهد شد.",
+  };
+}
+
+/**
  * Register a new user.
  *
  * The unique database indexes remain the final protection
@@ -338,6 +397,7 @@ function assertBcryptPasswordLimit(password, errorFactory) {
  */
 export async function registerUser({ username, email, password, title }) {
   assertBcryptPasswordLimit(password);
+
   const existingEmail = await findUserByEmail(email);
 
   if (existingEmail) {
@@ -395,12 +455,24 @@ export async function registerUser({ username, email, password, title }) {
     return newUser;
   });
 
-  /**
-   * The verificationCode must be sent through the
-   * Email/Infrastructure layer and must never be returned
-   * to the client.
-   */
-  return toSafeUser(user);
+  let verificationEmailRequestAccepted = true;
+
+  try {
+    await sendVerificationCodeEmail({
+      to: user.email,
+      code: verificationCode,
+      expiresInMinutes: VERIFICATION_CODE_TTL_MS / 60_000,
+    });
+  } catch (error) {
+    verificationEmailRequestAccepted = false;
+
+    logEmailSubmissionFailure("Registration verification email", user, error);
+  }
+
+  return {
+    user: toSafeUser(user),
+    verificationEmailRequestAccepted,
+  };
 }
 
 /**
@@ -581,11 +653,16 @@ export async function requestPasswordReset({ email }) {
     expiresAt,
   });
 
-  /**
-   * The resetCode must be sent through the
-   * Email/Infrastructure layer and must never be returned
-   * to the client.
-   */
+  try {
+    await sendPasswordResetCodeEmail({
+      to: user.email,
+      code: resetCode,
+      expiresInMinutes: VERIFICATION_CODE_TTL_MS / 60_000,
+    });
+  } catch (error) {
+    logEmailSubmissionFailure("Password reset email submission", user, error);
+  }
+
   return passwordResetRequestResponse();
 }
 
