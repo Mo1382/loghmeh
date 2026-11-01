@@ -3,6 +3,7 @@ import VerificationCode from "@/models/VerificationCode";
 import { applySession } from "@/lib/helpers/apply-session";
 
 import { randomUUID } from "node:crypto";
+import { VERIFICATION_CODE_PURPOSES } from "@/constants/enums";
 
 const EXPIRED_CODE_RETENTION_MS = 60 * 60 * 1000;
 
@@ -15,7 +16,9 @@ const EXPIRED_CODE_RETENTION_MS = 60 * 60 * 1000;
 /**
  * Atomically consume a verification code.
  *
- * The code is deleted only when all identifying and validity conditions match.
+ * By default, only unexpired codes can be consumed.
+ * For password-reset flows, a retained expired code can
+ * be consumed when a valid reset token authorizes the operation.
  */
 export function consumeVerificationCode({
   verificationCodeId,
@@ -23,11 +26,27 @@ export function consumeVerificationCode({
   purpose,
   codeHash,
   generationId,
+  useRetentionExpiry = false,
   session,
 }) {
   if (typeof generationId !== "string" || generationId.length === 0) {
     throw new TypeError("generationId must be a non-empty string.");
   }
+
+  if (
+    useRetentionExpiry &&
+    purpose !== VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
+  ) {
+    throw new TypeError(
+      "Retention expiry can only be used for password-reset codes."
+    );
+  }
+
+  const now = new Date();
+
+  const expiryCondition = useRetentionExpiry
+    ? { purgeAt: { $gt: now } }
+    : { expiresAt: { $gt: now } };
 
   const query = VerificationCode.findOneAndDelete({
     _id: verificationCodeId,
@@ -35,7 +54,7 @@ export function consumeVerificationCode({
     purpose,
     codeHash,
     generationId,
-    expiresAt: { $gt: new Date() },
+    ...expiryCondition,
   });
 
   return applySession(query, session);
