@@ -120,12 +120,6 @@ const bcryptPasswordFieldCases = [
     createInput: (password) => createValidRegistration({ password }),
   },
   {
-    field: "loginUserSchema.password",
-    path: ["password"],
-    schema: loginUserSchema,
-    createInput: (password) => createValidLogin({ password }),
-  },
-  {
     field: "resetPasswordSchema.newPassword",
     path: ["newPassword"],
     schema: resetPasswordSchema,
@@ -133,15 +127,6 @@ const bcryptPasswordFieldCases = [
       createValidResetPassword({
         newPassword: password,
         confirmPassword: password,
-      }),
-  },
-  {
-    field: "changePasswordSchema.currentPassword",
-    path: ["currentPassword"],
-    schema: changePasswordSchema,
-    createInput: (password) =>
-      createValidChangePassword({
-        currentPassword: password,
       }),
   },
   {
@@ -217,6 +202,128 @@ describe("bcrypt password UTF-8 byte limit", () => {
       expect(hasIssueAtPath(result, path)).toBe(true);
     }
   );
+});
+
+const passwordEncodingFieldCases = [
+  {
+    field: "registerUserSchema.password",
+    path: ["password"],
+    schema: registerUserSchema,
+    createInput: (password) => createValidRegistration({ password }),
+  },
+  {
+    field: "loginUserSchema.password",
+    path: ["password"],
+    schema: loginUserSchema,
+    createInput: (password) => createValidLogin({ password }),
+  },
+  {
+    field: "resetPasswordSchema.newPassword",
+    path: ["newPassword"],
+    schema: resetPasswordSchema,
+    createInput: (password) =>
+      createValidResetPassword({
+        newPassword: password,
+        confirmPassword: password,
+      }),
+  },
+  {
+    field: "resetPasswordSchema.confirmPassword",
+    path: ["confirmPassword"],
+    schema: resetPasswordSchema,
+    createInput: (password) =>
+      createValidResetPassword({ confirmPassword: password }),
+  },
+  {
+    field: "changePasswordSchema.currentPassword",
+    path: ["currentPassword"],
+    schema: changePasswordSchema,
+    createInput: (password) =>
+      createValidChangePassword({ currentPassword: password }),
+  },
+  {
+    field: "changePasswordSchema.newPassword",
+    path: ["newPassword"],
+    schema: changePasswordSchema,
+    createInput: (password) =>
+      createValidChangePassword({
+        newPassword: password,
+        confirmPassword: password,
+      }),
+  },
+  {
+    field: "changePasswordSchema.confirmPassword",
+    path: ["confirmPassword"],
+    schema: changePasswordSchema,
+    createInput: (password) =>
+      createValidChangePassword({ confirmPassword: password }),
+  },
+];
+
+const invalidUtf16PasswordValues = [
+  {
+    label: "unpaired high surrogate at the beginning",
+    value: "\uD800Password",
+  },
+  {
+    label: "unpaired low surrogate at the beginning",
+    value: "\uDC00Password",
+  },
+  {
+    label: "unpaired high surrogate in the middle",
+    value: "Pass\uD800word",
+  },
+  {
+    label: "unpaired low surrogate in the middle",
+    value: "Pass\uDC00word",
+  },
+  {
+    label: "unpaired high surrogate at the end",
+    value: "Password\uD800",
+  },
+  {
+    label: "unpaired low surrogate at the end",
+    value: "Password\uDC00",
+  },
+];
+
+const invalidPasswordEncodingTests = passwordEncodingFieldCases.flatMap(
+  (fieldCase) =>
+    invalidUtf16PasswordValues.map((passwordCase) => ({
+      ...fieldCase,
+      ...passwordCase,
+    }))
+);
+
+describe("password UTF-16 validation", () => {
+  test.each(invalidPasswordEncodingTests)(
+    "$field rejects $label",
+    ({ schema, createInput, path, value }) => {
+      const result = expectInvalid(schema, createInput(value));
+
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          path,
+          message: "رمز عبور دارای کدگذاری نامعتبر است.",
+        })
+      );
+    }
+  );
+});
+
+describe("valid UTF-16 surrogate pairs", () => {
+  test("accepts a valid surrogate pair in existing passwords", () => {
+    const password = "😀";
+
+    expectValid(loginUserSchema, createValidLogin({ password }));
+
+    expectValid(
+      changePasswordSchema,
+      createValidChangePassword({
+        currentPassword: password,
+      })
+    );
+  });
 });
 
 /**

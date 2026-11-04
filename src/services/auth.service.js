@@ -45,7 +45,11 @@ import {
 
 import { isStrictGenerationId } from "@/lib/validation/generation-id";
 
-import { isBcryptCompatiblePassword } from "@/lib/validation/password";
+import {
+  isWellFormedPassword,
+  isWithinBcryptByteLimit,
+} from "@/lib/validation/password";
+
 import { normalizeUsername } from "@/lib/normalization/normalizeUsername";
 
 /** Lifetime of email-verification and password-reset codes, in milliseconds. */
@@ -107,6 +111,18 @@ function createInvalidPasswordTypeError() {
 }
 
 /**
+ * Create the validation error used when a password contains
+ * invalid UTF-16 encoding.
+ */
+function createInvalidPasswordEncodingError() {
+  return new AppError(
+    ERROR_CODES.INVALID_PASSWORD_ENCODING,
+    "رمز عبور دارای کدگذاری نامعتبر است.",
+    { statusCode: 400 }
+  );
+}
+
+/**
  * Create the validation error used when a password exceeds bcrypt’s 72-byte
  * limit.
  */
@@ -119,14 +135,22 @@ function createPasswordByteLimitError() {
 }
 
 /**
- * Validate password type and UTF-8 byte length before calling bcrypt.
+ * Validate password type, UTF-16 encoding, and UTF-8 byte length
+ * before passing the password to bcrypt.
  */
-function assertBcryptPasswordLimit(password, errorFactory) {
+function assertBcryptCompatiblePassword(password, errorFactory) {
+  // 1. Validate input type.
   if (typeof password !== "string") {
     throw (errorFactory ?? createInvalidPasswordTypeError)();
   }
 
-  if (!isBcryptCompatiblePassword(password)) {
+  // 2. Reject malformed UTF-16.
+  if (!isWellFormedPassword(password)) {
+    throw (errorFactory ?? createInvalidPasswordEncodingError)();
+  }
+
+  // 3. Enforce bcrypt's 72-byte limit.
+  if (!isWithinBcryptByteLimit(password)) {
     throw (errorFactory ?? createPasswordByteLimitError)();
   }
 }
@@ -964,7 +988,7 @@ export async function changePassword(
 
   assertValidObjectId(authenticatedUser._id, "user ID");
 
-  assertBcryptPasswordLimit(
+  assertBcryptCompatiblePassword(
     currentPassword,
     () =>
       new AppError(

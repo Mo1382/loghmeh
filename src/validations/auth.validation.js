@@ -6,7 +6,10 @@ import { normalizeDigits } from "@/lib/normalization/normalizeDigits";
 import { isValidEmail } from "@/lib/validation/isValidEmail";
 import { usernameSchema } from "./user.validation";
 
-import { isBcryptCompatiblePassword } from "@/lib/validation/password";
+import {
+  isWellFormedPassword,
+  isWithinBcryptByteLimit,
+} from "@/lib/validation/password";
 
 /**
  * Reusable validation schemas.
@@ -24,18 +27,48 @@ const emailSchema = z
  */
 const identifierSchema = z.union([emailSchema, usernameSchema]);
 
+const PASSWORD_ENCODING_ERROR = "رمز عبور دارای کدگذاری نامعتبر است.";
+
+const PASSWORD_BYTE_LIMIT_ERROR =
+  "رمز عبور نباید بیشتر از ۷۲ بایت در UTF-8 باشد.";
+
 const passwordSchema = z
   .string()
   .min(8, "رمز عبور باید حداقل ۸ کاراکتر باشد.")
   .max(128, "رمز عبور نمی‌تواند بیشتر از ۱۲۸ کاراکتر باشد.")
-  .refine(isBcryptCompatiblePassword, {
-    message: "رمز عبور نباید بیشتر از ۷۲ بایت در UTF-8 باشد.",
+  .superRefine((password, ctx) => {
+    if (!isWellFormedPassword(password)) {
+      ctx.addIssue({
+        code: "custom",
+        message: PASSWORD_ENCODING_ERROR,
+      });
+
+      return;
+    }
+
+    if (!isWithinBcryptByteLimit(password)) {
+      ctx.addIssue({
+        code: "custom",
+        message: PASSWORD_BYTE_LIMIT_ERROR,
+      });
+    }
   });
 
 const existingPasswordSchema = z
   .string()
   .min(1, "رمز عبور الزامی است.")
-  .max(128, "رمز عبور نباید بیشتر از ۱۲۸ کاراکتر باشد.");
+  .max(128, "رمز عبور نباید بیشتر از ۱۲۸ کاراکتر باشد.")
+  .refine(isWellFormedPassword, {
+    message: PASSWORD_ENCODING_ERROR,
+  });
+
+const passwordConfirmationSchema = z
+  .string()
+  .min(1, "تأیید رمز عبور الزامی است.")
+  .max(128, "رمز عبور نباید بیشتر از ۱۲۸ کاراکتر باشد.")
+  .refine(isWellFormedPassword, {
+    message: PASSWORD_ENCODING_ERROR,
+  });
 
 /**
  * User registration.
@@ -87,10 +120,7 @@ export const verificationCodeSchema = z
 export const resetPasswordSchema = z
   .object({
     newPassword: passwordSchema,
-    confirmPassword: z
-      .string()
-      .min(1, "تأیید رمز عبور الزامی است.")
-      .max(128, "رمز عبور نباید بیشتر از ۱۲۸ کاراکتر باشد."),
+    confirmPassword: passwordConfirmationSchema,
   })
   .strict()
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -105,10 +135,7 @@ export const changePasswordSchema = z
   .object({
     currentPassword: existingPasswordSchema,
     newPassword: passwordSchema,
-    confirmPassword: z
-      .string()
-      .min(1, "تأیید رمز عبور الزامی است.")
-      .max(128, "رمز عبور نباید بیشتر از ۱۲۸ کاراکتر باشد."),
+    confirmPassword: passwordConfirmationSchema,
   })
   .strict()
   .refine((data) => data.newPassword === data.confirmPassword, {
