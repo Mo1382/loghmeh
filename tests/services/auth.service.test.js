@@ -255,7 +255,11 @@ beforeEach(() => {
   verifyUserEmail.mockResolvedValue(createUser());
   updateUserPassword.mockResolvedValue(createUser());
 
-  consumeVerificationCode.mockResolvedValue({ deletedCount: 1 });
+  consumeVerificationCode.mockResolvedValue(createVerificationCode());
+
+  replaceVerificationCode.mockImplementation(async (codeData) =>
+    createVerificationCode(codeData)
+  );
 
   findActiveVerificationCode.mockResolvedValue(
     createVerificationCode({
@@ -264,7 +268,6 @@ beforeEach(() => {
   );
 
   findVerificationCode.mockResolvedValue(createVerificationCode());
-  replaceVerificationCode.mockResolvedValue({ acknowledged: true });
 
   withTransaction.mockImplementation(async (callback) =>
     callback(TEST_SESSION)
@@ -347,11 +350,6 @@ describe("registerUser()", () => {
     });
 
     expect(bcryptHash).toHaveBeenNthCalledWith(1, VALID_PASSWORD, 12);
-    expect(bcryptHash).toHaveBeenNthCalledWith(
-      2,
-      expect.stringMatching(/^\d{6}$/),
-      10
-    );
 
     expect(createUserInRepository).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -363,21 +361,26 @@ describe("registerUser()", () => {
       TEST_SESSION
     );
 
-    expect(replaceVerificationCode).toHaveBeenCalledWith(
-      expect.objectContaining({
-        email: "cook@example.com",
-        codeHash: expect.any(String),
-        purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-        expiresAt: expect.any(Date),
-      }),
-      TEST_SESSION
-    );
-
     expect(sendVerificationCodeEmail).toHaveBeenCalledWith({
       to: "cook@example.com",
       code: expect.stringMatching(/^\d{6}$/),
       expiresInMinutes: 10,
     });
+
+    const sentCode = sendVerificationCodeEmail.mock.calls[0][0].code;
+
+    expect(bcryptHash).toHaveBeenNthCalledWith(2, sentCode, 10);
+
+    expect(replaceVerificationCode).toHaveBeenCalledOnce();
+    expect(replaceVerificationCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "cook@example.com",
+        codeHash: `hashed:${sentCode}`,
+        purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
+        expiresAt: expect.any(Date),
+      }),
+      TEST_SESSION
+    );
 
     expect(result.user).toMatchObject({
       id: TEST_USER_ID,
@@ -576,25 +579,48 @@ describe("resendVerificationCode()", () => {
       email: "cook@example.com",
     });
 
-    expect(bcryptHash).toHaveBeenCalledWith(
-      expect.stringMatching(/^\d{6}$/),
-      10
-    );
+    expect(sendVerificationCodeEmail).toHaveBeenCalledOnce();
 
+    const sentCode = sendVerificationCodeEmail.mock.calls[0][0].code;
+
+    expect(bcryptHash).toHaveBeenCalledOnce();
+    expect(bcryptHash).toHaveBeenCalledWith(sentCode, 10);
+
+    expect(replaceVerificationCode).toHaveBeenCalledOnce();
     expect(replaceVerificationCode).toHaveBeenCalledWith(
       expect.objectContaining({
         email: "cook@example.com",
         purpose: VERIFICATION_CODE_PURPOSES.EMAIL_VERIFICATION,
-        codeHash: expect.any(String),
+        codeHash: `hashed:${sentCode}`,
         expiresAt: expect.any(Date),
       })
     );
 
-    expect(sendVerificationCodeEmail).toHaveBeenCalledOnce();
-
     expect(result.message).toBe(
       "در صورت واجد شرایط بودن حساب، کد تأیید ارسال خواهد شد."
     );
+  });
+
+  it("does not send a verification email when storing the verification code fails", async () => {
+    findUserByEmail.mockResolvedValue(
+      createUser({
+        accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
+        emailVerified: false,
+      })
+    );
+
+    replaceVerificationCode.mockRejectedValue(
+      new Error("Database unavailable")
+    );
+
+    await expect(
+      resendVerificationCode({
+        email: "cook@example.com",
+      })
+    ).rejects.toThrow("Database unavailable");
+
+    expect(replaceVerificationCode).toHaveBeenCalledOnce();
+    expect(sendVerificationCodeEmail).not.toHaveBeenCalled();
   });
 
   it("returns a generic response when verification email delivery fails", async () => {
@@ -1085,6 +1111,27 @@ describe("loginUser()", () => {
     );
   });
 
+  it("rejects an active user whose email has not been verified", async () => {
+    const user = createUser({
+      accountStatus: ACCOUNT_STATUSES.ACTIVE,
+      emailVerified: false,
+    });
+
+    findUserByIdentifier.mockResolvedValue(user);
+
+    await expectAppError(
+      loginUser({
+        identifier: user.username,
+        password: VALID_PASSWORD,
+      }),
+      ERROR_CODES.ACCOUNT_NOT_ELIGIBLE_FOR_LOGIN,
+      403
+    );
+
+    expect(bcryptCompare).toHaveBeenCalledOnce();
+    expect(bcryptCompare).toHaveBeenCalledWith(VALID_PASSWORD, user.password);
+  });
+
   it("rejects a suspended user even when the password is correct", async () => {
     const user = createUser({
       accountStatus: ACCOUNT_STATUSES.SUSPENDED,
@@ -1204,29 +1251,47 @@ describe("requestPasswordReset()", () => {
       email: "cook@example.com",
     });
 
-    expect(bcryptHash).toHaveBeenCalledWith(
-      expect.stringMatching(/^\d{6}$/),
-      10
-    );
-
-    expect(replaceVerificationCode).toHaveBeenCalledWith(
-      expect.objectContaining({
-        email: "cook@example.com",
-        purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
-        codeHash: expect.any(String),
-        expiresAt: expect.any(Date),
-      })
-    );
-
     expect(sendPasswordResetCodeEmail).toHaveBeenCalledWith({
       to: "cook@example.com",
       code: expect.stringMatching(/^\d{6}$/),
       expiresInMinutes: 10,
     });
 
+    const sentCode = sendPasswordResetCodeEmail.mock.calls[0][0].code;
+
+    expect(bcryptHash).toHaveBeenCalledOnce();
+    expect(bcryptHash).toHaveBeenCalledWith(sentCode, 10);
+
+    expect(replaceVerificationCode).toHaveBeenCalledOnce();
+    expect(replaceVerificationCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "cook@example.com",
+        purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
+        codeHash: `hashed:${sentCode}`,
+        expiresAt: expect.any(Date),
+      })
+    );
+
     expect(result.message).toBe(
       "اگر حسابی با این ایمیل وجود داشته باشد، درخواست بازیابی رمز عبور ثبت شده است."
     );
+  });
+
+  it("does not send a reset email when storing the verification code fails", async () => {
+    findUserByEmail.mockResolvedValue(createUser());
+
+    replaceVerificationCode.mockRejectedValue(
+      new Error("Database unavailable")
+    );
+
+    await expect(
+      requestPasswordReset({
+        email: "cook@example.com",
+      })
+    ).rejects.toThrow("Database unavailable");
+
+    expect(replaceVerificationCode).toHaveBeenCalledOnce();
+    expect(sendPasswordResetCodeEmail).not.toHaveBeenCalled();
   });
 
   it("returns a generic response when password reset email delivery fails", async () => {
@@ -1874,6 +1939,52 @@ describe("resetPassword()", () => {
     expect(updateUserPassword).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      description: "a missing token",
+      resetToken: undefined,
+    },
+    {
+      description: "a null token",
+      resetToken: null,
+    },
+    {
+      description: "an empty token",
+      resetToken: "",
+    },
+    {
+      description: "a non-string token",
+      resetToken: 123,
+    },
+    {
+      description: "a token without a signature",
+      resetToken: "payload",
+    },
+    {
+      description: "a token with extra segments",
+      resetToken: "payload.signature.extra",
+    },
+  ])(
+    "rejects $description before database or bcrypt operations",
+    async ({ resetToken }) => {
+      await expectAppError(
+        resetPassword({
+          resetToken,
+          newPassword: VALID_PASSWORD,
+        }),
+        ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+        400
+      );
+
+      expectNoBcryptCalls();
+
+      expect(findUserByIdWithPassword).not.toHaveBeenCalled();
+      expect(findVerificationCode).not.toHaveBeenCalled();
+      expect(consumeVerificationCode).not.toHaveBeenCalled();
+      expect(updateUserPassword).not.toHaveBeenCalled();
+    }
+  );
+
   it("rejects malformed UTF-16 before database access or bcrypt operations", async () => {
     const resetToken = createPasswordResetToken();
 
@@ -1972,9 +2083,7 @@ describe("resetPassword()", () => {
 
     bcryptCompare.mockResolvedValue(false);
 
-    consumeVerificationCode.mockResolvedValue({
-      deletedCount: 1,
-    });
+    consumeVerificationCode.mockResolvedValue(createVerificationCode());
 
     updateUserPassword.mockResolvedValue(null);
 
@@ -2185,7 +2294,7 @@ describe("password reset token flow", () => {
     findUserByEmail.mockResolvedValue(user);
     findVerificationCode.mockResolvedValue(verificationCode);
     findUserByIdWithPassword.mockResolvedValue(user);
-    consumeVerificationCode.mockResolvedValue({ deletedCount: 1 });
+    consumeVerificationCode.mockResolvedValue(createVerificationCode());
     updateUserPassword.mockResolvedValue(updatedUser);
 
     bcryptCompare.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
