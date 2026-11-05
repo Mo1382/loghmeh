@@ -255,7 +255,16 @@ beforeEach(() => {
   verifyUserEmail.mockResolvedValue(createUser());
   updateUserPassword.mockResolvedValue(createUser());
 
-  consumeVerificationCode.mockResolvedValue(createVerificationCode());
+  consumeVerificationCode.mockImplementation(
+    async ({ verificationCodeId, email, purpose, codeHash, generationId }) =>
+      createVerificationCode({
+        _id: verificationCodeId,
+        email,
+        purpose,
+        codeHash,
+        generationId,
+      })
+  );
 
   replaceVerificationCode.mockImplementation(async (codeData) =>
     createVerificationCode(codeData)
@@ -342,6 +351,14 @@ describe("registerUser()", () => {
 
     createUserInRepository.mockResolvedValue(pendingUser);
 
+    withTransaction.mockImplementationOnce(async (callback) => {
+      const transactionResult = await callback(TEST_SESSION);
+
+      expect(sendVerificationCodeEmail).not.toHaveBeenCalled();
+
+      return transactionResult;
+    });
+
     const result = await registerUser({
       username: "Cook_123",
       email: "cook@example.com",
@@ -390,6 +407,36 @@ describe("registerUser()", () => {
 
     expect(result.user).not.toHaveProperty("password");
     expect(result.verificationEmailSubmissionAccepted).toBe(true);
+    expect(sendVerificationCodeEmail).toHaveBeenCalledOnce();
+  });
+
+  it("does not send a verification email when storing the verification code fails", async () => {
+    const pendingUser = createUser({
+      accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
+      emailVerified: false,
+    });
+
+    createUserInRepository.mockResolvedValue(pendingUser);
+
+    replaceVerificationCode.mockRejectedValue(
+      new Error("Database unavailable")
+    );
+
+    await expect(
+      registerUser({
+        username: "Cook_123",
+        email: "cook@example.com",
+        password: VALID_PASSWORD,
+        title: "USER",
+      })
+    ).rejects.toThrow("Database unavailable");
+
+    expect(createUserInRepository).toHaveBeenCalledOnce();
+    expect(replaceVerificationCode).toHaveBeenCalledOnce();
+
+    expect(withTransaction).toHaveBeenCalledOnce();
+
+    expect(sendVerificationCodeEmail).not.toHaveBeenCalled();
   });
 
   it("rejects registration when the email already exists", async () => {
@@ -1031,7 +1078,12 @@ describe("loginUser()", () => {
   });
 
   it("authenticates an active, verified user", async () => {
-    const user = createUser();
+    const userData = createUser();
+
+    const user = {
+      ...userData,
+      toObject: vi.fn(() => userData),
+    };
 
     findUserByIdentifier.mockResolvedValue(user);
     bcryptCompare.mockResolvedValue(true);
@@ -1048,6 +1100,31 @@ describe("loginUser()", () => {
     expect(result).toMatchObject({
       id: TEST_USER_ID,
       username: "Cook_123",
+    });
+
+    expect(result).not.toHaveProperty("password");
+    expect(user.toObject).toHaveBeenCalledOnce();
+  });
+
+  it("normalizes email identifiers before looking up the user", async () => {
+    const user = createUser();
+
+    findUserByIdentifier.mockResolvedValue(user);
+
+    const result = await loginUser({
+      identifier: " COOK@EXAMPLE.COM ",
+      password: VALID_PASSWORD,
+    });
+
+    expect(findUserByIdentifier).toHaveBeenCalledOnce();
+    expect(findUserByIdentifier).toHaveBeenCalledWith("cook@example.com");
+
+    expect(bcryptCompare).toHaveBeenCalledOnce();
+    expect(bcryptCompare).toHaveBeenCalledWith(VALID_PASSWORD, user.password);
+
+    expect(result).toMatchObject({
+      id: TEST_USER_ID,
+      email: "cook@example.com",
     });
 
     expect(result).not.toHaveProperty("password");
