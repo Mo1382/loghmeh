@@ -465,7 +465,7 @@ function logEmailSubmissionFailure(event, user, error) {
  * submit the verification email.
  */
 export async function registerUser({ username, email, password, title }) {
-  assertBcryptPasswordLimit(password);
+  assertBcryptCompatiblePassword(password);
 
   const existingEmail = await findUserByEmail(email);
 
@@ -700,7 +700,7 @@ export async function verifyEmail({ email, code }) {
  * requirements.
  */
 export async function loginUser({ identifier, password }) {
-  assertBcryptPasswordLimit(password, createInvalidCredentialsError);
+  assertBcryptCompatiblePassword(password, createInvalidCredentialsError);
 
   const normalizedIdentifier = normalizeLoginIdentifier(identifier);
 
@@ -864,7 +864,7 @@ export async function verifyPasswordResetCode({ email, code }) {
 export async function resetPassword({ resetToken, newPassword }) {
   const payload = verifyPasswordResetToken(resetToken);
 
-  assertBcryptPasswordLimit(newPassword);
+  assertBcryptCompatiblePassword(newPassword);
 
   const user = await findUserByIdWithPassword(payload.userId);
 
@@ -998,7 +998,7 @@ export async function changePassword(
       )
   );
 
-  assertBcryptPasswordLimit(newPassword);
+  assertBcryptCompatiblePassword(newPassword);
 
   const user = await findUserByIdWithPassword(authenticatedUser._id);
 
