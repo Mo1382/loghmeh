@@ -15,8 +15,8 @@ import {
   findUserByIdentifier,
   findUserByIdWithPassword,
   findUserByUsername,
-  verifyUserEmail,
   updateUserPassword,
+  verifyUserEmail,
 } from "@/repositories/user.repository";
 
 import {
@@ -26,21 +26,20 @@ import {
   replaceVerificationCode,
 } from "@/repositories/verification-code.repository";
 
-import { ERROR_CODES } from "@/constants/error-codes";
 import {
   ACCOUNT_STATUSES,
   VERIFICATION_CODE_PURPOSES,
 } from "@/constants/enums";
+import { ERROR_CODES } from "@/constants/error-codes";
 
-import AppError from "@/lib/errors/AppError";
-import { withTransaction } from "@/lib/transaction";
-import { assertValidObjectId } from "@/lib/validation/object-id";
 import { requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 import { getServerEnv } from "@/lib/config/env";
+import AppError from "@/lib/errors/AppError";
+import { withTransaction } from "@/lib/transaction";
 
 import {
-  sendVerificationCodeEmail,
   sendPasswordResetCodeEmail,
+  sendVerificationCodeEmail,
 } from "@/lib/email";
 
 import { isStrictGenerationId } from "@/lib/validation/generation-id";
@@ -985,8 +984,6 @@ export async function changePassword(
   { currentPassword, newPassword }
 ) {
   const authenticatedUser = await requireActiveAuthenticatedUser(currentUser);
-
-  assertValidObjectId(authenticatedUser._id, "user ID");
 
   assertBcryptCompatiblePassword(
     currentPassword,

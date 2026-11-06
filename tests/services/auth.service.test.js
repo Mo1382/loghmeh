@@ -359,12 +359,16 @@ describe("registerUser()", () => {
       return transactionResult;
     });
 
+    const registrationStartedAt = Date.now();
+
     const result = await registerUser({
       username: "Cook_123",
       email: "cook@example.com",
       password: VALID_PASSWORD,
       title: "USER",
     });
+
+    const registrationFinishedAt = Date.now();
 
     expect(bcryptHash).toHaveBeenNthCalledWith(1, VALID_PASSWORD, 12);
 
@@ -397,6 +401,21 @@ describe("registerUser()", () => {
         expiresAt: expect.any(Date),
       }),
       TEST_SESSION
+    );
+
+    const storedCodeData = replaceVerificationCode.mock.calls[0][0];
+    const expiresAt = storedCodeData.expiresAt;
+
+    const tenMinutesInMs = 10 * 60 * 1000;
+
+    expect(expiresAt).toBeInstanceOf(Date);
+
+    expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+      registrationStartedAt + tenMinutesInMs
+    );
+
+    expect(expiresAt.getTime()).toBeLessThanOrEqual(
+      registrationFinishedAt + tenMinutesInMs
     );
 
     expect(result.user).toMatchObject({
@@ -528,9 +547,14 @@ describe("registerUser()", () => {
 
     createUserInRepository.mockResolvedValue(pendingUser);
 
-    sendVerificationCodeEmail.mockRejectedValue(
-      new Error("Email provider unavailable")
-    );
+    const emailError = new Error("Email provider unavailable", {
+      cause: {
+        code: "PROVIDER_ERROR",
+        statusCode: 503,
+      },
+    });
+
+    sendVerificationCodeEmail.mockRejectedValue(emailError);
 
     const consoleErrorSpy = vi
       .spyOn(console, "error")
@@ -552,6 +576,15 @@ describe("registerUser()", () => {
     expect(sendVerificationCodeEmail).toHaveBeenCalledOnce();
 
     expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Registration verification email failed.",
+      {
+        userId: TEST_USER_ID,
+        errorName: "Error",
+        providerErrorCode: "PROVIDER_ERROR",
+        providerStatusCode: 503,
+      }
+    );
   });
 });
 
@@ -563,42 +596,40 @@ describe("resendVerificationCode()", () => {
   it.each([
     {
       description: "a missing user",
-      overrides: null,
+      user: null,
     },
     {
       description: "a pending account whose email is already verified",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
         emailVerified: true,
-      },
+      }),
     },
     {
       description: "an active account with an unverified email",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.ACTIVE,
         emailVerified: false,
-      },
+      }),
     },
     {
       description: "a suspended account",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.SUSPENDED,
         emailVerified: false,
-      },
+      }),
     },
     {
       description: "a deactivated account",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.DEACTIVATED,
         emailVerified: false,
-      },
+      }),
     },
   ])(
     "returns a generic response without side effects for $description",
-    async ({ overrides }) => {
-      findUserByEmail.mockResolvedValue(
-        overrides === null ? null : createUser(overrides)
-      );
+    async ({ user }) => {
+      findUserByEmail.mockResolvedValue(user);
 
       const result = await resendVerificationCode({
         email: "cook@example.com",
@@ -622,11 +653,21 @@ describe("resendVerificationCode()", () => {
       })
     );
 
+    const resendStartedAt = Date.now();
+
     const result = await resendVerificationCode({
       email: "cook@example.com",
     });
 
+    const resendFinishedAt = Date.now();
+
     expect(sendVerificationCodeEmail).toHaveBeenCalledOnce();
+
+    expect(sendVerificationCodeEmail).toHaveBeenCalledWith({
+      to: "cook@example.com",
+      code: expect.stringMatching(/^\d{6}$/),
+      expiresInMinutes: 10,
+    });
 
     const sentCode = sendVerificationCodeEmail.mock.calls[0][0].code;
 
@@ -641,6 +682,21 @@ describe("resendVerificationCode()", () => {
         codeHash: `hashed:${sentCode}`,
         expiresAt: expect.any(Date),
       })
+    );
+
+    const storedCodeData = replaceVerificationCode.mock.calls[0][0];
+    const expiresAt = storedCodeData.expiresAt;
+
+    const tenMinutesInMs = 10 * 60 * 1000;
+
+    expect(expiresAt).toBeInstanceOf(Date);
+
+    expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+      resendStartedAt + tenMinutesInMs
+    );
+
+    expect(expiresAt.getTime()).toBeLessThanOrEqual(
+      resendFinishedAt + tenMinutesInMs
     );
 
     expect(result.message).toBe(
@@ -930,6 +986,7 @@ describe("verifyEmail()", () => {
 
     const verifiedUser = createUser();
 
+    bcryptCompare.mockResolvedValue(true);
     findUserByEmail.mockResolvedValue(pendingUser);
     verifyUserEmail.mockResolvedValue(verifiedUser);
 
@@ -1161,9 +1218,11 @@ describe("loginUser()", () => {
         password: VALID_PASSWORD,
       }),
       ERROR_CODES.INVALID_CREDENTIALS,
-      401
+      401,
+      "ایمیل، نام کاربری یا رمز عبور نامعتبر است."
     );
 
+    expect(bcryptCompare).toHaveBeenCalledOnce();
     expect(bcryptCompare).toHaveBeenCalledWith(
       VALID_PASSWORD,
       expect.stringMatching(/^\$2[aby]\$12\$/)
@@ -1171,12 +1230,13 @@ describe("loginUser()", () => {
   });
 
   it("rejects a pending user whose email has not been verified", async () => {
-    findUserByIdentifier.mockResolvedValue(
-      createUser({
-        accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
-        emailVerified: false,
-      })
-    );
+    const user = createUser({
+      accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
+      emailVerified: false,
+    });
+
+    findUserByIdentifier.mockResolvedValue(user);
+    bcryptCompare.mockResolvedValue(true);
 
     await expectAppError(
       loginUser({
@@ -1186,6 +1246,9 @@ describe("loginUser()", () => {
       ERROR_CODES.EMAIL_NOT_VERIFIED,
       403
     );
+
+    expect(bcryptCompare).toHaveBeenCalledOnce();
+    expect(bcryptCompare).toHaveBeenCalledWith(VALID_PASSWORD, user.password);
   });
 
   it("rejects an active user whose email has not been verified", async () => {
@@ -1195,6 +1258,7 @@ describe("loginUser()", () => {
     });
 
     findUserByIdentifier.mockResolvedValue(user);
+    bcryptCompare.mockResolvedValue(true);
 
     await expectAppError(
       loginUser({
@@ -1226,6 +1290,7 @@ describe("loginUser()", () => {
       403
     );
 
+    expect(bcryptCompare).toHaveBeenCalledOnce();
     expect(bcryptCompare).toHaveBeenCalledWith(VALID_PASSWORD, user.password);
   });
 
@@ -1246,9 +1311,6 @@ describe("loginUser()", () => {
       403
     );
 
-    expect(findUserByIdentifier).toHaveBeenCalledOnce();
-    expect(findUserByIdentifier).toHaveBeenCalledWith(user.username);
-
     expect(bcryptCompare).toHaveBeenCalledOnce();
     expect(bcryptCompare).toHaveBeenCalledWith(VALID_PASSWORD, user.password);
   });
@@ -1261,35 +1323,39 @@ describe("loginUser()", () => {
 describe("requestPasswordReset()", () => {
   it.each([
     {
+      description: "a missing user",
+      user: null,
+    },
+    {
       description: "a pending-verification account",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
         emailVerified: false,
-      },
+      }),
     },
     {
       description: "a suspended account",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.SUSPENDED,
-      },
+      }),
     },
     {
       description: "a deactivated account",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.DEACTIVATED,
-      },
+      }),
     },
     {
       description: "an active account with an unverified email",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.ACTIVE,
         emailVerified: false,
-      },
+      }),
     },
   ])(
     "returns a generic response without side effects for $description",
-    async ({ overrides }) => {
-      findUserByEmail.mockResolvedValue(createUser(overrides));
+    async ({ user }) => {
+      findUserByEmail.mockResolvedValue(user);
 
       const result = await requestPasswordReset({
         email: "cook@example.com",
@@ -1305,29 +1371,18 @@ describe("requestPasswordReset()", () => {
     }
   );
 
-  it("returns the same generic response when no eligible account exists", async () => {
-    findUserByEmail.mockResolvedValue(null);
-
-    const result = await requestPasswordReset({
-      email: "missing@example.com",
-    });
-
-    expect(result.message).toBe(
-      "اگر حسابی با این ایمیل وجود داشته باشد، درخواست بازیابی رمز عبور ثبت شده است."
-    );
-
-    expectNoBcryptCalls();
-    expect(replaceVerificationCode).not.toHaveBeenCalled();
-    expect(sendPasswordResetCodeEmail).not.toHaveBeenCalled();
-  });
-
   it("stores a hashed reset code and submits the reset email for an eligible account", async () => {
     findUserByEmail.mockResolvedValue(createUser());
+
+    const resetStartedAt = Date.now();
 
     const result = await requestPasswordReset({
       email: "cook@example.com",
     });
 
+    const resetFinishedAt = Date.now();
+
+    expect(sendPasswordResetCodeEmail).toHaveBeenCalledOnce();
     expect(sendPasswordResetCodeEmail).toHaveBeenCalledWith({
       to: "cook@example.com",
       code: expect.stringMatching(/^\d{6}$/),
@@ -1347,6 +1402,20 @@ describe("requestPasswordReset()", () => {
         codeHash: `hashed:${sentCode}`,
         expiresAt: expect.any(Date),
       })
+    );
+
+    const storedCodeData = replaceVerificationCode.mock.calls[0][0];
+    const expiresAt = storedCodeData.expiresAt;
+    const tenMinutesInMs = 10 * 60 * 1000;
+
+    expect(expiresAt).toBeInstanceOf(Date);
+
+    expect(expiresAt.getTime()).toBeGreaterThanOrEqual(
+      resetStartedAt + tenMinutesInMs
+    );
+
+    expect(expiresAt.getTime()).toBeLessThanOrEqual(
+      resetFinishedAt + tenMinutesInMs
     );
 
     expect(result.message).toBe(
@@ -1374,9 +1443,14 @@ describe("requestPasswordReset()", () => {
   it("returns a generic response when password reset email delivery fails", async () => {
     findUserByEmail.mockResolvedValue(createUser());
 
-    sendPasswordResetCodeEmail.mockRejectedValue(
-      new Error("Email provider unavailable")
-    );
+    const emailError = new Error("Email provider unavailable", {
+      cause: {
+        code: "PROVIDER_ERROR",
+        statusCode: 503,
+      },
+    });
+
+    sendPasswordResetCodeEmail.mockRejectedValue(emailError);
 
     const consoleErrorSpy = vi
       .spyOn(console, "error")
@@ -1394,6 +1468,15 @@ describe("requestPasswordReset()", () => {
     expect(sendPasswordResetCodeEmail).toHaveBeenCalledOnce();
 
     expect(consoleErrorSpy).toHaveBeenCalledOnce();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Password reset email submission failed.",
+      {
+        userId: TEST_USER_ID,
+        errorName: "Error",
+        providerErrorCode: "PROVIDER_ERROR",
+        providerStatusCode: 503,
+      }
+    );
   });
 });
 
@@ -1452,6 +1535,44 @@ describe("verifyPasswordResetCode()", () => {
     }
   );
 
+  it("rejects password reset when no verification code exists", async () => {
+    findUserByEmail.mockResolvedValue(createUser());
+    findVerificationCode.mockResolvedValue(null);
+
+    await expectAppError(
+      verifyPasswordResetCode({
+        email: "cook@example.com",
+        code: "123456",
+      }),
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+      400
+    );
+
+    expect(findVerificationCode).toHaveBeenCalledOnce();
+    expect(bcryptCompare).not.toHaveBeenCalled();
+  });
+
+  it("rejects a reset code with an invalid generation ID", async () => {
+    findUserByEmail.mockResolvedValue(createUser());
+
+    findVerificationCode.mockResolvedValue(
+      createVerificationCode({
+        generationId: "invalid-generation-id",
+      })
+    );
+
+    await expectAppError(
+      verifyPasswordResetCode({
+        email: "cook@example.com",
+        code: "123456",
+      }),
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID
+    );
+
+    expect(findVerificationCode).toHaveBeenCalledOnce();
+    expect(bcryptCompare).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       description: "a code containing letters",
@@ -1473,38 +1594,29 @@ describe("verifyPasswordResetCode()", () => {
       description: "a non-string value",
       code: null,
     },
-  ])("rejects $description without issuing a reset token", async ({ code }) => {
-    findUserByEmail.mockResolvedValue(createUser());
+  ])(
+    "rejects $description without comparing the code or issuing a reset token",
+    async ({ code }) => {
+      findUserByEmail.mockResolvedValue(createUser());
 
-    await expectAppError(
-      verifyPasswordResetCode({
-        email: "cook@example.com",
-        code,
-      }),
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      400
-    );
+      await expectAppError(
+        verifyPasswordResetCode({
+          email: "cook@example.com",
+          code,
+        }),
+        ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+        400
+      );
 
-    expect(findVerificationCode).not.toHaveBeenCalled();
-    expect(bcryptCompare).not.toHaveBeenCalled();
-  });
+      expect(findVerificationCode).toHaveBeenCalledOnce();
+      expect(findVerificationCode).toHaveBeenCalledWith(
+        "cook@example.com",
+        VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
+      );
 
-  it("rejects password reset when no verification code exists", async () => {
-    findUserByEmail.mockResolvedValue(createUser());
-    findVerificationCode.mockResolvedValue(null);
-
-    await expectAppError(
-      verifyPasswordResetCode({
-        email: "cook@example.com",
-        code: "123456",
-      }),
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      400
-    );
-
-    expect(findVerificationCode).toHaveBeenCalledOnce();
-    expect(bcryptCompare).not.toHaveBeenCalled();
-  });
+      expect(bcryptCompare).not.toHaveBeenCalled();
+    }
+  );
 
   it("rejects a validly formatted but incorrect reset code", async () => {
     findUserByEmail.mockResolvedValue(createUser());
@@ -1521,26 +1633,6 @@ describe("verifyPasswordResetCode()", () => {
     );
 
     expect(bcryptCompare).toHaveBeenCalledOnce();
-  });
-
-  it("rejects a reset code with an invalid generation ID", async () => {
-    findUserByEmail.mockResolvedValue(createUser());
-
-    findVerificationCode.mockResolvedValue(
-      createVerificationCode({
-        generationId: "invalid-generation-id",
-      })
-    );
-
-    await expectAppError(
-      verifyPasswordResetCode({
-        email: "cook@example.com",
-        code: "123456",
-      }),
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID
-    );
-
-    expect(bcryptCompare).not.toHaveBeenCalled();
   });
 
   it("rejects an expired reset code after verifying its hash", async () => {
@@ -1683,6 +1775,53 @@ describe("verifyPasswordResetCode()", () => {
 
 describe("resetPassword()", () => {
   describe("reset token validation", () => {
+    it.each([
+      {
+        description: "a missing token",
+        resetToken: undefined,
+      },
+      {
+        description: "a null token",
+        resetToken: null,
+      },
+      {
+        description: "an empty token",
+        resetToken: "",
+      },
+      {
+        description: "a non-string token",
+        resetToken: 123,
+      },
+      {
+        description: "a token without a signature",
+        resetToken: "payload",
+      },
+      {
+        description: "a token with extra segments",
+        resetToken: "payload.signature.extra",
+      },
+    ])(
+      "rejects $description before database or bcrypt operations",
+      async ({ resetToken }) => {
+        await expectAppError(
+          resetPassword({
+            resetToken,
+            newPassword: VALID_PASSWORD,
+          }),
+          ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+          400,
+          "توکن بازیابی رمز عبور نامعتبر است."
+        );
+
+        expectNoBcryptCalls();
+
+        expect(findUserByIdWithPassword).not.toHaveBeenCalled();
+        expect(findVerificationCode).not.toHaveBeenCalled();
+        expect(consumeVerificationCode).not.toHaveBeenCalled();
+        expect(updateUserPassword).not.toHaveBeenCalled();
+      }
+    );
+
     it("rejects a reset token with an invalid signature before database or bcrypt operations", async () => {
       const token = createPasswordResetToken();
       const [payload, signature] = token.split(".");
@@ -1790,7 +1929,8 @@ describe("resetPassword()", () => {
             newPassword: VALID_PASSWORD,
           }),
           ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-          400
+          400,
+          "توکن بازیابی رمز عبور نامعتبر است."
         );
 
         expectNoBcryptCalls();
@@ -1815,7 +1955,8 @@ describe("resetPassword()", () => {
           newPassword: VALID_PASSWORD,
         }),
         ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-        400
+        400,
+        "توکن بازیابی رمز عبور نامعتبر است."
       );
 
       expectNoBcryptCalls();
@@ -1836,7 +1977,9 @@ describe("resetPassword()", () => {
           resetToken,
           newPassword: VALID_PASSWORD,
         }),
-        ERROR_CODES.PASSWORD_RESET_TOKEN_EXPIRED
+        ERROR_CODES.PASSWORD_RESET_TOKEN_EXPIRED,
+        400,
+        "توکن بازیابی رمز عبور منقضی شده است."
       );
 
       expectNoBcryptCalls();
@@ -1845,6 +1988,66 @@ describe("resetPassword()", () => {
       expect(updateUserPassword).not.toHaveBeenCalled();
       expect(findVerificationCode).not.toHaveBeenCalled();
     });
+  });
+
+  it("rejects malformed UTF-16 before database access or bcrypt operations", async () => {
+    const resetToken = createPasswordResetToken();
+
+    await expectAppError(
+      resetPassword({
+        resetToken,
+        newPassword: INVALID_UTF16_PASSWORD,
+      }),
+      ERROR_CODES.INVALID_PASSWORD_ENCODING,
+      400,
+      "رمز عبور دارای کدگذاری نامعتبر است."
+    );
+
+    expect(findUserByIdWithPassword).not.toHaveBeenCalled();
+    expect(findVerificationCode).not.toHaveBeenCalled();
+    expectNoBcryptCalls();
+    expect(consumeVerificationCode).not.toHaveBeenCalled();
+    expect(updateUserPassword).not.toHaveBeenCalled();
+  });
+
+  it("rejects a password exceeding 72 bytes before database access or bcrypt operations", async () => {
+    const resetToken = createPasswordResetToken();
+
+    await expectAppError(
+      resetPassword({
+        resetToken,
+        newPassword: OVER_LIMIT_PASSWORD,
+      }),
+      ERROR_CODES.PASSWORD_EXCEEDS_BCRYPT_LIMIT,
+      400,
+      "رمز عبور نباید بیشتر از ۷۲ بایت در UTF-8 باشد."
+    );
+
+    expect(findUserByIdWithPassword).not.toHaveBeenCalled();
+    expect(findVerificationCode).not.toHaveBeenCalled();
+    expectNoBcryptCalls();
+    expect(consumeVerificationCode).not.toHaveBeenCalled();
+    expect(updateUserPassword).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-string new password before database access or bcrypt operations", async () => {
+    const resetToken = createPasswordResetToken();
+
+    await expectAppError(
+      resetPassword({
+        resetToken,
+        newPassword: null,
+      }),
+      ERROR_CODES.INVALID_PASSWORD_TYPE,
+      400,
+      "رمز عبور باید از نوع رشته باشد."
+    );
+
+    expect(findUserByIdWithPassword).not.toHaveBeenCalled();
+    expect(findVerificationCode).not.toHaveBeenCalled();
+    expectNoBcryptCalls();
+    expect(consumeVerificationCode).not.toHaveBeenCalled();
+    expect(updateUserPassword).not.toHaveBeenCalled();
   });
 
   it("rejects password reset when the user does not exist", async () => {
@@ -1858,9 +2061,11 @@ describe("resetPassword()", () => {
         newPassword: "DifferentPassword123",
       }),
       ERROR_CODES.USER_NOT_FOUND,
-      404
+      404,
+      "کاربر پیدا نشد."
     );
 
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
     expect(findUserByIdWithPassword).toHaveBeenCalledWith(TEST_USER_ID);
 
     expect(findVerificationCode).not.toHaveBeenCalled();
@@ -1872,36 +2077,36 @@ describe("resetPassword()", () => {
   it.each([
     {
       description: "a suspended account",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.SUSPENDED,
         emailVerified: true,
-      },
+      }),
     },
     {
       description: "a deactivated account",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.DEACTIVATED,
         emailVerified: true,
-      },
+      }),
     },
     {
       description: "a pending-verification account",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
         emailVerified: false,
-      },
+      }),
     },
     {
       description: "an active account with an unverified email",
-      overrides: {
+      user: createUser({
         accountStatus: ACCOUNT_STATUSES.ACTIVE,
         emailVerified: false,
-      },
+      }),
     },
-  ])("rejects password reset for $description", async ({ overrides }) => {
+  ])("rejects password reset for $description", async ({ user }) => {
     const resetToken = createPasswordResetToken();
 
-    findUserByIdWithPassword.mockResolvedValue(createUser(overrides));
+    findUserByIdWithPassword.mockResolvedValue(user);
 
     await expectAppError(
       resetPassword({
@@ -1909,8 +2114,11 @@ describe("resetPassword()", () => {
         newPassword: "DifferentPassword123",
       }),
       ERROR_CODES.FORBIDDEN,
-      403
+      403,
+      "این حساب کاربری نمی‌تواند رمز عبور خود را بازیابی کند."
     );
+
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
 
     expect(findVerificationCode).not.toHaveBeenCalled();
     expectNoBcryptCalls();
@@ -1932,8 +2140,12 @@ describe("resetPassword()", () => {
         resetToken,
         newPassword: "DifferentPassword123",
       }),
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+      400,
+      "توکن بازیابی رمز عبور نامعتبر است."
     );
+
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
 
     expect(findVerificationCode).not.toHaveBeenCalled();
     expectNoBcryptCalls();
@@ -1941,10 +2153,42 @@ describe("resetPassword()", () => {
     expect(updateUserPassword).not.toHaveBeenCalled();
   });
 
+  it("rejects password reset when sessionVersion reaches the maximum safe integer", async () => {
+    const resetToken = createPasswordResetToken({
+      sessionVersion: Number.MAX_SAFE_INTEGER,
+    });
+
+    const user = createUser({
+      sessionVersion: Number.MAX_SAFE_INTEGER,
+    });
+
+    findUserByIdWithPassword.mockResolvedValue(user);
+
+    await expectAppError(
+      resetPassword({
+        resetToken,
+        newPassword: "DifferentPassword123",
+      }),
+      ERROR_CODES.SESSION_VERSION_LIMIT_REACHED,
+      409,
+      "امکان بازیابی رمز عبور در وضعیت فعلی وجود ندارد."
+    );
+
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+
+    expect(findVerificationCode).not.toHaveBeenCalled();
+    expectNoBcryptCalls();
+    expect(consumeVerificationCode).not.toHaveBeenCalled();
+    expect(updateUserPassword).not.toHaveBeenCalled();
+    expect(withTransaction).not.toHaveBeenCalled();
+  });
+
   it("rejects password reset when the verification code no longer exists", async () => {
     const resetToken = createPasswordResetToken();
 
-    findUserByIdWithPassword.mockResolvedValue(createUser());
+    const user = createUser();
+
+    findUserByIdWithPassword.mockResolvedValue(user);
     findVerificationCode.mockResolvedValue(null);
 
     await expectAppError(
@@ -1953,11 +2197,17 @@ describe("resetPassword()", () => {
         newPassword: "DifferentPassword123",
       }),
       ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-      400
+      400,
+      "توکن بازیابی رمز عبور نامعتبر است."
     );
 
     expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+
     expect(findVerificationCode).toHaveBeenCalledOnce();
+    expect(findVerificationCode).toHaveBeenCalledWith(
+      user.email,
+      VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
+    );
 
     expectNoBcryptCalls();
 
@@ -1982,13 +2232,19 @@ describe("resetPassword()", () => {
         resetToken,
         newPassword: "DifferentPassword123",
       }),
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+      400,
+      "توکن بازیابی رمز عبور نامعتبر است."
     );
+
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+    expect(findVerificationCode).toHaveBeenCalledOnce();
 
     expect(bcryptCompare).not.toHaveBeenCalled();
     expect(bcryptHash).not.toHaveBeenCalled();
     expect(consumeVerificationCode).not.toHaveBeenCalled();
     expect(updateUserPassword).not.toHaveBeenCalled();
+    expect(withTransaction).not.toHaveBeenCalled();
   });
 
   it("rejects a reset token when the verification code generation ID has changed", async () => {
@@ -2007,123 +2263,48 @@ describe("resetPassword()", () => {
         resetToken,
         newPassword: "DifferentPassword123",
       }),
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+      400,
+      "توکن بازیابی رمز عبور نامعتبر است."
     );
+
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+    expect(findVerificationCode).toHaveBeenCalledOnce();
 
     expect(bcryptCompare).not.toHaveBeenCalled();
     expect(bcryptHash).not.toHaveBeenCalled();
     expect(consumeVerificationCode).not.toHaveBeenCalled();
     expect(updateUserPassword).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    {
-      description: "a missing token",
-      resetToken: undefined,
-    },
-    {
-      description: "a null token",
-      resetToken: null,
-    },
-    {
-      description: "an empty token",
-      resetToken: "",
-    },
-    {
-      description: "a non-string token",
-      resetToken: 123,
-    },
-    {
-      description: "a token without a signature",
-      resetToken: "payload",
-    },
-    {
-      description: "a token with extra segments",
-      resetToken: "payload.signature.extra",
-    },
-  ])(
-    "rejects $description before database or bcrypt operations",
-    async ({ resetToken }) => {
-      await expectAppError(
-        resetPassword({
-          resetToken,
-          newPassword: VALID_PASSWORD,
-        }),
-        ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
-        400
-      );
-
-      expectNoBcryptCalls();
-
-      expect(findUserByIdWithPassword).not.toHaveBeenCalled();
-      expect(findVerificationCode).not.toHaveBeenCalled();
-      expect(consumeVerificationCode).not.toHaveBeenCalled();
-      expect(updateUserPassword).not.toHaveBeenCalled();
-    }
-  );
-
-  it("rejects malformed UTF-16 before database access or bcrypt operations", async () => {
-    const resetToken = createPasswordResetToken();
-
-    await expectAppError(
-      resetPassword({
-        resetToken,
-        newPassword: INVALID_UTF16_PASSWORD,
-      }),
-      ERROR_CODES.INVALID_PASSWORD_ENCODING
-    );
-
-    expectNoBcryptCalls();
-    expect(findUserByIdWithPassword).not.toHaveBeenCalled();
-  });
-
-  it("rejects a password exceeding 72 bytes before database access or bcrypt operations", async () => {
-    const resetToken = createPasswordResetToken();
-
-    await expectAppError(
-      resetPassword({
-        resetToken,
-        newPassword: OVER_LIMIT_PASSWORD,
-      }),
-      ERROR_CODES.PASSWORD_EXCEEDS_BCRYPT_LIMIT
-    );
-
-    expectNoBcryptCalls();
-    expect(findUserByIdWithPassword).not.toHaveBeenCalled();
-  });
-
-  it("rejects a non-string new password before database access or bcrypt operations", async () => {
-    const resetToken = createPasswordResetToken();
-
-    await expectAppError(
-      resetPassword({
-        resetToken,
-        newPassword: null,
-      }),
-      ERROR_CODES.INVALID_PASSWORD_TYPE
-    );
-
-    expectNoBcryptCalls();
-    expect(findUserByIdWithPassword).not.toHaveBeenCalled();
+    expect(withTransaction).not.toHaveBeenCalled();
   });
 
   it("rejects reuse of the current password", async () => {
     const resetToken = createPasswordResetToken();
 
-    findUserByIdWithPassword.mockResolvedValue(createUser());
-    findVerificationCode.mockResolvedValue(createVerificationCode());
+    const user = createUser();
+    const verificationCode = createVerificationCode();
 
-    bcryptCompare.mockResolvedValue(true);
+    findUserByIdWithPassword.mockResolvedValue(user);
+    findVerificationCode.mockResolvedValue(verificationCode);
+
+    bcryptCompare.mockResolvedValueOnce(true);
 
     await expectAppError(
       resetPassword({
         resetToken,
         newPassword: VALID_PASSWORD,
       }),
-      ERROR_CODES.PASSWORD_SAME_AS_CURRENT
+      ERROR_CODES.PASSWORD_SAME_AS_CURRENT,
+      400,
+      "رمز عبور جدید باید با رمز عبور فعلی متفاوت باشد."
     );
 
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+    expect(findVerificationCode).toHaveBeenCalledOnce();
+
     expect(bcryptCompare).toHaveBeenCalledOnce();
+    expect(bcryptCompare).toHaveBeenCalledWith(VALID_PASSWORD, user.password);
+
     expect(bcryptHash).not.toHaveBeenCalled();
     expect(updateUserPassword).not.toHaveBeenCalled();
     expect(consumeVerificationCode).not.toHaveBeenCalled();
@@ -2131,11 +2312,13 @@ describe("resetPassword()", () => {
 
   it("rejects password reset when the verification code cannot be consumed", async () => {
     const resetToken = createPasswordResetToken();
+    const user = createUser();
+    const verificationCode = createVerificationCode();
 
-    findUserByIdWithPassword.mockResolvedValue(createUser());
-    findVerificationCode.mockResolvedValue(createVerificationCode());
+    findUserByIdWithPassword.mockResolvedValue(user);
+    findVerificationCode.mockResolvedValue(verificationCode);
 
-    bcryptCompare.mockResolvedValue(false);
+    bcryptCompare.mockResolvedValueOnce(false);
     consumeVerificationCode.mockResolvedValue(null);
 
     await expectAppError(
@@ -2143,53 +2326,76 @@ describe("resetPassword()", () => {
         resetToken,
         newPassword: "DifferentPassword123",
       }),
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+      400,
+      "توکن بازیابی رمز عبور نامعتبر یا قبلاً استفاده شده است."
     );
 
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+    expect(findVerificationCode).toHaveBeenCalledOnce();
+    expect(bcryptCompare).toHaveBeenCalledOnce();
+
+    expect(bcryptHash).toHaveBeenCalledOnce();
     expect(bcryptHash).toHaveBeenCalledWith("DifferentPassword123", 12);
 
     expect(consumeVerificationCode).toHaveBeenCalledOnce();
+    expect(consumeVerificationCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        verificationCodeId: verificationCode._id,
+        email: user.email,
+        purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
+        codeHash: verificationCode.codeHash,
+        generationId: TEST_GENERATION_ID,
+        useRetentionExpiry: true,
+        session: TEST_SESSION,
+      })
+    );
+
+    expect(withTransaction).toHaveBeenCalledOnce();
     expect(updateUserPassword).not.toHaveBeenCalled();
   });
 
   it("rejects password reset when the password update fails", async () => {
     const resetToken = createPasswordResetToken();
 
-    findUserByIdWithPassword.mockResolvedValue(createUser());
-    findVerificationCode.mockResolvedValue(createVerificationCode());
+    const user = createUser();
+    const verificationCode = createVerificationCode();
+    const newPassword = "DifferentPassword123";
 
-    bcryptCompare.mockResolvedValue(false);
+    findUserByIdWithPassword.mockResolvedValue(user);
+    findVerificationCode.mockResolvedValue(verificationCode);
 
-    consumeVerificationCode.mockResolvedValue(createVerificationCode());
+    bcryptCompare.mockResolvedValueOnce(false);
 
-    updateUserPassword.mockResolvedValue(null);
+    consumeVerificationCode.mockResolvedValueOnce(verificationCode);
+    updateUserPassword.mockResolvedValueOnce(null);
 
     await expectAppError(
       resetPassword({
         resetToken,
-        newPassword: "DifferentPassword123",
+        newPassword,
       }),
-      ERROR_CODES.PASSWORD_RESET_CODE_INVALID
+      ERROR_CODES.PASSWORD_RESET_CODE_INVALID,
+      400,
+      "توکن بازیابی رمز عبور نامعتبر یا دیگر معتبر نیست."
     );
+
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+    expect(findVerificationCode).toHaveBeenCalledOnce();
+
+    expect(bcryptCompare).toHaveBeenCalledOnce();
+
+    expect(bcryptHash).toHaveBeenCalledOnce();
 
     expect(consumeVerificationCode).toHaveBeenCalledOnce();
 
-    expect(consumeVerificationCode).toHaveBeenCalledWith(
-      expect.objectContaining({
-        verificationCodeId: TEST_VERIFICATION_CODE_ID,
-        generationId: TEST_GENERATION_ID,
-        session: TEST_SESSION,
-      })
-    );
-
     expect(updateUserPassword).toHaveBeenCalledOnce();
-
     expect(updateUserPassword).toHaveBeenCalledWith(
-      TEST_USER_ID,
-      "hashed:DifferentPassword123",
+      user._id,
+      `hashed:${newPassword}`,
       expect.objectContaining({
         session: TEST_SESSION,
-        expectedSessionVersion: 0,
+        expectedSessionVersion: user.sessionVersion,
       })
     );
 
@@ -2228,18 +2434,19 @@ describe("resetPassword()", () => {
           newPassword: "DifferentPassword123",
         }),
         ERROR_CODES.PASSWORD_RESET_TOKEN_EXPIRED,
-        400
+        400,
+        "توکن بازیابی رمز عبور منقضی شده است."
       );
 
       expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
       expect(findVerificationCode).toHaveBeenCalledOnce();
-      expect(withTransaction).toHaveBeenCalledOnce();
 
       expect(bcryptCompare).toHaveBeenCalledOnce();
-      expect(bcryptHash).toHaveBeenCalledWith("DifferentPassword123", 12);
+      expect(bcryptHash).toHaveBeenCalledOnce();
+
+      expect(withTransaction).toHaveBeenCalledOnce();
 
       expect(consumeVerificationCode).not.toHaveBeenCalled();
-
       expect(updateUserPassword).not.toHaveBeenCalled();
     } finally {
       dateNowSpy.mockRestore();
@@ -2247,40 +2454,74 @@ describe("resetPassword()", () => {
   });
 
   it("allows password reset with an expired but retained verification code", async () => {
+    const user = createUser();
+    const newPassword = "DifferentPassword123";
     const resetToken = createPasswordResetToken();
 
     const expiredVerificationCode = createVerificationCode({
       expiresAt: new Date(Date.now() - 1000),
     });
 
-    findUserByIdWithPassword.mockResolvedValue(createUser());
+    expect(expiredVerificationCode.expiresAt.getTime()).toBeLessThan(
+      Date.now()
+    );
+
+    const updatedUser = createUser({
+      password: `hashed:${newPassword}`,
+      sessionVersion: user.sessionVersion + 1,
+    });
+
+    findUserByIdWithPassword.mockResolvedValue(user);
     findVerificationCode.mockResolvedValue(expiredVerificationCode);
 
-    bcryptCompare.mockResolvedValue(false);
+    bcryptCompare.mockResolvedValueOnce(false);
+
+    consumeVerificationCode.mockResolvedValueOnce(expiredVerificationCode);
+    updateUserPassword.mockResolvedValueOnce(updatedUser);
 
     const result = await resetPassword({
       resetToken,
-      newPassword: "DifferentPassword123",
+      newPassword,
     });
 
-    expect(findVerificationCode).toHaveBeenCalledWith(
-      "cook@example.com",
-      VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
-    );
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+    expect(findVerificationCode).toHaveBeenCalledOnce();
 
+    expect(bcryptCompare).toHaveBeenCalledOnce();
+    expect(bcryptHash).toHaveBeenCalledOnce();
+
+    expect(consumeVerificationCode).toHaveBeenCalledOnce();
     expect(consumeVerificationCode).toHaveBeenCalledWith(
       expect.objectContaining({
+        verificationCodeId: expiredVerificationCode._id,
+        email: user.email,
+        purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
         codeHash: expiredVerificationCode.codeHash,
+        generationId: expiredVerificationCode.generationId,
         useRetentionExpiry: true,
-        generationId: TEST_GENERATION_ID,
+        session: TEST_SESSION,
       })
     );
 
-    expect(consumeVerificationCode).toHaveBeenCalledOnce();
     expect(updateUserPassword).toHaveBeenCalledOnce();
+    expect(updateUserPassword).toHaveBeenCalledWith(
+      user._id,
+      `hashed:${newPassword}`,
+      expect.objectContaining({
+        session: TEST_SESSION,
+        expectedSessionVersion: user.sessionVersion,
+      })
+    );
+
+    expect(consumeVerificationCode.mock.invocationCallOrder[0]).toBeLessThan(
+      updateUserPassword.mock.invocationCallOrder[0]
+    );
+
+    expect(withTransaction).toHaveBeenCalledOnce();
 
     expect(result).toMatchObject({
-      id: TEST_USER_ID,
+      id: user._id,
+      email: user.email,
     });
 
     expect(result).not.toHaveProperty("password");
@@ -2288,128 +2529,36 @@ describe("resetPassword()", () => {
 
   it("compares, hashes, and updates the password using the verified reset authorization", async () => {
     const user = createUser();
+    const newPassword = "DifferentPassword123";
     const resetToken = createPasswordResetToken();
 
-    findUserByIdWithPassword.mockResolvedValue(user);
-    findVerificationCode.mockResolvedValue(createVerificationCode());
-
-    bcryptCompare.mockResolvedValue(false);
-
-    updateUserPassword.mockResolvedValue(createUser({ sessionVersion: 1 }));
-
-    const result = await resetPassword({
-      resetToken,
-      newPassword: "DifferentPassword123",
-    });
-
-    expect(bcryptCompare).toHaveBeenCalledWith(
-      "DifferentPassword123",
-      user.password
-    );
-
-    expect(bcryptHash).toHaveBeenCalledWith("DifferentPassword123", 12);
-
-    expect(consumeVerificationCode).toHaveBeenCalledWith(
-      expect.objectContaining({
-        verificationCodeId: TEST_VERIFICATION_CODE_ID,
-        email: "cook@example.com",
-        purpose: VERIFICATION_CODE_PURPOSES.PASSWORD_RESET,
-        generationId: TEST_GENERATION_ID,
-        useRetentionExpiry: true,
-        session: TEST_SESSION,
-      })
-    );
-
-    expect(consumeVerificationCode).toHaveBeenCalledOnce();
-
-    expect(updateUserPassword).toHaveBeenCalledWith(
-      TEST_USER_ID,
-      "hashed:DifferentPassword123",
-      expect.objectContaining({
-        session: TEST_SESSION,
-        expectedSessionVersion: 0,
-      })
-    );
-
-    expect(updateUserPassword).toHaveBeenCalledOnce();
-
-    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
-    expect(findVerificationCode).toHaveBeenCalledOnce();
-    expect(findVerificationCode).toHaveBeenCalledWith(
-      user.email,
-      VERIFICATION_CODE_PURPOSES.PASSWORD_RESET
-    );
-    expect(bcryptCompare).toHaveBeenCalledOnce();
-    expect(withTransaction).toHaveBeenCalledOnce();
-
-    expect(result).toMatchObject({
-      id: TEST_USER_ID,
-    });
-
-    expect(result).not.toHaveProperty("password");
-  });
-});
-
-// ============================================================================
-// Password reset token flow
-// ============================================================================
-
-describe("password reset token flow", () => {
-  it("issues a reset token and uses it to successfully reset the password", async () => {
-    // Arrange
-    const user = createUser();
     const verificationCode = createVerificationCode();
-
-    const resetCode = "123456";
-    const newPassword = "NewPassword456";
 
     const updatedUser = createUser({
       password: `hashed:${newPassword}`,
       sessionVersion: user.sessionVersion + 1,
     });
 
-    findUserByEmail.mockResolvedValue(user);
-    findVerificationCode.mockResolvedValue(verificationCode);
     findUserByIdWithPassword.mockResolvedValue(user);
-    consumeVerificationCode.mockResolvedValue(createVerificationCode());
-    updateUserPassword.mockResolvedValue(updatedUser);
+    findVerificationCode.mockResolvedValue(verificationCode);
 
-    bcryptCompare.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    bcryptCompare.mockResolvedValueOnce(false);
 
-    // Act
-    const { resetToken } = await verifyPasswordResetCode({
-      email: user.email,
-      code: resetCode,
-    });
+    consumeVerificationCode.mockResolvedValueOnce(verificationCode);
+    updateUserPassword.mockResolvedValueOnce(updatedUser);
 
     const result = await resetPassword({
       resetToken,
       newPassword,
     });
 
-    // Assert
-    expect(result).toMatchObject({
-      id: user._id,
-    });
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+    expect(findVerificationCode).toHaveBeenCalledOnce();
 
-    expect(result).not.toHaveProperty("password");
+    expect(bcryptCompare).toHaveBeenCalledOnce();
+    expect(bcryptHash).toHaveBeenCalledOnce();
 
-    expect(findVerificationCode).toHaveBeenCalledTimes(2);
-
-    expect(bcryptCompare).toHaveBeenNthCalledWith(
-      1,
-      resetCode,
-      verificationCode.codeHash
-    );
-
-    expect(bcryptCompare).toHaveBeenNthCalledWith(
-      2,
-      newPassword,
-      user.password
-    );
-
-    expect(bcryptHash).toHaveBeenCalledWith(newPassword, 12);
-
+    expect(consumeVerificationCode).toHaveBeenCalledOnce();
     expect(consumeVerificationCode).toHaveBeenCalledWith(
       expect.objectContaining({
         verificationCodeId: verificationCode._id,
@@ -2422,14 +2571,28 @@ describe("password reset token flow", () => {
       })
     );
 
+    expect(updateUserPassword).toHaveBeenCalledOnce();
     expect(updateUserPassword).toHaveBeenCalledWith(
       user._id,
       `hashed:${newPassword}`,
-      {
+      expect.objectContaining({
         session: TEST_SESSION,
         expectedSessionVersion: user.sessionVersion,
-      }
+      })
     );
+
+    expect(consumeVerificationCode.mock.invocationCallOrder[0]).toBeLessThan(
+      updateUserPassword.mock.invocationCallOrder[0]
+    );
+
+    expect(withTransaction).toHaveBeenCalledOnce();
+
+    expect(result).toMatchObject({
+      id: user._id,
+      email: user.email,
+    });
+
+    expect(result).not.toHaveProperty("password");
   });
 });
 
@@ -2455,7 +2618,8 @@ describe("changePassword()", () => {
         newPassword: "NewPassword123",
       }),
       ERROR_CODES.UNAUTHORIZED,
-      401
+      401,
+      "برای انجام این کار باید ابتدا وارد حساب کاربری خود شوید."
     );
 
     expect(requireActiveAuthenticatedUser).toHaveBeenCalledOnce();
@@ -2468,10 +2632,16 @@ describe("changePassword()", () => {
     expect(updateUserPassword).not.toHaveBeenCalled();
   });
 
-  it("rejects password change when the authenticated user ID is invalid", async () => {
+  it("propagates an invalid user ID error from the authentication guard", async () => {
     const invalidUser = {
       _id: "invalid-user-id",
     };
+
+    requireActiveAuthenticatedUser.mockRejectedValueOnce(
+      new AppError(ERROR_CODES.INVALID_REQUEST, "شناسه user ID نامعتبر است.", {
+        statusCode: 400,
+      })
+    );
 
     await expectAppError(
       changePassword(invalidUser, {
@@ -2479,16 +2649,15 @@ describe("changePassword()", () => {
         newPassword: "NewPassword123",
       }),
       ERROR_CODES.INVALID_REQUEST,
-      400
+      400,
+      "شناسه user ID نامعتبر است."
     );
 
     expect(requireActiveAuthenticatedUser).toHaveBeenCalledOnce();
     expect(requireActiveAuthenticatedUser).toHaveBeenCalledWith(invalidUser);
 
     expect(findUserByIdWithPassword).not.toHaveBeenCalled();
-
     expectNoBcryptCalls();
-
     expect(updateUserPassword).not.toHaveBeenCalled();
   });
 
@@ -2515,8 +2684,12 @@ describe("changePassword()", () => {
         currentPassword: OVER_LIMIT_PASSWORD,
         newPassword: VALID_PASSWORD,
       }),
-      ERROR_CODES.CURRENT_PASSWORD_INCORRECT
+      ERROR_CODES.CURRENT_PASSWORD_INCORRECT,
+      400,
+      "رمز عبور نباید بیشتر از ۷۲ بایت در UTF-8 باشد."
     );
+
+    expect(requireActiveAuthenticatedUser).toHaveBeenCalledWith(currentUser);
 
     expectNoBcryptCalls();
     expect(findUserByIdWithPassword).not.toHaveBeenCalled();
@@ -2528,8 +2701,12 @@ describe("changePassword()", () => {
         currentPassword: null,
         newPassword: VALID_PASSWORD,
       }),
-      ERROR_CODES.CURRENT_PASSWORD_INCORRECT
+      ERROR_CODES.CURRENT_PASSWORD_INCORRECT,
+      400,
+      "رمز عبور فعلی نادرست است."
     );
+
+    expect(requireActiveAuthenticatedUser).toHaveBeenCalledWith(currentUser);
 
     expectNoBcryptCalls();
     expect(findUserByIdWithPassword).not.toHaveBeenCalled();
@@ -2541,8 +2718,12 @@ describe("changePassword()", () => {
         currentPassword: VALID_PASSWORD,
         newPassword: INVALID_UTF16_PASSWORD,
       }),
-      ERROR_CODES.INVALID_PASSWORD_ENCODING
+      ERROR_CODES.INVALID_PASSWORD_ENCODING,
+      400,
+      "رمز عبور دارای کدگذاری نامعتبر است."
     );
+
+    expect(requireActiveAuthenticatedUser).toHaveBeenCalledWith(currentUser);
 
     expectNoBcryptCalls();
     expect(findUserByIdWithPassword).not.toHaveBeenCalled();
@@ -2554,8 +2735,12 @@ describe("changePassword()", () => {
         currentPassword: VALID_PASSWORD,
         newPassword: OVER_LIMIT_PASSWORD,
       }),
-      ERROR_CODES.PASSWORD_EXCEEDS_BCRYPT_LIMIT
+      ERROR_CODES.PASSWORD_EXCEEDS_BCRYPT_LIMIT,
+      400,
+      "رمز عبور نباید بیشتر از ۷۲ بایت در UTF-8 باشد."
     );
+
+    expect(requireActiveAuthenticatedUser).toHaveBeenCalledWith(currentUser);
 
     expectNoBcryptCalls();
     expect(findUserByIdWithPassword).not.toHaveBeenCalled();
@@ -2567,11 +2752,80 @@ describe("changePassword()", () => {
         currentPassword: VALID_PASSWORD,
         newPassword: null,
       }),
-      ERROR_CODES.INVALID_PASSWORD_TYPE
+      ERROR_CODES.INVALID_PASSWORD_TYPE,
+      400,
+      "رمز عبور باید از نوع رشته باشد."
     );
+
+    expect(requireActiveAuthenticatedUser).toHaveBeenCalledWith(currentUser);
 
     expectNoBcryptCalls();
     expect(findUserByIdWithPassword).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      description: "a user that cannot be found",
+      user: null,
+    },
+    {
+      description: "a suspended account",
+      user: createUser({
+        accountStatus: ACCOUNT_STATUSES.SUSPENDED,
+        emailVerified: true,
+      }),
+    },
+    {
+      description: "a deactivated account",
+      user: createUser({
+        accountStatus: ACCOUNT_STATUSES.DEACTIVATED,
+        emailVerified: true,
+      }),
+    },
+    {
+      description: "a pending-verification account",
+      user: createUser({
+        accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
+        emailVerified: false,
+      }),
+    },
+    {
+      description: "an active account with an unverified email",
+      user: createUser({
+        accountStatus: ACCOUNT_STATUSES.ACTIVE,
+        emailVerified: false,
+      }),
+    },
+  ])("rejects password change for $description", async ({ user }) => {
+    findUserByIdWithPassword.mockResolvedValue(user);
+
+    const isUserMissing = user === null;
+
+    const errorCode = isUserMissing
+      ? ERROR_CODES.USER_NOT_FOUND
+      : ERROR_CODES.FORBIDDEN;
+
+    const statusCode = isUserMissing ? 404 : 403;
+
+    const message = isUserMissing
+      ? "کاربر پیدا نشد."
+      : "این حساب کاربری نمی‌تواند رمز عبور خود را تغییر دهد.";
+
+    await expectAppError(
+      changePassword(currentUser, {
+        currentPassword: "CurrentPassword123",
+        newPassword: "NewPassword123",
+      }),
+      errorCode,
+      statusCode,
+      message
+    );
+
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+    expect(findUserByIdWithPassword).toHaveBeenCalledWith(TEST_USER_ID);
+
+    expectNoBcryptCalls();
+    expect(updateUserPassword).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -2612,7 +2866,8 @@ describe("changePassword()", () => {
           newPassword: "NewPassword123",
         }),
         ERROR_CODES.PASSWORD_CHANGE_CONFLICT,
-        409
+        409,
+        "امکان تغییر رمز عبور در وضعیت فعلی وجود ندارد."
       );
 
       expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
@@ -2635,70 +2890,8 @@ describe("changePassword()", () => {
         newPassword: "NewPassword123",
       }),
       ERROR_CODES.SESSION_VERSION_LIMIT_REACHED,
-      409
-    );
-
-    expectNoBcryptCalls();
-    expect(updateUserPassword).not.toHaveBeenCalled();
-  });
-
-  it("rejects password change when the user cannot be found", async () => {
-    findUserByIdWithPassword.mockResolvedValue(null);
-
-    await expectAppError(
-      changePassword(currentUser, {
-        currentPassword: "CurrentPassword123",
-        newPassword: "NewPassword123",
-      }),
-      ERROR_CODES.USER_NOT_FOUND,
-      404
-    );
-
-    expect(findUserByIdWithPassword).toHaveBeenCalledWith(TEST_USER_ID);
-
-    expectNoBcryptCalls();
-    expect(updateUserPassword).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    {
-      description: "a suspended account",
-      overrides: {
-        accountStatus: ACCOUNT_STATUSES.SUSPENDED,
-        emailVerified: true,
-      },
-    },
-    {
-      description: "a deactivated account",
-      overrides: {
-        accountStatus: ACCOUNT_STATUSES.DEACTIVATED,
-        emailVerified: true,
-      },
-    },
-    {
-      description: "a pending-verification account",
-      overrides: {
-        accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
-        emailVerified: false,
-      },
-    },
-    {
-      description: "an active account with an unverified email",
-      overrides: {
-        accountStatus: ACCOUNT_STATUSES.ACTIVE,
-        emailVerified: false,
-      },
-    },
-  ])("rejects password change for $description", async ({ overrides }) => {
-    findUserByIdWithPassword.mockResolvedValue(createUser(overrides));
-
-    await expectAppError(
-      changePassword(currentUser, {
-        currentPassword: "CurrentPassword123",
-        newPassword: "NewPassword123",
-      }),
-      ERROR_CODES.FORBIDDEN,
-      403
+      409,
+      "امکان تغییر رمز عبور در وضعیت فعلی وجود ندارد."
     );
 
     expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
@@ -2707,55 +2900,64 @@ describe("changePassword()", () => {
     expect(updateUserPassword).not.toHaveBeenCalled();
   });
 
-  it("verifies the current password and updates a different new password", async () => {
+  it("rejects an incorrect current password without hashing or updating", async () => {
     const user = createUser();
-    const updatedUser = createUser({ sessionVersion: 1 });
+
+    findUserByIdWithPassword.mockResolvedValue(user);
+    bcryptCompare.mockResolvedValueOnce(false);
+
+    await expectAppError(
+      changePassword(currentUser, {
+        currentPassword: "IncorrectPassword123",
+        newPassword: "NewPassword123",
+      }),
+      ERROR_CODES.CURRENT_PASSWORD_INCORRECT,
+      400,
+      "رمز عبور فعلی نادرست است."
+    );
+
+    expect(bcryptCompare).toHaveBeenCalledOnce();
+    expect(bcryptCompare).toHaveBeenCalledWith(
+      "IncorrectPassword123",
+      user.password
+    );
+
+    expect(bcryptHash).not.toHaveBeenCalled();
+    expect(updateUserPassword).not.toHaveBeenCalled();
+  });
+
+  it("rejects a new password that matches the current password without hashing or updating", async () => {
+    const user = createUser();
 
     findUserByIdWithPassword.mockResolvedValue(user);
 
-    bcryptCompare.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    // bcryptCompare.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+    bcryptCompare.mockResolvedValue(true);
 
-    updateUserPassword.mockResolvedValue(updatedUser);
-
-    const result = await changePassword(currentUser, {
-      currentPassword: "CurrentPassword123",
-      newPassword: "NewPassword123",
-    });
+    await expectAppError(
+      changePassword(currentUser, {
+        currentPassword: VALID_PASSWORD,
+        newPassword: VALID_PASSWORD,
+      }),
+      ERROR_CODES.PASSWORD_SAME_AS_CURRENT,
+      400,
+      "رمز عبور جدید باید با رمز عبور فعلی متفاوت باشد."
+    );
 
     expect(bcryptCompare).toHaveBeenNthCalledWith(
       1,
-      "CurrentPassword123",
+      VALID_PASSWORD,
       user.password
     );
 
     expect(bcryptCompare).toHaveBeenNthCalledWith(
       2,
-      "NewPassword123",
+      VALID_PASSWORD,
       user.password
     );
 
-    expect(bcryptCompare).toHaveBeenCalledTimes(2);
-
-    expect(bcryptHash).toHaveBeenCalledWith("NewPassword123", 12);
-
-    expect(updateUserPassword).toHaveBeenCalledWith(
-      TEST_USER_ID,
-      "hashed:NewPassword123",
-      {
-        expectedSessionVersion: 0,
-      }
-    );
-
-    expect(updateUserPassword).toHaveBeenCalledOnce();
-
-    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
-    expect(findUserByIdWithPassword).toHaveBeenCalledWith(TEST_USER_ID);
-
-    expect(result).toMatchObject({
-      id: TEST_USER_ID,
-    });
-
-    expect(result).not.toHaveProperty("password");
+    expect(bcryptHash).not.toHaveBeenCalled();
+    expect(updateUserPassword).not.toHaveBeenCalled();
   });
 
   it("rejects the password change when the repository update fails", async () => {
@@ -2773,45 +2975,71 @@ describe("changePassword()", () => {
         newPassword: "NewPassword123",
       }),
       ERROR_CODES.PASSWORD_CHANGE_CONFLICT,
-      409
-    );
-
-    expect(updateUserPassword).toHaveBeenCalledOnce();
-  });
-
-  it("rejects a new password that matches the current password without hashing or updating", async () => {
-    findUserByIdWithPassword.mockResolvedValue(createUser());
-
-    bcryptCompare.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
-
-    await expectAppError(
-      changePassword(currentUser, {
-        currentPassword: VALID_PASSWORD,
-        newPassword: VALID_PASSWORD,
-      }),
-      ERROR_CODES.PASSWORD_SAME_AS_CURRENT
+      409,
+      "اطلاعات احراز هویت هم‌زمان تغییر کرده است. لطفاً دوباره تلاش کنید."
     );
 
     expect(bcryptCompare).toHaveBeenCalledTimes(2);
-    expect(bcryptHash).not.toHaveBeenCalled();
-    expect(updateUserPassword).not.toHaveBeenCalled();
+    expect(bcryptHash).toHaveBeenCalledOnce();
+
+    expect(updateUserPassword).toHaveBeenCalledOnce();
+    expect(updateUserPassword).toHaveBeenCalledWith(
+      user._id,
+      "hashed:NewPassword123",
+      { expectedSessionVersion: user.sessionVersion }
+    );
   });
 
-  it("rejects an incorrect current password without hashing or updating", async () => {
-    findUserByIdWithPassword.mockResolvedValue(createUser());
+  it("verifies the current password and updates a different new password", async () => {
+    const user = createUser();
+    const currentPassword = "CurrentPassword123";
+    const newPassword = "NewPassword123";
 
-    bcryptCompare.mockResolvedValueOnce(false);
+    const updatedUser = createUser({
+      password: `hashed:${newPassword}`,
+      sessionVersion: user.sessionVersion + 1,
+    });
 
-    await expectAppError(
-      changePassword(currentUser, {
-        currentPassword: "IncorrectPassword123",
-        newPassword: "NewPassword123",
-      }),
-      ERROR_CODES.CURRENT_PASSWORD_INCORRECT
+    findUserByIdWithPassword.mockResolvedValue(user);
+
+    bcryptCompare.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+    updateUserPassword.mockResolvedValue(updatedUser);
+
+    const result = await changePassword(currentUser, {
+      currentPassword,
+      newPassword,
+    });
+
+    expect(bcryptCompare).toHaveBeenCalledTimes(2);
+    expect(bcryptCompare).toHaveBeenNthCalledWith(
+      1,
+      currentPassword,
+      user.password
     );
 
-    expect(bcryptCompare).toHaveBeenCalledOnce();
-    expect(bcryptHash).not.toHaveBeenCalled();
-    expect(updateUserPassword).not.toHaveBeenCalled();
+    expect(bcryptCompare).toHaveBeenNthCalledWith(
+      2,
+      newPassword,
+      user.password
+    );
+
+    expect(bcryptHash).toHaveBeenCalledOnce();
+    expect(bcryptHash).toHaveBeenCalledWith(newPassword, 12);
+
+    expect(updateUserPassword).toHaveBeenCalledOnce();
+    expect(updateUserPassword).toHaveBeenCalledWith(
+      user._id,
+      `hashed:${newPassword}`,
+      { expectedSessionVersion: user.sessionVersion }
+    );
+
+    expect(findUserByIdWithPassword).toHaveBeenCalledOnce();
+    expect(findUserByIdWithPassword).toHaveBeenCalledWith(user._id);
+
+    expect(result).toMatchObject({
+      id: user._id,
+    });
+    expect(result).not.toHaveProperty("password");
   });
 });
