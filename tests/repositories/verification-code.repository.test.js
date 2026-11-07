@@ -346,7 +346,16 @@ describe("replaceVerificationCode()", () => {
 
     expect(result).not.toBeNull();
     expect(result.email).toBe(codeData.email);
-    expect(result.codeHash).toBe("new-hash");
+
+    expect(result.codeHash).toBeUndefined();
+
+    const storedCode = await findStoredVerificationCode(
+      codeData.email,
+      codeData.purpose
+    );
+
+    expect(storedCode).not.toBeNull();
+    expect(storedCode.codeHash).toBe("new-hash");
     expect(result.purpose).toBe(codeData.purpose);
     expect(result.expiresAt.getTime()).toBe(codeData.expiresAt.getTime());
     expect(isStrictGenerationId(result.generationId)).toBe(true);
@@ -384,7 +393,12 @@ describe("replaceVerificationCode()", () => {
     );
 
     expect(secondResult._id.toString()).toBe(firstResult._id.toString());
-    expect(secondResult.codeHash).toBe("second-hash");
+    expect(secondResult.codeHash).toBeUndefined();
+
+    const storedCode = await findStoredVerificationCode(email, purpose);
+
+    expect(storedCode).not.toBeNull();
+    expect(storedCode.codeHash).toBe("second-hash");
     expect(secondResult.expiresAt.getTime()).toBe(secondExpiresAt.getTime());
     expect(secondResult.createdAt.getTime()).toBe(
       firstResult.createdAt.getTime()
@@ -524,7 +538,19 @@ describe("replaceVerificationCode()", () => {
         );
 
         expect(result).not.toBeNull();
-        expect(result.codeHash).toBe("transaction-replace-hash");
+        expect(result.codeHash).toBeUndefined();
+
+        const storedInsideTransaction = await VerificationCode.findOne({
+          email,
+          purpose,
+        })
+          .select("+codeHash")
+          .session(session);
+
+        expect(storedInsideTransaction).not.toBeNull();
+        expect(storedInsideTransaction.codeHash).toBe(
+          "transaction-replace-hash"
+        );
       });
     } finally {
       await session.endSession();

@@ -143,6 +143,18 @@ const POLICY_CASES = [
   },
 ];
 
+/**
+ * Preserve the initialization calls before clearMocks clears mock history
+ * between individual tests.
+ */
+let ratelimitConstructorCalls = [];
+let slidingWindowCalls = [];
+
+beforeAll(() => {
+  ratelimitConstructorCalls = [...RatelimitMock.mock.calls];
+  slidingWindowCalls = [...slidingWindowMock.mock.calls];
+});
+
 describe("policies.js", () => {
   it("exports exactly the expected rate-limit policies", () => {
     expect(Object.keys(policies).sort()).toEqual(
@@ -170,13 +182,13 @@ describe("policies.js", () => {
   );
 
   it("creates one Ratelimit instance and one sliding-window limiter per policy", () => {
-    expect(RatelimitMock).toHaveBeenCalledTimes(POLICY_CASES.length);
+    expect(ratelimitConstructorCalls).toHaveLength(POLICY_CASES.length);
 
-    expect(slidingWindowMock).toHaveBeenCalledTimes(POLICY_CASES.length);
+    expect(slidingWindowCalls).toHaveLength(POLICY_CASES.length);
   });
 
   it("uses a unique prefix for every policy", () => {
-    const prefixes = RatelimitMock.mock.calls.map(
+    const prefixes = ratelimitConstructorCalls.map(
       ([options]) => options.prefix
     );
 

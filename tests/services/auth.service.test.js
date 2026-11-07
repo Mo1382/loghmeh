@@ -2681,12 +2681,12 @@ describe("changePassword()", () => {
   it("maps a current password exceeding 72 bytes to the generic current-password error", async () => {
     await expectAppError(
       changePassword(currentUser, {
-        currentPassword: OVER_LIMIT_PASSWORD,
-        newPassword: VALID_PASSWORD,
+        currentPassword: "a".repeat(73),
+        newPassword: "NewPassword123",
       }),
       ERROR_CODES.CURRENT_PASSWORD_INCORRECT,
       400,
-      "رمز عبور نباید بیشتر از ۷۲ بایت در UTF-8 باشد."
+      "رمز عبور فعلی نادرست است."
     );
 
     expect(requireActiveAuthenticatedUser).toHaveBeenCalledWith(currentUser);

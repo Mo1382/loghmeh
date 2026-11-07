@@ -10,7 +10,7 @@ vi.mock("mongoose", () => ({
   },
 }));
 
-import { withTransaction } from "./transaction.js";
+import { withTransaction } from "@/lib/transaction";
 
 let session;
 

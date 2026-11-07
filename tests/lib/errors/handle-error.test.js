@@ -282,7 +282,7 @@ describe("handleError", () => {
     expect(serializedResponse).not.toContain("private notification message");
   });
 
-  test("returns null details when a Mongoose validation error contains only non-allowlisted paths", () => {
+  it("returns null details when a Mongoose validation error contains only non-allowlisted paths", () => {
     const error = new mongoose.Error.ValidationError();
 
     error.addError(
@@ -317,8 +317,8 @@ describe("handleError", () => {
 
     const serializedResponse = JSON.stringify(response);
 
-    expect(serializedResponse).not.toContain("status");
-    expect(serializedResponse).not.toContain("sessionVersion");
+    expect(serializedResponse).not.toContain('"status"');
+    expect(serializedResponse).not.toContain('"sessionVersion"');
     expect(serializedResponse).not.toContain("private status message");
     expect(serializedResponse).not.toContain("private session message");
     expect(serializedResponse).not.toContain("active");

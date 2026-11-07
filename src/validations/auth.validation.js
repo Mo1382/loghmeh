@@ -110,7 +110,7 @@ export const verificationCodeSchema = z
       .string()
       .trim()
       .transform(normalizeDigits)
-      .regex(/^\d{6}$/, "کد تأیید باید ۶ رقمی باشد."),
+      .refine((value) => /^\d{6}$/.test(value), "کد تأیید باید ۶ رقمی باشد."),
   })
   .strict();
 

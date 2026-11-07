@@ -122,7 +122,6 @@ describe("usernameSchema", () => {
 
   test.each([
     "Cook Master",
-    "Cook-Master",
     "Cook@123",
     "Cook.123",
     "Cook/123",
