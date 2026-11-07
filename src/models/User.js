@@ -113,7 +113,7 @@ const userSchema = new mongoose.Schema(
      * Public username.
      *
      * The username is intentionally case-sensitive. It may contain
-     * Latin letters, Persian letters, digits, and underscores only.
+     * Latin letters, Persian letters, digits, underscores and hyphens only.
      */
     username: {
       type: String,

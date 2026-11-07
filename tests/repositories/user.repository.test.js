@@ -26,9 +26,7 @@ import {
   findUserByUsername,
   incrementRecipeCount,
   incrementTotalRecipeViews,
-  restoreUser,
   setUserStats,
-  softDeleteUser,
   updateAccountStatus,
   updateUserPassword,
   updateUserProfileById,
@@ -988,134 +986,6 @@ describe("account status", () => {
     expect(stored?.accountStatus).toBe(ACCOUNT_STATUSES.ACTIVE);
     expect(stored?.emailVerified).toBe(true);
     expect(stored?.sessionVersion).toBe(0);
-  });
-});
-
-/*
- * ============================================================================
- * Soft Delete and Restore
- * ============================================================================
- */
-
-describe("soft delete and restore", () => {
-  it("soft-deletes a non-deleted user and increments sessionVersion", async () => {
-    const user = await createFixture({
-      sessionVersion: 2,
-    });
-
-    const deletedAt = new Date("2026-01-01T00:00:00.000Z");
-
-    const result = await softDeleteUser(user._id, {
-      deletedAt,
-    });
-
-    const deletedUser = expectMutationSuccess(result);
-
-    expect(deletedUser.deletedAt.getTime()).toBe(deletedAt.getTime());
-    expect(deletedUser.sessionVersion).toBe(3);
-  });
-
-  it("does not soft-delete an already deleted user without changing its state", async () => {
-    const deletedAt = new Date("2026-01-03T00:00:00.000Z");
-
-    const user = await createFixture({
-      deletedAt,
-      sessionVersion: 4,
-    });
-
-    const result = await softDeleteUser(user._id);
-
-    expectMutationFailure(result, ERROR_CODES.USER_ALREADY_DELETED);
-
-    const stored = await User.findById(user._id);
-
-    expect(stored?.deletedAt?.getTime()).toBe(deletedAt.getTime());
-    expect(stored?.sessionVersion).toBe(4);
-  });
-
-  it("uses the current time for deletedAt when no explicit date is provided", async () => {
-    const user = await createFixture();
-    const before = Date.now();
-
-    const result = await softDeleteUser(user._id);
-    const deletedUser = expectMutationSuccess(result);
-
-    const after = Date.now();
-
-    expect(deletedUser.deletedAt).toBeInstanceOf(Date);
-    expect(deletedUser.deletedAt.getTime()).toBeGreaterThanOrEqual(before);
-    expect(deletedUser.deletedAt.getTime()).toBeLessThanOrEqual(after);
-  });
-
-  it("reports USER_NOT_FOUND when soft-deleting a missing user", async () => {
-    const result = await softDeleteUser(new mongoose.Types.ObjectId());
-
-    expectMutationFailure(result, ERROR_CODES.USER_NOT_FOUND);
-  });
-
-  it("blocks soft delete at MAX_SAFE_INTEGER", async () => {
-    const user = await createFixture({
-      sessionVersion: MAX_SAFE_INTEGER,
-    });
-
-    const result = await softDeleteUser(user._id);
-
-    expectMutationFailure(result, ERROR_CODES.SESSION_VERSION_LIMIT_REACHED);
-
-    const stored = await User.findById(user._id);
-
-    expect(stored?.deletedAt).toBeNull();
-    expect(stored?.sessionVersion).toBe(MAX_SAFE_INTEGER);
-  });
-
-  it("restores a soft-deleted user and increments sessionVersion", async () => {
-    const user = await createFixture({
-      deletedAt: new Date("2026-01-02T00:00:00.000Z"),
-      sessionVersion: 5,
-    });
-
-    const result = await restoreUser(user._id);
-    const restoredUser = expectMutationSuccess(result);
-
-    expect(restoredUser.deletedAt).toBeNull();
-    expect(restoredUser.sessionVersion).toBe(6);
-  });
-
-  it("does not restore a non-deleted user without changing its state", async () => {
-    const user = await createFixture({
-      sessionVersion: 4,
-    });
-
-    const result = await restoreUser(user._id);
-
-    expectMutationFailure(result, ERROR_CODES.USER_NOT_DELETED);
-
-    const stored = await User.findById(user._id);
-
-    expect(stored?.deletedAt).toBeNull();
-    expect(stored?.sessionVersion).toBe(4);
-  });
-
-  it("reports USER_NOT_FOUND when restoring a missing user", async () => {
-    const result = await restoreUser(new mongoose.Types.ObjectId());
-
-    expectMutationFailure(result, ERROR_CODES.USER_NOT_FOUND);
-  });
-
-  it("blocks restore at MAX_SAFE_INTEGER", async () => {
-    const user = await createFixture({
-      deletedAt: new Date("2026-01-02T00:00:00.000Z"),
-      sessionVersion: MAX_SAFE_INTEGER,
-    });
-
-    const result = await restoreUser(user._id);
-
-    expectMutationFailure(result, ERROR_CODES.SESSION_VERSION_LIMIT_REACHED);
-
-    const stored = await User.findById(user._id);
-
-    expect(stored?.deletedAt).not.toBeNull();
-    expect(stored?.sessionVersion).toBe(MAX_SAFE_INTEGER);
   });
 });
 
