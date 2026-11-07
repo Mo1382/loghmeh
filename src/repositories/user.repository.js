@@ -774,7 +774,7 @@ export function findActiveUsers({
   cursor = null,
   limit = 16,
   session,
-}) {
+} = {}) {
   const queryFilter = {
     ...filter,
     role: USER_ROLES.USER,
@@ -854,6 +854,14 @@ function incrementUserStat(userId, stat, delta = 1, session) {
       deletedAt: null,
       $expr: {
         $and: [
+          {
+            $eq: [
+              nextValue,
+              {
+                $trunc: nextValue,
+              },
+            ],
+          },
           {
             $gte: [nextValue, 0],
           },
@@ -1268,6 +1276,22 @@ export function updateUserRatingStatsDeltas(
       deletedAt: null,
       $expr: {
         $and: [
+          {
+            $eq: [
+              nextCount,
+              {
+                $trunc: nextCount,
+              },
+            ],
+          },
+          {
+            $eq: [
+              nextSum,
+              {
+                $trunc: nextSum,
+              },
+            ],
+          },
           {
             $gte: [nextCount, 0],
           },

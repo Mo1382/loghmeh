@@ -651,8 +651,14 @@ describe("profile and password mutations", () => {
       expectedSessionVersion: 4,
     });
 
-    expect(result?.password).toBe("new-hash");
+    expect(result).not.toBeNull();
+    expect(result?.password).toBeUndefined();
     expect(result?.sessionVersion).toBe(5);
+
+    const stored = await User.findById(user._id).select("+password");
+
+    expect(stored?.password).toBe("new-hash");
+    expect(stored?.sessionVersion).toBe(5);
   });
 
   it("does not update the password when sessionVersion is stale", async () => {
@@ -778,13 +784,19 @@ describe("profile and password mutations", () => {
     try {
       await expect(
         session.withTransaction(async () => {
-          const result = await updateUserPassword(user._id, "new-hash", {
+          const updated = await updateUserPassword(user._id, "new-hash", {
             expectedSessionVersion: 4,
             session,
           });
 
-          expect(result?.password).toBe("new-hash");
-          expect(result?.sessionVersion).toBe(5);
+          expect(updated?.password).toBeUndefined();
+          expect(updated?.sessionVersion).toBe(5);
+
+          const storedInsideTransaction = await User.findById(user._id)
+            .select("+password")
+            .session(session);
+
+          expect(storedInsideTransaction?.password).toBe("new-hash");
 
           throw new Error("force password rollback");
         })
@@ -855,10 +867,10 @@ describe("email verification", () => {
  */
 
 describe("account status", () => {
-  it("rejects an invalid account status synchronously", () => {
-    expect(() =>
+  it("rejects an invalid account status", async () => {
+    await expect(
       updateAccountStatus(new mongoose.Types.ObjectId(), "NOT_A_REAL_STATUS")
-    ).toThrow("Invalid account status.");
+    ).rejects.toThrow("Invalid account status.");
   });
 
   it("changes account status and increments sessionVersion", async () => {

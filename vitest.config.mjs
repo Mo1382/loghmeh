@@ -1,14 +1,19 @@
 import { defineConfig } from "vitest/config";
-import tsconfigPaths from "vite-tsconfig-paths";
+import { fileURLToPath } from "node:url";
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
 
   test: {
     environment: "node",
     clearMocks: true,
     restoreMocks: true,
-    testTimeout: 10000,
+    testTimeout: 10_000,
+    hookTimeout: 60_000,
 
     env: {
       AUTH_SECRET: "test-only-auth-secret-that-is-long-enough-123",

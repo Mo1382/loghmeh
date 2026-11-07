@@ -11,7 +11,7 @@ import { VERIFICATION_CODE_PURPOSES } from "@/constants/enums";
 import {
   expectValidationError,
   findIndexByFields,
-} from "@/tests/helpers/mongoose-test-helpers";
+} from "../helpers/mongoose-validation-helpers";
 
 import { randomUUID } from "node:crypto";
 

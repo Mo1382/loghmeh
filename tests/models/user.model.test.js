@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+
 import { MongoMemoryServer } from "mongodb-memory-server";
 import mongoose from "mongoose";
 
@@ -9,7 +10,7 @@ import { ACCOUNT_STATUSES, USER_ROLES, USER_TITLES } from "@/constants/enums";
 import {
   expectValidationError,
   findIndexByFields,
-} from "@/tests/helpers/mongoose-test-helpers";
+} from "../helpers/mongoose-validation-helpers";
 
 let mongoServer;
 
@@ -55,6 +56,10 @@ function buildValidUser(overrides = {}) {
   });
 }
 
+async function expectValidDocument(document) {
+  await document.validate();
+}
+
 /**
  * --------------------------------------------------------------------------
  * Basic validity
@@ -62,10 +67,10 @@ function buildValidUser(overrides = {}) {
  */
 
 describe("User model - basic validity", () => {
-  test("accepts a valid user document", () => {
+  test("accepts a valid user document", async () => {
     const user = buildValidUser();
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 });
 
@@ -150,60 +155,60 @@ describe("User model - defaults", () => {
  */
 
 describe("User model - required fields", () => {
-  test("requires username", () => {
+  test("requires username", async () => {
     const user = buildValidUser({
       username: undefined,
     });
 
-    expectValidationError(user, "username");
+    await expectValidationError(user, "username");
   });
 
-  test("requires email", () => {
+  test("requires email", async () => {
     const user = buildValidUser({
       email: undefined,
     });
 
-    expectValidationError(user, "email");
+    await expectValidationError(user, "email");
   });
 
-  test("requires password", () => {
+  test("requires password", async () => {
     const user = buildValidUser({
       password: undefined,
     });
 
-    expectValidationError(user, "password");
+    await expectValidationError(user, "password");
   });
 
-  test("requires title when explicitly set to null", () => {
+  test("requires title when explicitly set to null", async () => {
     const user = buildValidUser({
       title: null,
     });
 
-    expectValidationError(user, "title");
+    await expectValidationError(user, "title");
   });
 
-  test("requires role when explicitly set to null", () => {
+  test("requires role when explicitly set to null", async () => {
     const user = buildValidUser({
       role: null,
     });
 
-    expectValidationError(user, "role");
+    await expectValidationError(user, "role");
   });
 
-  test("requires accountStatus when explicitly set to null", () => {
+  test("requires accountStatus when explicitly set to null", async () => {
     const user = buildValidUser({
       accountStatus: null,
     });
 
-    expectValidationError(user, "accountStatus");
+    await expectValidationError(user, "accountStatus");
   });
 
-  test("requires sessionVersion when explicitly set to null", () => {
+  test("requires sessionVersion when explicitly set to null", async () => {
     const user = buildValidUser({
       sessionVersion: null,
     });
 
-    expectValidationError(user, "sessionVersion");
+    await expectValidationError(user, "sessionVersion");
   });
 });
 
@@ -214,36 +219,36 @@ describe("User model - required fields", () => {
  */
 
 describe("User model - username", () => {
-  test("accepts a valid Latin username", () => {
+  test("accepts a valid Latin username", async () => {
     const user = buildValidUser({
       username: "CookMaster",
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts a valid Persian username", () => {
+  test("accepts a valid Persian username", async () => {
     const user = buildValidUser({
       username: "آشپز",
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts digits and underscore", () => {
+  test("accepts digits, underscores and hyphens", async () => {
     const user = buildValidUser({
-      username: "Cook_123",
+      username: "Cook_Master-123",
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts the Persian character آ", () => {
+  test("accepts the Persian character آ", async () => {
     const user = buildValidUser({
       username: "آشپزخانه",
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
   test("trims surrounding whitespace", () => {
@@ -270,60 +275,52 @@ describe("User model - username", () => {
     expect(user.username).toBe("Cook");
   });
 
-  test("accepts the minimum username length of 3 characters", () => {
+  test("accepts the minimum username length of 3 characters", async () => {
     const user = buildValidUser({
       username: "abc",
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("rejects usernames shorter than 3 characters", () => {
+  test("rejects usernames shorter than 3 characters", async () => {
     const user = buildValidUser({
       username: "ab",
     });
 
-    expectValidationError(user, "username");
+    await expectValidationError(user, "username");
   });
 
-  test("accepts the maximum username length of 30 characters", () => {
+  test("accepts the maximum username length of 30 characters", async () => {
     const user = buildValidUser({
       username: "a".repeat(30),
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("rejects usernames longer than 30 characters", () => {
+  test("rejects usernames longer than 30 characters", async () => {
     const user = buildValidUser({
       username: "a".repeat(31),
     });
 
-    expectValidationError(user, "username");
+    await expectValidationError(user, "username");
   });
 
-  test("rejects usernames containing spaces", () => {
+  test("rejects usernames containing spaces", async () => {
     const user = buildValidUser({
       username: "Cook Master",
     });
 
-    expectValidationError(user, "username");
+    await expectValidationError(user, "username");
   });
 
-  test("rejects usernames containing special characters", () => {
+  test("rejects usernames containing special characters", async () => {
     const user = buildValidUser({
       username: "Cook@123",
     });
 
-    expectValidationError(user, "username");
-  });
-
-  test("rejects usernames containing hyphens", () => {
-    const user = buildValidUser({
-      username: "Cook-Master",
-    });
-
-    expectValidationError(user, "username");
+    await expectValidationError(user, "username");
   });
 });
 
@@ -334,12 +331,12 @@ describe("User model - username", () => {
  */
 
 describe("User model - email", () => {
-  test("accepts a valid email", () => {
+  test("accepts a valid email", async () => {
     const user = buildValidUser({
       email: "test@example.com",
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
   test("trims surrounding whitespace", () => {
@@ -358,7 +355,7 @@ describe("User model - email", () => {
     expect(user.email).toBe("test@example.com");
   });
 
-  test("accepts an email at the schema's 254-character length boundary", () => {
+  test("accepts an email at the schema's 254-character length boundary", async () => {
     const localPart = "a".repeat(64);
     const domain = `${"a.".repeat(93)}aaa`;
     const email = `${localPart}@${domain}`;
@@ -371,10 +368,10 @@ describe("User model - email", () => {
       email,
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("rejects an email longer than 254 characters", () => {
+  test("rejects an email longer than 254 characters", async () => {
     const localPart = "a".repeat(64);
     const domain = `${"a.".repeat(94)}aa`;
     const email = `${localPart}@${domain}`;
@@ -387,7 +384,7 @@ describe("User model - email", () => {
       email,
     });
 
-    expectValidationError(user, "email");
+    await expectValidationError(user, "email");
   });
 
   test.each([
@@ -397,18 +394,18 @@ describe("User model - email", () => {
     "user.example.com",
     "user@example",
     "user name@example.com",
-  ])("rejects malformed email: %s", (email) => {
+  ])("rejects malformed email: %s", async (email) => {
     const user = buildValidUser({ email });
 
-    expectValidationError(user, "email");
+    await expectValidationError(user, "email");
   });
 
-  test("rejects an empty email", () => {
+  test("rejects an empty email", async () => {
     const user = buildValidUser({
       email: "",
     });
 
-    expectValidationError(user, "email");
+    await expectValidationError(user, "email");
   });
 });
 
@@ -425,12 +422,12 @@ describe("User model - password", () => {
     expect(passwordPath.options.select).toBe(false);
   });
 
-  test("rejects an empty password", () => {
+  test("rejects an empty password", async () => {
     const user = buildValidUser({
       password: "",
     });
 
-    expectValidationError(user, "password");
+    await expectValidationError(user, "password");
   });
 });
 
@@ -441,12 +438,12 @@ describe("User model - password", () => {
  */
 
 describe("User model - avatar", () => {
-  test("accepts a valid HTTPS URL", () => {
+  test("accepts a valid HTTPS URL", async () => {
     const user = buildValidUser({
       avatar: "https://example.com/avatar.jpg",
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
   test("trims surrounding whitespace", () => {
@@ -457,28 +454,28 @@ describe("User model - avatar", () => {
     expect(user.avatar).toBe("https://example.com/avatar.jpg");
   });
 
-  test("accepts null", () => {
+  test("accepts null", async () => {
     const user = buildValidUser({
       avatar: null,
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("rejects an HTTP URL", () => {
+  test("rejects an HTTP URL", async () => {
     const user = buildValidUser({
       avatar: "http://example.com/avatar.jpg",
     });
 
-    expectValidationError(user, "avatar");
+    await expectValidationError(user, "avatar");
   });
 
-  test("rejects an invalid URL", () => {
+  test("rejects an invalid URL", async () => {
     const user = buildValidUser({
       avatar: "not-a-url",
     });
 
-    expectValidationError(user, "avatar");
+    await expectValidationError(user, "avatar");
   });
 });
 
@@ -489,12 +486,12 @@ describe("User model - avatar", () => {
  */
 
 describe("User model - bio", () => {
-  test("accepts a valid bio", () => {
+  test("accepts a valid bio", async () => {
     const user = buildValidUser({
       bio: "My cooking profile.",
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
   test("trims surrounding whitespace", () => {
@@ -505,20 +502,20 @@ describe("User model - bio", () => {
     expect(user.bio).toBe("My cooking profile");
   });
 
-  test("accepts a bio with exactly 300 characters", () => {
+  test("accepts a bio with exactly 300 characters", async () => {
     const user = buildValidUser({
       bio: "a".repeat(300),
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("rejects a bio longer than 300 characters", () => {
+  test("rejects a bio longer than 300 characters", async () => {
     const user = buildValidUser({
       bio: "a".repeat(301),
     });
 
-    expectValidationError(user, "bio");
+    await expectValidationError(user, "bio");
   });
 });
 
@@ -531,53 +528,53 @@ describe("User model - bio", () => {
 describe("User model - enum fields", () => {
   test.each(Object.values(USER_TITLES))(
     "accepts valid user title: %s",
-    (title) => {
+    async (title) => {
       const user = buildValidUser({ title });
 
-      expect(user.validateSync()).toBeUndefined();
+      await expectValidDocument(user);
     }
   );
 
-  test("rejects an invalid user title", () => {
+  test("rejects an invalid user title", async () => {
     const user = buildValidUser({
       title: "__INVALID_TITLE__",
     });
 
-    expectValidationError(user, "title");
+    await expectValidationError(user, "title");
   });
 
   test.each(Object.values(USER_ROLES))(
     "accepts valid user role: %s",
-    (role) => {
+    async (role) => {
       const user = buildValidUser({ role });
 
-      expect(user.validateSync()).toBeUndefined();
+      await expectValidDocument(user);
     }
   );
 
-  test("rejects an invalid user role", () => {
+  test("rejects an invalid user role", async () => {
     const user = buildValidUser({
       role: "__INVALID_ROLE__",
     });
 
-    expectValidationError(user, "role");
+    await expectValidationError(user, "role");
   });
 
   test.each(Object.values(ACCOUNT_STATUSES))(
     "accepts valid account status: %s",
-    (accountStatus) => {
+    async (accountStatus) => {
       const user = buildValidUser({ accountStatus });
 
-      expect(user.validateSync()).toBeUndefined();
+      await expectValidDocument(user);
     }
   );
 
-  test("rejects an invalid account status", () => {
+  test("rejects an invalid account status", async () => {
     const user = buildValidUser({
       accountStatus: "__INVALID_STATUS__",
     });
 
-    expectValidationError(user, "accountStatus");
+    await expectValidationError(user, "accountStatus");
   });
 });
 
@@ -588,94 +585,94 @@ describe("User model - enum fields", () => {
  */
 
 describe("User model - social links", () => {
-  test("accepts a valid Instagram URL", () => {
+  test("accepts a valid Instagram URL", async () => {
     const user = buildValidUser({
       socialLinks: {
         instagram: "https://instagram.com/test",
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts a valid Telegram URL", () => {
+  test("accepts a valid Telegram URL", async () => {
     const user = buildValidUser({
       socialLinks: {
         telegram: "https://t.me/test",
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts a valid X URL", () => {
+  test("accepts a valid X URL", async () => {
     const user = buildValidUser({
       socialLinks: {
         x: "https://x.com/test",
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("rejects an HTTP Instagram URL", () => {
+  test("rejects an HTTP Instagram URL", async () => {
     const user = buildValidUser({
       socialLinks: {
         instagram: "http://instagram.com/test",
       },
     });
 
-    expectValidationError(user, "socialLinks.instagram");
+    await expectValidationError(user, "socialLinks.instagram");
   });
 
-  test("rejects an HTTP Telegram URL", () => {
+  test("rejects an HTTP Telegram URL", async () => {
     const user = buildValidUser({
       socialLinks: {
         telegram: "http://t.me/test",
       },
     });
 
-    expectValidationError(user, "socialLinks.telegram");
+    await expectValidationError(user, "socialLinks.telegram");
   });
 
-  test("rejects an HTTP X URL", () => {
+  test("rejects an HTTP X URL", async () => {
     const user = buildValidUser({
       socialLinks: {
         x: "http://x.com/test",
       },
     });
 
-    expectValidationError(user, "socialLinks.x");
+    await expectValidationError(user, "socialLinks.x");
   });
 
-  test("rejects a non-Instagram domain", () => {
+  test("rejects a non-Instagram domain", async () => {
     const user = buildValidUser({
       socialLinks: {
         instagram: "https://example.com/test",
       },
     });
 
-    expectValidationError(user, "socialLinks.instagram");
+    await expectValidationError(user, "socialLinks.instagram");
   });
 
-  test("rejects a non-Telegram domain", () => {
+  test("rejects a non-Telegram domain", async () => {
     const user = buildValidUser({
       socialLinks: {
         telegram: "https://example.com/test",
       },
     });
 
-    expectValidationError(user, "socialLinks.telegram");
+    await expectValidationError(user, "socialLinks.telegram");
   });
 
-  test("rejects a non-X domain", () => {
+  test("rejects a non-X domain", async () => {
     const user = buildValidUser({
       socialLinks: {
         x: "https://example.com/test",
       },
     });
 
-    expectValidationError(user, "socialLinks.x");
+    await expectValidationError(user, "socialLinks.x");
   });
 });
 
@@ -686,52 +683,52 @@ describe("User model - social links", () => {
  */
 
 describe("User model - sessionVersion", () => {
-  test("accepts zero", () => {
+  test("accepts zero", async () => {
     const user = buildValidUser({
       sessionVersion: 0,
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts positive safe integers", () => {
+  test("accepts positive safe integers", async () => {
     const user = buildValidUser({
       sessionVersion: 10,
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts Number.MAX_SAFE_INTEGER", () => {
+  test("accepts Number.MAX_SAFE_INTEGER", async () => {
     const user = buildValidUser({
       sessionVersion: Number.MAX_SAFE_INTEGER,
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("rejects negative values", () => {
+  test("rejects negative values", async () => {
     const user = buildValidUser({
       sessionVersion: -1,
     });
 
-    expectValidationError(user, "sessionVersion");
+    await expectValidationError(user, "sessionVersion");
   });
 
-  test("rejects decimal values", () => {
+  test("rejects decimal values", async () => {
     const user = buildValidUser({
       sessionVersion: 1.5,
     });
 
-    expectValidationError(user, "sessionVersion");
+    await expectValidationError(user, "sessionVersion");
   });
 
-  test("rejects values outside the JavaScript safe integer range", () => {
+  test("rejects values outside the JavaScript safe integer range", async () => {
     const user = buildValidUser({
       sessionVersion: Number.MAX_SAFE_INTEGER + 1,
     });
 
-    expectValidationError(user, "sessionVersion");
+    await expectValidationError(user, "sessionVersion");
   });
 });
 
@@ -749,7 +746,7 @@ describe("User model - statistics", () => {
     "ratingSum",
   ];
 
-  test("accepts valid counter and rating statistics", () => {
+  test("accepts valid counter and rating statistics", async () => {
     const user = buildValidUser({
       stats: {
         recipeCount: 10,
@@ -760,156 +757,159 @@ describe("User model - statistics", () => {
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
   test.each(integerStatisticFields)(
     "accepts Number.MAX_SAFE_INTEGER for %s",
-    (field) => {
+    async (field) => {
       const user = buildValidUser({
         stats: {
           [field]: Number.MAX_SAFE_INTEGER,
         },
       });
 
-      expect(user.validateSync()).toBeUndefined();
+      await expectValidDocument(user);
     }
   );
 
   test.each(integerStatisticFields)(
     "rejects values above Number.MAX_SAFE_INTEGER for %s",
-    (field) => {
+    async (field) => {
       const user = buildValidUser({
         stats: {
           [field]: Number.MAX_SAFE_INTEGER + 1,
         },
       });
 
-      expectValidationError(user, `stats.${field}`);
+      await expectValidationError(user, `stats.${field}`);
     }
   );
 
-  test.each(integerStatisticFields)("rejects decimal value for %s", (field) => {
-    const user = buildValidUser({
-      stats: {
-        [field]: 10.5,
-      },
-    });
+  test.each(integerStatisticFields)(
+    "rejects decimal value for %s",
+    async (field) => {
+      const user = buildValidUser({
+        stats: {
+          [field]: 10.5,
+        },
+      });
 
-    expectValidationError(user, `stats.${field}`);
-  });
+      await expectValidationError(user, `stats.${field}`);
+    }
+  );
 
   test.each(integerStatisticFields)(
     "rejects negative value for %s",
-    (field) => {
+    async (field) => {
       const user = buildValidUser({
         stats: {
           [field]: -1,
         },
       });
 
-      expectValidationError(user, `stats.${field}`);
+      await expectValidationError(user, `stats.${field}`);
     }
   );
 
-  test("accepts averageRating of 0", () => {
+  test("accepts averageRating of 0", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: 0,
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts averageRating of 5", () => {
+  test("accepts averageRating of 5", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: 5,
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts averageRating of 0.01", () => {
+  test("accepts averageRating of 0.01", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: 0.01,
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts averageRating of 4.99", () => {
+  test("accepts averageRating of 4.99", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: 4.99,
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("rejects averageRating below 0", () => {
+  test("rejects averageRating below 0", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: -0.01,
       },
     });
 
-    expectValidationError(user, "stats.averageRating");
+    await expectValidationError(user, "stats.averageRating");
   });
 
-  test("rejects averageRating above 5", () => {
+  test("rejects averageRating above 5", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: 5.01,
       },
     });
 
-    expectValidationError(user, "stats.averageRating");
+    await expectValidationError(user, "stats.averageRating");
   });
 
-  test("accepts averageRating with exactly two decimal places", () => {
+  test("accepts averageRating with exactly two decimal places", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: 4.25,
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts insignificant floating-point representation error", () => {
+  test("accepts insignificant floating-point representation error", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: 0.1 + 0.2,
       },
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("rejects averageRating with more than two decimal places", () => {
+  test("rejects averageRating with more than two decimal places", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: 4.123,
       },
     });
 
-    expectValidationError(user, "stats.averageRating");
+    await expectValidationError(user, "stats.averageRating");
   });
 
-  test("rejects a value that genuinely differs from its two-decimal representation", () => {
+  test("rejects a value that genuinely differs from its two-decimal representation", async () => {
     const user = buildValidUser({
       stats: {
         averageRating: 2.005,
       },
     });
 
-    expectValidationError(user, "stats.averageRating");
+    await expectValidationError(user, "stats.averageRating");
   });
 });
 
@@ -924,40 +924,40 @@ describe("User model - statistics", () => {
  */
 
 describe("User model - account lifecycle", () => {
-  test("accepts PENDING_VERIFICATION with emailVerified=false", () => {
+  test("accepts PENDING_VERIFICATION with emailVerified=false", async () => {
     const user = buildValidUser({
       accountStatus: ACCOUNT_STATUSES.PENDING_VERIFICATION,
       emailVerified: false,
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts ACTIVE with emailVerified=true", () => {
+  test("accepts ACTIVE with emailVerified=true", async () => {
     const user = buildValidUser({
       accountStatus: ACCOUNT_STATUSES.ACTIVE,
       emailVerified: true,
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts SUSPENDED with emailVerified=true", () => {
+  test("accepts SUSPENDED with emailVerified=true", async () => {
     const user = buildValidUser({
       accountStatus: ACCOUNT_STATUSES.SUSPENDED,
       emailVerified: true,
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 
-  test("accepts DEACTIVATED with emailVerified=true", () => {
+  test("accepts DEACTIVATED with emailVerified=true", async () => {
     const user = buildValidUser({
       accountStatus: ACCOUNT_STATUSES.DEACTIVATED,
       emailVerified: true,
     });
 
-    expect(user.validateSync()).toBeUndefined();
+    await expectValidDocument(user);
   });
 });
 
