@@ -12,6 +12,8 @@ import { assertValidObjectId } from "@/lib/validation/object-id";
 
 import { findActiveUserById } from "@/repositories/user.repository";
 
+import { isValidSessionToken } from "@/lib/auth/session-token";
+
 import {
   createSession as createSessionRecord,
   findSessionByTokenHash,
@@ -19,12 +21,6 @@ import {
   revokeExpiredSessionById as revokeExpiredSessionRecordById,
   touchSession as touchSessionRecord,
 } from "@/repositories/session.repository";
-
-const SESSION_TOKEN_LENGTH = Math.ceil((SESSION_POLICY.TOKEN_BYTES * 8) / 6);
-
-const SESSION_TOKEN_PATTERN = new RegExp(
-  `^[A-Za-z0-9_-]{${SESSION_TOKEN_LENGTH}}(?![\\s\\S])`
-);
 
 /**
  * Validate a Date value before using it in a Session operation.
@@ -51,25 +47,6 @@ function assertValidDuration(value, fieldName) {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new TypeError(`${fieldName} must be a positive safe integer.`);
   }
-}
-
-/**
- * Check whether a value is a canonical 32-byte Base64URL Session token.
- *
- * A valid token is exactly 43 Base64URL characters, decodes to 32 bytes,
- * and round-trips to the original canonical representation.
- */
-function isValidSessionToken(token) {
-  if (typeof token !== "string" || !SESSION_TOKEN_PATTERN.test(token)) {
-    return false;
-  }
-
-  const decoded = Buffer.from(token, "base64url");
-
-  return (
-    decoded.length === SESSION_POLICY.TOKEN_BYTES &&
-    decoded.toString("base64url") === token
-  );
 }
 
 /**
