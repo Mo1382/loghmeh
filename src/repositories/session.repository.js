@@ -2,6 +2,7 @@ import Session from "@/models/Session";
 
 import { applySession } from "@/lib/helpers/apply-session";
 import { assertValidObjectId } from "@/lib/validation/object-id";
+import { SESSION_POLICY } from "@/constants/session";
 
 /**
  * Fields accepted when creating a new Session.
@@ -231,11 +232,17 @@ export async function findActiveSessionsByUserId(
   assertValidSessionVersion(sessionVersion);
   assertValidDate(now, "now");
 
+  const latestAllowedActivityAt = new Date(
+    now.getTime() + SESSION_POLICY.MAX_CLOCK_SKEW_MS
+  );
+
   const query = Session.find({
     userId,
     sessionVersion,
     revokedAt: null,
-    lastActivityAt: { $lte: now },
+    lastActivityAt: {
+      $lte: latestAllowedActivityAt,
+    },
     idleExpiresAt: { $gt: now },
     absoluteExpiresAt: { $gt: now },
     $expr: {
@@ -292,7 +299,14 @@ export async function findActiveSessionsByUserId(
  */
 export async function touchSession(
   sessionId,
-  { userId, sessionVersion, now = new Date(), idleTimeoutMs, session } = {}
+  {
+    userId,
+    sessionVersion,
+    touchIntervalMs = 0,
+    now = new Date(),
+    idleTimeoutMs,
+    session,
+  } = {}
 ) {
   assertValidObjectId(sessionId, "session ID");
   assertValidObjectId(userId, "user ID");
@@ -303,8 +317,14 @@ export async function touchSession(
     throw new TypeError("idleTimeoutMs must be a positive safe integer.");
   }
 
+  if (!Number.isSafeInteger(touchIntervalMs) || touchIntervalMs < 0) {
+    throw new TypeError("touchIntervalMs must be a non-negative safe integer.");
+  }
+
   const candidateIdleExpiresAt = new Date(now.getTime() + idleTimeoutMs);
   assertValidDate(candidateIdleExpiresAt, "candidateIdleExpiresAt");
+
+  const minimumLastActivityAt = new Date(now.getTime() - touchIntervalMs);
 
   const query = Session.findOneAndUpdate(
     {
@@ -312,7 +332,9 @@ export async function touchSession(
       userId,
       sessionVersion,
       revokedAt: null,
-      lastActivityAt: { $lte: now },
+      lastActivityAt: {
+        $lte: minimumLastActivityAt,
+      },
       idleExpiresAt: { $gt: now },
       absoluteExpiresAt: { $gt: now },
       $expr: {
@@ -432,4 +454,64 @@ export function revokeSessionsByUserId(
   );
 
   return applySession(query, session);
+}
+
+/**
+ * Revoke a Session only if it is still expired at the supplied time.
+ *
+ * The expiration conditions are evaluated atomically against the current
+ * database document. This prevents a stale Service read from revoking
+ * a Session whose idle expiry has been extended by a concurrent Touch.
+ *
+ * A Session is expired when either:
+ *   - idleExpiresAt <= now
+ *   - absoluteExpiresAt <= now
+ *
+ * The revokedAt:null condition ensures that revocation is one-way.
+ *
+ * Returns the updated Session as a Plain Object without tokenHash,
+ * or null when the Session is no longer expired or does not match.
+ */
+export async function revokeExpiredSessionById(
+  sessionId,
+  { userId, now = new Date(), session } = {}
+) {
+  assertValidObjectId(sessionId, "session ID");
+  assertValidObjectId(userId, "user ID");
+  assertValidDate(now, "now");
+
+  const query = Session.findOneAndUpdate(
+    {
+      _id: sessionId,
+      userId,
+      revokedAt: null,
+      $or: [
+        {
+          idleExpiresAt: {
+            $lte: now,
+          },
+        },
+        {
+          absoluteExpiresAt: {
+            $lte: now,
+          },
+        },
+      ],
+    },
+    {
+      $set: {
+        revokedAt: now,
+      },
+    },
+    {
+      returnDocument: "after",
+      runValidators: true,
+    }
+  )
+    .select(SESSION_RESULT_PROJECTION)
+    .lean();
+
+  const result = await applySession(query, session);
+
+  return toSessionResult(result);
 }
