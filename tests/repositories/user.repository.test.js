@@ -717,6 +717,26 @@ describe("profile and password mutations", () => {
     expect(stored?.sessionVersion).toBe(4);
   });
 
+  it.each([
+    undefined,
+    null,
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    Number.MAX_SAFE_INTEGER + 1,
+    "4",
+  ])(
+    "rejects an invalid expectedSessionVersion: %s",
+    (expectedSessionVersion) => {
+      expect(() =>
+        updateUserPassword(new mongoose.Types.ObjectId(), "new-hash", {
+          expectedSessionVersion,
+        })
+      ).toThrow("expectedSessionVersion must be a non-negative safe integer.");
+    }
+  );
+
   it("allows the final safe sessionVersion increment from MAX_SAFE_INTEGER - 1", async () => {
     const user = await createActiveUser({
       sessionVersion: MAX_SAFE_INTEGER - 1,

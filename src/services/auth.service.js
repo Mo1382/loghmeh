@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Authentication service.
  *
@@ -732,7 +734,14 @@ export async function loginUser({ identifier, password }) {
     throw createAccountNotEligibleForLoginError();
   }
 
-  return toSafeUser(user);
+  return {
+    user: toSafeUser(user),
+
+    sessionContext: {
+      userId: user._id.toString(),
+      sessionVersion: user.sessionVersion,
+    },
+  };
 }
 
 // ============================================================================

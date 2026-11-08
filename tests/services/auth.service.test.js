@@ -48,6 +48,8 @@ const mocks = vi.hoisted(() => ({
 // Module mocks
 // ============================================================================
 
+vi.mock("server-only", () => ({}));
+
 vi.mock("bcryptjs", () => ({
   default: {
     hash: mocks.bcryptHash,
@@ -1155,11 +1157,20 @@ describe("loginUser()", () => {
     expect(bcryptCompare).toHaveBeenCalledWith(VALID_PASSWORD, user.password);
 
     expect(result).toMatchObject({
-      id: TEST_USER_ID,
-      username: "Cook_123",
+      user: {
+        id: TEST_USER_ID,
+        username: "Cook_123",
+      },
+
+      sessionContext: {
+        userId: TEST_USER_ID,
+        sessionVersion: user.sessionVersion,
+      },
     });
 
-    expect(result).not.toHaveProperty("password");
+    expect(result.user).not.toHaveProperty("password");
+    expect(result.user).not.toHaveProperty("sessionVersion");
+
     expect(user.toObject).toHaveBeenCalledOnce();
   });
 
@@ -1180,11 +1191,19 @@ describe("loginUser()", () => {
     expect(bcryptCompare).toHaveBeenCalledWith(VALID_PASSWORD, user.password);
 
     expect(result).toMatchObject({
-      id: TEST_USER_ID,
-      email: "cook@example.com",
+      user: {
+        id: TEST_USER_ID,
+        email: "cook@example.com",
+      },
     });
 
-    expect(result).not.toHaveProperty("password");
+    expect(result.sessionContext).toEqual({
+      userId: TEST_USER_ID,
+      sessionVersion: user.sessionVersion,
+    });
+
+    expect(result.user).not.toHaveProperty("password");
+    expect(result.user).not.toHaveProperty("sessionVersion");
   });
 
   it("rejects an incorrect password for an existing user", async () => {

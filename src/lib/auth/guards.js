@@ -1,11 +1,25 @@
+import "server-only";
+
 import { ERROR_CODES } from "@/constants/error-codes";
-import AppError from "@/lib/errors/AppError";
 import { USER_ROLES } from "@/constants/enums";
-import { findActiveUserById } from "@/repositories/user.repository";
+
+import AppError from "@/lib/errors/AppError";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
+import { findActiveUserById } from "@/repositories/user.repository";
+
 /**
- * Ensure a user is authenticated.
+ * ==========================================================================
+ * Authentication
+ * ==========================================================================
+ */
+
+/**
+ * Ensure that an authenticated User was provided.
+ *
+ * This function only checks the presence of the User object.
+ * Session authentication and token validation must already have been
+ * performed by the Session Resolver.
  */
 export function assertAuthenticated(currentUser) {
   if (!currentUser) {
@@ -19,11 +33,42 @@ export function assertAuthenticated(currentUser) {
   return currentUser;
 }
 
-export async function requireActiveAuthenticatedUser(currentUser, session) {
+/**
+ * ==========================================================================
+ * Active User Authorization
+ * ==========================================================================
+ */
+
+/**
+ * Require an authenticated User whose account is currently active.
+ *
+ * `currentUser` must be obtained server-side through the Session Resolver.
+ * Never accept a User identity supplied directly by the client.
+ *
+ * The Session Resolver is responsible for:
+ * - Validating the browser Session token.
+ * - Checking Session revocation and expiration.
+ * - Verifying the User's sessionVersion.
+ *
+ * This guard independently re-reads the User to ensure that:
+ * - The account is still active.
+ * - The email is verified.
+ * - The User has not been soft-deleted.
+ *
+ * The fresh database result is returned instead of the potentially
+ * stale User object supplied by the caller.
+ *
+ * `mongoSession` is an optional MongoDB ClientSession used when
+ * the surrounding operation participates in a transaction.
+ */
+export async function requireActiveAuthenticatedUser(
+  currentUser,
+  mongoSession
+) {
   assertAuthenticated(currentUser);
   assertValidObjectId(currentUser._id, "user ID");
 
-  const user = await findActiveUserById(currentUser._id, session);
+  const user = await findActiveUserById(currentUser._id, mongoSession);
 
   if (!user) {
     throw new AppError(
@@ -37,10 +82,19 @@ export async function requireActiveAuthenticatedUser(currentUser, session) {
 }
 
 /**
- * Ensure a user has administrator privileges.
+ * ==========================================================================
+ * Administrator Authorization
+ * ==========================================================================
  */
-export async function assertAdmin(currentUser, session) {
-  const user = await requireActiveAuthenticatedUser(currentUser, session);
+
+/**
+ * Ensure that the authenticated User currently has administrator privileges.
+ *
+ * The role is checked against the fresh User document retrieved by
+ * requireActiveAuthenticatedUser(), not the potentially stale input object.
+ */
+export async function assertAdmin(currentUser, mongoSession) {
+  const user = await requireActiveAuthenticatedUser(currentUser, mongoSession);
 
   if (user.role !== USER_ROLES.ADMIN) {
     throw new AppError(
@@ -49,5 +103,6 @@ export async function assertAdmin(currentUser, session) {
       { statusCode: 403 }
     );
   }
+
   return user;
 }

@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   findActiveUserById: vi.fn(),
 }));
 
+vi.mock("server-only", () => ({}));
+
 vi.mock("@/repositories/user.repository", () => ({
   findActiveUserById: mocks.findActiveUserById,
 }));
