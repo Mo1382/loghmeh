@@ -325,6 +325,7 @@ export async function touchSession(
   assertValidDate(candidateIdleExpiresAt, "candidateIdleExpiresAt");
 
   const minimumLastActivityAt = new Date(now.getTime() - touchIntervalMs);
+  assertValidDate(minimumLastActivityAt, "minimumLastActivityAt");
 
   const query = Session.findOneAndUpdate(
     {
@@ -431,7 +432,7 @@ export async function revokeSessionById(
  *
  * Returns the MongoDB UpdateResult, including matchedCount and modifiedCount.
  */
-export function revokeSessionsByUserId(
+export async function revokeSessionsByUserId(
   userId,
   { revokedAt = new Date(), session } = {}
 ) {
@@ -453,7 +454,9 @@ export function revokeSessionsByUserId(
     }
   );
 
-  return applySession(query, session);
+  const result = await applySession(query, session);
+
+  return result;
 }
 
 /**
