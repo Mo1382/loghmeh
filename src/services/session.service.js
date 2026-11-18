@@ -10,26 +10,24 @@ import { requireActiveAuthenticatedUser } from "@/lib/auth/guards";
 import AppError from "@/lib/errors/AppError";
 import { assertValidObjectId } from "@/lib/validation/object-id";
 
-import { findActiveUserById } from "@/repositories/user.repository";
+import {
+  findActiveUserById,
+  incrementUserSessionVersion,
+} from "@/repositories/user.repository";
 
 import { isValidSessionToken } from "@/lib/auth/session-token";
 
 import {
   createSession as createSessionRecord,
   findSessionByTokenHash,
+  findActiveSessionsByUserId as findActiveSessionRecordsByUserId,
   revokeSessionById as revokeSessionRecordById,
   revokeExpiredSessionById as revokeExpiredSessionRecordById,
+  revokeSessionsByUserId as revokeSessionRecordsByUserId,
   touchSession as touchSessionRecord,
 } from "@/repositories/session.repository";
 
-/**
- * Validate a Date value before using it in a Session operation.
- */
-function assertValidDate(value, fieldName) {
-  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
-    throw new TypeError(`${fieldName} must be a valid Date.`);
-  }
-}
+import { withTransaction } from "@/lib/transaction";
 
 /**
  * Validate a non-negative safe integer User session version.
@@ -63,6 +61,19 @@ function generateSessionToken() {
   return randomBytes(SESSION_POLICY.TOKEN_BYTES).toString("base64url");
 }
 
+function isValidDate(value) {
+  return value instanceof Date && Number.isFinite(value.getTime());
+}
+
+/**
+ * Validate a Date value before using it in a Session operation.
+ */
+function assertValidDate(value, fieldName) {
+  if (!isValidDate(value)) {
+    throw new TypeError(`${fieldName} must be a valid Date.`);
+  }
+}
+
 /**
  * Check whether the stored Session timestamps have a valid structure.
  *
@@ -71,14 +82,7 @@ function generateSessionToken() {
 function hasValidSessionTimestampStructure(session) {
   const { lastActivityAt, idleExpiresAt, absoluteExpiresAt } = session;
 
-  if (
-    !(lastActivityAt instanceof Date) ||
-    !Number.isFinite(lastActivityAt.getTime()) ||
-    !(idleExpiresAt instanceof Date) ||
-    !Number.isFinite(idleExpiresAt.getTime()) ||
-    !(absoluteExpiresAt instanceof Date) ||
-    !Number.isFinite(absoluteExpiresAt.getTime())
-  ) {
+  if (![lastActivityAt, idleExpiresAt, absoluteExpiresAt].every(isValidDate)) {
     return false;
   }
 
@@ -168,6 +172,18 @@ function isSessionActivityTimestampWithinClockSkew(session, now) {
   const latestAllowedTime = now.getTime() + SESSION_POLICY.MAX_CLOCK_SKEW_MS;
 
   return session.lastActivityAt.getTime() <= latestAllowedTime;
+}
+
+function assertCurrentUserSessionVersion(currentUser, user) {
+  assertValidSessionVersion(user.sessionVersion);
+
+  if (currentUser?.sessionVersion !== user.sessionVersion) {
+    throw new AppError(
+      ERROR_CODES.UNAUTHORIZED,
+      "نشست کاربری شما معتبر نیست. لطفاً دوباره وارد شوید.",
+      { statusCode: 401 }
+    );
+  }
 }
 
 /**
@@ -284,7 +300,8 @@ async function resolveCurrentSession(tokenHash, now) {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const session = await findSessionByTokenHash(tokenHash);
 
-    if (!session) {
+    // A Session without valid identifiers cannot be authenticated safely.
+    if (!session || !session._id || !session.userId) {
       return null;
     }
 
@@ -388,8 +405,7 @@ export async function resolveSessionToken(
     return null;
   }
 
-  let resolvedUser = initialResolution.user;
-  let resolvedSession = initialResolution.session;
+  let { user: resolvedUser, session: resolvedSession } = initialResolution;
 
   const elapsedSinceLastActivity =
     now.getTime() - resolvedSession.lastActivityAt.getTime();
@@ -414,8 +430,7 @@ export async function resolveSessionToken(
         return null;
       }
 
-      resolvedUser = latestResolution.user;
-      resolvedSession = latestResolution.session;
+      ({ user: resolvedUser, session: resolvedSession } = latestResolution);
     }
   }
 
@@ -423,6 +438,25 @@ export async function resolveSessionToken(
     user: resolvedUser,
     session: resolvedSession,
   };
+}
+
+/**
+ * Find all currently active Sessions belonging to the authenticated User.
+ */
+export async function getActiveUserSessions({
+  currentUser,
+  now = new Date(),
+} = {}) {
+  assertValidDate(now, "now");
+
+  const user = await requireActiveAuthenticatedUser(currentUser);
+
+  assertCurrentUserSessionVersion(currentUser, user);
+
+  return findActiveSessionRecordsByUserId(user._id, {
+    sessionVersion: user.sessionVersion,
+    now,
+  });
 }
 
 /**
@@ -492,4 +526,59 @@ export async function revokeUserSession({
   });
 
   return revokedSession !== null;
+}
+
+/**
+ * Invalidate all Sessions belonging to the authenticated User.
+ *
+ * The User's sessionVersion is incremented to invalidate all previously
+ * issued Sessions. Existing unrevoked Session records are also marked
+ * as revoked, including expired Sessions.
+ *
+ * Returns the number of Session records successfully marked as revoked.
+ */
+export async function revokeAllUserSessions({
+  currentUser,
+  now = new Date(),
+} = {}) {
+  assertValidDate(now, "now");
+
+  return withTransaction(async (transactionSession) => {
+    const user = await requireActiveAuthenticatedUser(
+      currentUser,
+      transactionSession
+    );
+
+    assertCurrentUserSessionVersion(currentUser, user);
+
+    if (user.sessionVersion >= Number.MAX_SAFE_INTEGER) {
+      throw new AppError(
+        ERROR_CODES.SESSION_VERSION_LIMIT_REACHED,
+        "امکان خروج از همه دستگاه‌ها در وضعیت فعلی وجود ندارد.",
+        { statusCode: 409 }
+      );
+    }
+
+    const updatedUser = await incrementUserSessionVersion(user._id, {
+      expectedSessionVersion: user.sessionVersion,
+      session: transactionSession,
+    });
+
+    if (!updatedUser) {
+      throw new AppError(
+        ERROR_CODES.USER_LIFECYCLE_CONFLICT,
+        "اطلاعات احراز هویت هم‌زمان تغییر کرده است. لطفاً دوباره تلاش کنید.",
+        { statusCode: 409 }
+      );
+    }
+
+    const result = await revokeSessionRecordsByUserId(user._id, {
+      revokedAt: now,
+      session: transactionSession,
+    });
+
+    return {
+      revokedCount: result.modifiedCount,
+    };
+  });
 }

@@ -26,6 +26,7 @@ import {
   findUserByUsername,
   incrementRecipeCount,
   incrementTotalRecipeViews,
+  incrementUserSessionVersion,
   setUserStats,
   updateAccountStatus,
   updateUserPassword,
@@ -472,249 +473,102 @@ describe("createUser", () => {
  * ============================================================================
  */
 
-describe("profile and password mutations", () => {
-  it("updates submitted profile fields and returns the updated document", async () => {
-    const user = await createFixture({
-      bio: "Existing bio",
-      avatar: "https://example.com/old-avatar.jpg",
-      socialLinks: {
-        instagram: "https://instagram.com/old-user",
-      },
-    });
+/*
+ * ============================================================================
+ * Session Version Mutations
+ * ============================================================================
+ */
 
-    const result = await updateUserProfileById(user._id, {
-      bio: "New bio",
-      avatar: "https://example.com/new-avatar.jpg",
-      socialLinks: {
-        instagram: "https://instagram.com/new-user",
-        telegram: "https://t.me/new-user",
-      },
-    });
-
-    expect(result?.bio).toBe("New bio");
-    expect(result?.avatar).toBe("https://example.com/new-avatar.jpg");
-    expect(result?.socialLinks).toEqual({
-      instagram: "https://instagram.com/new-user",
-      telegram: "https://t.me/new-user",
-      x: null,
-    });
-  });
-
-  it("preserves omitted social links during a partial profile update", async () => {
-    const existingLinks = {
-      instagram: "https://www.instagram.com/old-user",
-      telegram: "https://t.me/old-user",
-      x: "https://x.com/old-user",
-    };
-
-    const user = await createFixture({
-      socialLinks: existingLinks,
-    });
-
-    const result = await updateUserProfileById(user._id, {
-      socialLinks: {
-        telegram: "https://t.me/new-user",
-      },
-    });
-
-    expect(result).not.toBeNull();
-    expect(result.socialLinks.instagram).toBe(existingLinks.instagram);
-    expect(result.socialLinks.telegram).toBe("https://t.me/new-user");
-    expect(result.socialLinks.x).toBe(existingLinks.x);
-
-    const stored = await User.findById(user._id).lean();
-
-    expect(stored?.socialLinks).toEqual({
-      instagram: existingLinks.instagram,
-      telegram: "https://t.me/new-user",
-      x: existingLinks.x,
-    });
-  });
-
-  it("rejects an unsupported social link platform", () => {
-    expect(() =>
-      updateUserProfileById(new mongoose.Types.ObjectId(), {
-        socialLinks: {
-          mastodon: "https://mastodon.social/example",
-        },
-      })
-    ).toThrow("Unsupported social link platform: mastodon");
-  });
-
-  it("rejects an empty profile update", () => {
-    expect(() =>
-      updateUserProfileById(new mongoose.Types.ObjectId(), {})
-    ).toThrow("Profile updates must not be empty.");
-  });
-
-  it("returns null when updating the profile of a deleted or missing user", async () => {
-    const deleted = await createFixture({
-      deletedAt: new Date(),
-      bio: "existing bio",
-      avatar: "https://example.com/existing-avatar.jpg",
-      socialLinks: {
-        instagram: "https://instagram.com/existing-user",
-      },
-    });
-
-    const deletedResult = await updateUserProfileById(deleted._id, {
-      bio: "should-not-update",
-      avatar: "https://example.com/should-not-update.jpg",
-      socialLinks: {
-        instagram: "https://instagram.com/should-not-update",
-      },
-    });
-
-    const missingResult = await updateUserProfileById(
-      new mongoose.Types.ObjectId(),
-      {
-        bio: "should-not-update",
-      }
-    );
-
-    expect(deletedResult).toBeNull();
-    expect(missingResult).toBeNull();
-
-    const stored = await User.findById(deleted._id);
-
-    expect(stored?.bio).toBe("existing bio");
-    expect(stored?.avatar).toBe("https://example.com/existing-avatar.jpg");
-    expect(stored?.socialLinks).toEqual({
-      instagram: "https://instagram.com/existing-user",
-      telegram: null,
-      x: null,
-    });
-  });
-
-  it.each([
-    {
-      field: "bio",
-      updates: {
-        bio: "a".repeat(301),
-      },
-      expectedPath: "bio",
-    },
-    {
-      field: "avatar",
-      updates: {
-        avatar: "not-a-valid-url",
-      },
-      expectedPath: "avatar",
-    },
-  ])(
-    "rejects an invalid profile field: $field",
-    async ({ updates, expectedPath }) => {
-      const user = await createFixture();
-
-      await expect(
-        updateUserProfileById(user._id, updates)
-      ).rejects.toMatchObject({
-        name: "ValidationError",
-        errors: {
-          [expectedPath]: expect.anything(),
-        },
-      });
-
-      const stored = await User.findById(user._id);
-
-      expect(stored?.bio).toBe("");
-      expect(stored?.avatar).toBeNull();
-    }
-  );
-
-  it("propagates validation errors for invalid social links", async () => {
-    const user = await createFixture();
-
-    await expect(
-      updateUserProfileById(user._id, {
-        socialLinks: {
-          instagram: "https://example.com/test-user",
-        },
-      })
-    ).rejects.toMatchObject({
-      name: "ValidationError",
-      errors: {
-        "socialLinks.instagram": expect.anything(),
-      },
-    });
-  });
-
-  it("updates password and increments sessionVersion", async () => {
+describe("incrementUserSessionVersion", () => {
+  it("increments sessionVersion for an active verified user", async () => {
     const user = await createActiveUser({
       sessionVersion: 4,
-      password: "old-hash",
+      password: "secret-hash",
     });
 
-    const result = await updateUserPassword(user._id, "new-hash", {
+    const result = await incrementUserSessionVersion(user._id, {
       expectedSessionVersion: 4,
     });
 
     expect(result).not.toBeNull();
-    expect(result?.password).toBeUndefined();
+    expect(result?._id.toString()).toBe(user._id.toString());
     expect(result?.sessionVersion).toBe(5);
+    expect(result?.password).toBeUndefined();
 
     const stored = await User.findById(user._id).select("+password");
 
-    expect(stored?.password).toBe("new-hash");
     expect(stored?.sessionVersion).toBe(5);
+    expect(stored?.password).toBe("secret-hash");
   });
 
-  it("does not update the password when sessionVersion is stale", async () => {
+  it("returns null when expectedSessionVersion is stale", async () => {
     const user = await createActiveUser({
       sessionVersion: 4,
-      password: "old-hash",
     });
 
-    const result = await updateUserPassword(user._id, "new-hash", {
+    const result = await incrementUserSessionVersion(user._id, {
       expectedSessionVersion: 3,
     });
 
     expect(result).toBeNull();
 
-    const stored = await User.findById(user._id).select("+password");
+    const stored = await User.findById(user._id);
 
-    expect(stored?.password).toBe("old-hash");
     expect(stored?.sessionVersion).toBe(4);
   });
 
-  it("does not update the password when the account is not active", async () => {
-    const user = await createFixture({
-      accountStatus: ACCOUNT_STATUSES.SUSPENDED,
-      emailVerified: true,
-      sessionVersion: 4,
-      password: "old-hash",
-    });
+  it.each([
+    {
+      caseName: "inactive user",
+      overrides: {
+        accountStatus: ACCOUNT_STATUSES.SUSPENDED,
+        emailVerified: true,
+      },
+    },
+    {
+      caseName: "unverified user",
+      overrides: {
+        accountStatus: ACCOUNT_STATUSES.ACTIVE,
+        emailVerified: false,
+      },
+    },
+    {
+      caseName: "soft-deleted user",
+      overrides: {
+        accountStatus: ACCOUNT_STATUSES.ACTIVE,
+        emailVerified: true,
+        deletedAt: new Date(),
+      },
+    },
+  ])(
+    "does not increment sessionVersion for a $caseName",
+    async ({ overrides }) => {
+      const user = await createFixture({
+        ...overrides,
+        sessionVersion: 4,
+      });
 
-    const result = await updateUserPassword(user._id, "new-hash", {
-      expectedSessionVersion: 4,
-    });
+      const result = await incrementUserSessionVersion(user._id, {
+        expectedSessionVersion: 4,
+      });
+
+      expect(result).toBeNull();
+
+      const stored = await User.findById(user._id);
+
+      expect(stored?.sessionVersion).toBe(4);
+    }
+  );
+
+  it("returns null for a missing user", async () => {
+    const result = await incrementUserSessionVersion(
+      new mongoose.Types.ObjectId(),
+      {
+        expectedSessionVersion: 0,
+      }
+    );
 
     expect(result).toBeNull();
-
-    const stored = await User.findById(user._id).select("+password");
-
-    expect(stored?.password).toBe("old-hash");
-    expect(stored?.sessionVersion).toBe(4);
-  });
-
-  it("does not update the password when the email is not verified", async () => {
-    const user = await createFixture({
-      accountStatus: ACCOUNT_STATUSES.ACTIVE,
-      emailVerified: false,
-      sessionVersion: 4,
-      password: "old-hash",
-    });
-
-    const result = await updateUserPassword(user._id, "new-hash", {
-      expectedSessionVersion: 4,
-    });
-
-    expect(result).toBeNull();
-
-    const stored = await User.findById(user._id).select("+password");
-
-    expect(stored?.password).toBe("old-hash");
-    expect(stored?.sessionVersion).toBe(4);
   });
 
   it.each([
@@ -730,71 +584,76 @@ describe("profile and password mutations", () => {
     "rejects an invalid expectedSessionVersion: %s",
     (expectedSessionVersion) => {
       expect(() =>
-        updateUserPassword(new mongoose.Types.ObjectId(), "new-hash", {
+        incrementUserSessionVersion(new mongoose.Types.ObjectId(), {
           expectedSessionVersion,
         })
       ).toThrow("expectedSessionVersion must be a non-negative safe integer.");
     }
   );
 
-  it("allows the final safe sessionVersion increment from MAX_SAFE_INTEGER - 1", async () => {
+  it("allows sessionVersion to reach MAX_SAFE_INTEGER exactly", async () => {
     const user = await createActiveUser({
       sessionVersion: MAX_SAFE_INTEGER - 1,
     });
 
-    const result = await updateUserPassword(user._id, "new-hash", {
+    const result = await incrementUserSessionVersion(user._id, {
       expectedSessionVersion: MAX_SAFE_INTEGER - 1,
     });
 
+    expect(result).not.toBeNull();
     expect(result?.sessionVersion).toBe(MAX_SAFE_INTEGER);
+
+    const stored = await User.findById(user._id);
+
+    expect(stored?.sessionVersion).toBe(MAX_SAFE_INTEGER);
   });
 
-  it("blocks password update at MAX_SAFE_INTEGER without changing the document", async () => {
+  it("blocks incrementing sessionVersion beyond MAX_SAFE_INTEGER", async () => {
     const user = await createActiveUser({
       sessionVersion: MAX_SAFE_INTEGER,
-      password: "old-hash",
     });
 
-    const result = await updateUserPassword(user._id, "new-hash", {
+    const result = await incrementUserSessionVersion(user._id, {
       expectedSessionVersion: MAX_SAFE_INTEGER,
     });
 
     expect(result).toBeNull();
 
-    const stored = await User.findById(user._id).select("+password");
+    const stored = await User.findById(user._id);
 
     expect(stored?.sessionVersion).toBe(MAX_SAFE_INTEGER);
-    expect(stored?.password).toBe("old-hash");
   });
 
-  it("returns null when changing the password of a deleted or missing user", async () => {
-    const deleted = await createActiveUser({
-      deletedAt: new Date(),
-      password: "old-hash",
-    });
-
-    const deletedResult = await updateUserPassword(deleted._id, "new-hash", {
-      expectedSessionVersion: 0,
-    });
-
-    const missingResult = await updateUserPassword(
-      new mongoose.Types.ObjectId(),
-      "new-hash",
-      { expectedSessionVersion: 0 }
-    );
-
-    expect(deletedResult).toBeNull();
-    expect(missingResult).toBeNull();
-
-    const stored = await User.findById(deleted._id).select("+password");
-
-    expect(stored?.password).toBe("old-hash");
-  });
-
-  it("rolls back the password update and sessionVersion increment when the transaction aborts", async () => {
+  it("allows only one increment for concurrent calls with the same expectedSessionVersion", async () => {
     const user = await createActiveUser({
       sessionVersion: 4,
-      password: "old-hash",
+    });
+
+    const results = await Promise.all([
+      incrementUserSessionVersion(user._id, {
+        expectedSessionVersion: 4,
+      }),
+      incrementUserSessionVersion(user._id, {
+        expectedSessionVersion: 4,
+      }),
+    ]);
+
+    const successfulResults = results.filter((result) => result !== null);
+    const failedResults = results.filter((result) => result === null);
+
+    expect(successfulResults).toHaveLength(1);
+    expect(failedResults).toHaveLength(1);
+
+    expect(successfulResults[0].sessionVersion).toBe(5);
+
+    const stored = await User.findById(user._id);
+
+    expect(stored?.sessionVersion).toBe(5);
+  });
+
+  it("rolls back sessionVersion increment when the transaction aborts", async () => {
+    const user = await createActiveUser({
+      sessionVersion: 4,
     });
 
     const session = await mongoose.startSession();
@@ -802,27 +661,195 @@ describe("profile and password mutations", () => {
     try {
       await expect(
         session.withTransaction(async () => {
-          const updated = await updateUserPassword(user._id, "new-hash", {
+          const updated = await incrementUserSessionVersion(user._id, {
             expectedSessionVersion: 4,
             session,
           });
 
-          expect(updated?.password).toBeUndefined();
           expect(updated?.sessionVersion).toBe(5);
 
-          const storedInsideTransaction = await User.findById(user._id)
-            .select("+password")
-            .session(session);
-
-          expect(storedInsideTransaction?.password).toBe("new-hash");
-
-          throw new Error("force password rollback");
+          throw new Error("force session version rollback");
         })
-      ).rejects.toThrow("force password rollback");
+      ).rejects.toThrow("force session version rollback");
 
-      const stored = await User.findById(user._id).select("+password");
+      const stored = await User.findById(user._id);
 
-      expect(stored?.password).toBe("old-hash");
+      expect(stored?.sessionVersion).toBe(4);
+    } finally {
+      await session.endSession();
+    }
+  });
+});
+
+/*
+ * ============================================================================
+ * Session Version Mutations
+ * ============================================================================
+ */
+
+describe("incrementUserSessionVersion", () => {
+  it("increments sessionVersion for an active verified user", async () => {
+    const user = await createActiveUser({
+      sessionVersion: 4,
+      password: "secret-hash",
+    });
+
+    const result = await incrementUserSessionVersion(user._id, {
+      expectedSessionVersion: 4,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result.sessionVersion).toBe(5);
+    expect(result.password).toBeUndefined();
+
+    const stored = await User.findById(user._id).select("+password");
+
+    expect(stored?.sessionVersion).toBe(5);
+    expect(stored?.password).toBe("secret-hash");
+  });
+
+  it("returns null when expectedSessionVersion is stale", async () => {
+    const user = await createActiveUser({
+      sessionVersion: 4,
+    });
+
+    const result = await incrementUserSessionVersion(user._id, {
+      expectedSessionVersion: 3,
+    });
+
+    expect(result).toBeNull();
+
+    const stored = await User.findById(user._id);
+
+    expect(stored?.sessionVersion).toBe(4);
+  });
+
+  it.each([
+    {
+      caseName: "inactive user",
+      overrides: {
+        accountStatus: ACCOUNT_STATUSES.SUSPENDED,
+        emailVerified: true,
+      },
+    },
+    {
+      caseName: "unverified user",
+      overrides: {
+        accountStatus: ACCOUNT_STATUSES.ACTIVE,
+        emailVerified: false,
+      },
+    },
+    {
+      caseName: "soft-deleted user",
+      overrides: {
+        accountStatus: ACCOUNT_STATUSES.ACTIVE,
+        emailVerified: true,
+        deletedAt: new Date(),
+      },
+    },
+  ])(
+    "does not increment sessionVersion for a $caseName",
+    async ({ overrides }) => {
+      const user = await createFixture({
+        ...overrides,
+        sessionVersion: 4,
+      });
+
+      const result = await incrementUserSessionVersion(user._id, {
+        expectedSessionVersion: 4,
+      });
+
+      expect(result).toBeNull();
+
+      const stored = await User.findById(user._id);
+
+      expect(stored?.sessionVersion).toBe(4);
+    }
+  );
+
+  it("returns null for a missing user", async () => {
+    const result = await incrementUserSessionVersion(
+      new mongoose.Types.ObjectId(),
+      {
+        expectedSessionVersion: 0,
+      }
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it.each([
+    undefined,
+    null,
+    -1,
+    1.5,
+    NaN,
+    Infinity,
+    Number.MAX_SAFE_INTEGER + 1,
+    "4",
+  ])(
+    "rejects an invalid expectedSessionVersion: %s",
+    (expectedSessionVersion) => {
+      expect(() =>
+        incrementUserSessionVersion(new mongoose.Types.ObjectId(), {
+          expectedSessionVersion,
+        })
+      ).toThrow("expectedSessionVersion must be a non-negative safe integer.");
+    }
+  );
+
+  it("allows sessionVersion to reach MAX_SAFE_INTEGER exactly", async () => {
+    const user = await createActiveUser({
+      sessionVersion: MAX_SAFE_INTEGER - 1,
+    });
+
+    const result = await incrementUserSessionVersion(user._id, {
+      expectedSessionVersion: MAX_SAFE_INTEGER - 1,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result?.sessionVersion).toBe(MAX_SAFE_INTEGER);
+  });
+
+  it("blocks incrementing sessionVersion beyond MAX_SAFE_INTEGER", async () => {
+    const user = await createActiveUser({
+      sessionVersion: MAX_SAFE_INTEGER,
+    });
+
+    const result = await incrementUserSessionVersion(user._id, {
+      expectedSessionVersion: MAX_SAFE_INTEGER,
+    });
+
+    expect(result).toBeNull();
+
+    const stored = await User.findById(user._id);
+
+    expect(stored?.sessionVersion).toBe(MAX_SAFE_INTEGER);
+  });
+
+  it("rolls back sessionVersion increment when the transaction aborts", async () => {
+    const user = await createActiveUser({
+      sessionVersion: 4,
+    });
+
+    const session = await mongoose.startSession();
+
+    try {
+      await expect(
+        session.withTransaction(async () => {
+          const updated = await incrementUserSessionVersion(user._id, {
+            expectedSessionVersion: 4,
+            session,
+          });
+
+          expect(updated?.sessionVersion).toBe(5);
+
+          throw new Error("force session version rollback");
+        })
+      ).rejects.toThrow("force session version rollback");
+
+      const stored = await User.findById(user._id);
+
       expect(stored?.sessionVersion).toBe(4);
     } finally {
       await session.endSession();

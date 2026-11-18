@@ -484,6 +484,52 @@ export function updateUserPassword(
 }
 
 /**
+ * Increment a User's sessionVersion to invalidate previously issued Sessions.
+ *
+ * The expected version prevents silently incrementing a stale User state.
+ * The operation can participate in a surrounding transaction.
+ *
+ * Returns the updated User or null when the expected state no longer matches
+ * or the version cannot be safely incremented.
+ */
+export function incrementUserSessionVersion(
+  userId,
+  { session, expectedSessionVersion } = {}
+) {
+  if (
+    !Number.isSafeInteger(expectedSessionVersion) ||
+    expectedSessionVersion < 0
+  ) {
+    throw new TypeError(
+      "expectedSessionVersion must be a non-negative safe integer."
+    );
+  }
+
+  const filter = addSessionVersionIncrementGuard({
+    _id: userId,
+    deletedAt: null,
+    accountStatus: ACCOUNT_STATUSES.ACTIVE,
+    emailVerified: true,
+    sessionVersion: expectedSessionVersion,
+  });
+
+  const query = User.findOneAndUpdate(
+    filter,
+    {
+      $inc: {
+        sessionVersion: 1,
+      },
+    },
+    {
+      returnDocument: "after",
+      runValidators: true,
+    }
+  );
+
+  return applySession(query, session);
+}
+
+/**
  * Mark a User's email as verified.
  *
  * Only the expected pending/unverified state can transition
