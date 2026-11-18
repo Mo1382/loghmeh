@@ -30,5 +30,10 @@ export const SESSION_POLICY = Object.freeze({
    */
   TOUCH_INTERVAL_MS: 5 * 60 * 1000,
 
+  /**
+   * Maximum tolerated future offset for lastActivityAt.
+   *
+   * Assumes application servers use synchronized clocks.
+   */
   MAX_CLOCK_SKEW_MS: 30 * 1000,
 });
