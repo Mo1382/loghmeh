@@ -39,8 +39,8 @@ import { resolveSessionToken } from "@/services/session.service";
  * Database and infrastructure errors are intentionally propagated.
  *
  * React cache deduplicates calls during a Server Component render.
- * Outside Server Components, the function still works, but React cache
- * does not provide request-level memoization.
+ * Outside a Server Component render, the function still executes,
+ * but React cache does not provide memoization.
  */
 const resolveRequestSession = cache(async function resolveRequestSession() {
   const token = await getSessionTokenFromCookie();
@@ -74,7 +74,7 @@ const resolveRequestSession = cache(async function resolveRequestSession() {
  * The returned User and Session are server-side data and must not
  * be passed directly to Client Components.
  */
-export async function getCurrentSession() {
+export function getCurrentSession() {
   return resolveRequestSession();
 }
 
@@ -84,6 +84,10 @@ export async function getCurrentSession() {
  * Returns the User document or null when unauthenticated.
  *
  * This is a convenience wrapper around getCurrentSession().
+ *
+ * The returned User document is server-side data and must not
+ * be passed directly to Client Components.
+ * Use a sanitized DTO when client-side data is required.
  */
 export async function getCurrentUser() {
   const currentSession = await getCurrentSession();
