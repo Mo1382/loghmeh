@@ -14,10 +14,11 @@ import {
   loginIdentifierLimiter,
   loginIpLimiter,
 } from "@/lib/rate-limit/policies";
+import { checkRateLimit } from "@/lib/rate-limit/rate-limit";
 import {
-  checkRateLimit,
-} from "@/lib/rate-limit/rate-limit";
-import { createActionErrorResponse, createActionSuccessResponse } from "@/lib/actions/action-response";
+  createActionErrorResponse,
+  createActionSuccessResponse,
+} from "@/lib/actions/action-response";
 import {
   createSessionForUser,
   revokeSessionByToken,
@@ -72,11 +73,9 @@ async function getClientIpAddress() {
  */
 function extractLoginInput(formData) {
   if (!(formData instanceof FormData)) {
-    throw new AppError(
-      ERROR_CODES.INVALID_REQUEST,
-      "درخواست نامعتبر است.",
-      { statusCode: 400 }
-    );
+    throw new AppError(ERROR_CODES.INVALID_REQUEST, "درخواست نامعتبر است.", {
+      statusCode: 400,
+    });
   }
 
   function getSingleValue(name) {

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import { normalizeUsername } from "@/lib/normalization/normalizeUsername";
 
+import { getRateLimitHashEnv } from "@/lib/config/env";
 /**
  * Validate a required, non-empty string and trim surrounding whitespace.
  */
@@ -25,13 +26,7 @@ function requireNonEmptyString(value, name) {
  * The secret must be shared by all application instances.
  */
 function getHashSecret() {
-  const secret = process.env.RATE_LIMIT_HASH_SECRET;
-
-  if (typeof secret !== "string" || Buffer.byteLength(secret, "utf8") < 32) {
-    throw new Error("RATE_LIMIT_HASH_SECRET must contain at least 32 bytes.");
-  }
-
-  return secret;
+  return getRateLimitHashEnv().RATE_LIMIT_HASH_SECRET;
 }
 
 /**

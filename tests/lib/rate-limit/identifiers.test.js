@@ -8,6 +8,10 @@ import {
   createUserIdentifier,
 } from "@/lib/rate-limit/identifiers";
 
+import { validateRateLimitHashEnv } from "@/lib/config/env";
+
+vi.mock("server-only", () => ({}));
+
 const TEST_SECRET = "test-only-rate-limit-hash-secret-32-bytes";
 
 /**
@@ -22,6 +26,9 @@ function createExpectedHash(value, secret = TEST_SECRET) {
 
 beforeEach(() => {
   vi.stubEnv("RATE_LIMIT_HASH_SECRET", TEST_SECRET);
+
+  // Reset the cached Rate Limit Hash configuration for each test.
+  validateRateLimitHashEnv();
 });
 
 afterEach(() => {
@@ -197,21 +204,31 @@ describe("RATE_LIMIT_HASH_SECRET", () => {
 
     expect(process.env.RATE_LIMIT_HASH_SECRET).toBeUndefined();
 
+    expect(() => validateRateLimitHashEnv()).toThrow(
+      "Invalid Rate Limit Hash environment configuration: RATE_LIMIT_HASH_SECRET"
+    );
+
     expect(() => createUserIdentifier("auth:test", "user-123")).toThrow(
-      "RATE_LIMIT_HASH_SECRET must contain at least 32 bytes."
+      "Invalid Rate Limit Hash environment configuration: RATE_LIMIT_HASH_SECRET"
     );
   });
 
   it("rejects a 31-byte ASCII secret", () => {
     vi.stubEnv("RATE_LIMIT_HASH_SECRET", "a".repeat(31));
 
+    expect(() => validateRateLimitHashEnv()).toThrow(
+      "Invalid Rate Limit Hash environment configuration: RATE_LIMIT_HASH_SECRET"
+    );
+
     expect(() => createUserIdentifier("auth:test", "user-123")).toThrow(
-      "RATE_LIMIT_HASH_SECRET must contain at least 32 bytes."
+      "Invalid Rate Limit Hash environment configuration: RATE_LIMIT_HASH_SECRET"
     );
   });
 
   it("accepts a secret with exactly 32 ASCII bytes", () => {
     vi.stubEnv("RATE_LIMIT_HASH_SECRET", "a".repeat(32));
+
+    validateRateLimitHashEnv();
 
     expect(createUserIdentifier("auth:test", "user-123")).toMatch(
       /^auth:test:user:[a-f0-9]{64}$/
@@ -226,17 +243,21 @@ describe("RATE_LIMIT_HASH_SECRET", () => {
 
     vi.stubEnv("RATE_LIMIT_HASH_SECRET", secret);
 
+    validateRateLimitHashEnv();
+
     expect(createUserIdentifier("auth:test", "user-123")).toMatch(
       /^auth:test:user:[a-f0-9]{64}$/
     );
   });
 
-  it("produces different identifiers when the configured secret changes", () => {
+  it("produces different identifiers when the validated secret changes", () => {
     const firstIdentifier = createUserIdentifier("auth:test", "user-123");
 
     const anotherSecret = "a-different-test-only-secret-with-at-least-32-bytes";
 
     vi.stubEnv("RATE_LIMIT_HASH_SECRET", anotherSecret);
+
+    validateRateLimitHashEnv();
 
     const secondIdentifier = createUserIdentifier("auth:test", "user-123");
 
