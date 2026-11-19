@@ -1,3 +1,5 @@
+import { describe, expect, it, vi } from "vitest";
+
 import { Buffer } from "node:buffer";
 import { randomBytes } from "node:crypto";
 
@@ -7,6 +9,12 @@ import {
   assertValidSessionToken,
   isValidSessionToken,
 } from "@/lib/auth/session-token";
+
+// ============================================================================
+// Mocks
+// ============================================================================
+
+vi.mock("server-only", () => ({}));
 
 // ============================================================================
 // Test Helpers
