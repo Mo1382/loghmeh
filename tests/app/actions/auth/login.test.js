@@ -209,9 +209,15 @@ afterEach(() => {
 describe("Client IP address", () => {
   describe("valid forwarded IP", () => {
     it.each([
-      ["IPv4", "203.0.113.42"],
-      ["IPv6", "2001:db8::1"],
-    ])("accepts a valid %s address", async (_type, ip) => {
+      {
+        type: "IPv4",
+        ip: "203.0.113.42",
+      },
+      {
+        type: "IPv6",
+        ip: "2001:db8::1",
+      },
+    ])("accepts a valid $type address", async ({ ip }) => {
       mockForwardedIp(` ${ip} `);
 
       const response = await loginAction(createValidFormData());
@@ -226,12 +232,27 @@ describe("Client IP address", () => {
 
   describe("production environment", () => {
     it.each([
-      ["missing header", null],
-      ["empty header", ""],
-      ["whitespace-only header", "   "],
-      ["invalid IP", "not-an-ip"],
-      ["multiple forwarded IPs", "203.0.113.42, 198.51.100.10"],
-    ])("rejects %s", async (_description, headerValue) => {
+      {
+        description: "missing header",
+        headerValue: null,
+      },
+      {
+        description: "empty header",
+        headerValue: "",
+      },
+      {
+        description: "whitespace-only header",
+        headerValue: "   ",
+      },
+      {
+        description: "invalid IP",
+        headerValue: "not-an-ip",
+      },
+      {
+        description: "multiple forwarded IPs",
+        headerValue: "203.0.113.42, 198.51.100.10",
+      },
+    ])("rejects $description", async ({ headerValue }) => {
       mockForwardedIp(headerValue);
 
       const response = await loginAction(createValidFormData());
@@ -248,12 +269,27 @@ describe("Client IP address", () => {
 
   describe("development environment", () => {
     it.each([
-      ["missing header", null],
-      ["empty header", ""],
-      ["whitespace-only header", "   "],
-      ["invalid IP", "not-an-ip"],
-      ["multiple forwarded IPs", "203.0.113.42, 198.51.100.10"],
-    ])("uses the local fallback for %s", async (_description, headerValue) => {
+      {
+        description: "missing header",
+        headerValue: null,
+      },
+      {
+        description: "empty header",
+        headerValue: "",
+      },
+      {
+        description: "whitespace-only header",
+        headerValue: "   ",
+      },
+      {
+        description: "invalid IP",
+        headerValue: "not-an-ip",
+      },
+      {
+        description: "multiple forwarded IPs",
+        headerValue: "203.0.113.42, 198.51.100.10",
+      },
+    ])("uses the local fallback for $description", async ({ headerValue }) => {
       vi.stubEnv("NODE_ENV", "development");
 
       mockForwardedIp(headerValue);
