@@ -65,11 +65,24 @@ async function getClientIpAddress() {
 }
 
 /**
- * Extract exactly one value for each supported login field.
+ * Return the single value associated with a FormData field.
  *
- * Additional FormData fields are intentionally ignored. Duplicate values
- * for a supported field are treated as missing/invalid rather than silently
- * choosing one of them.
+ * Returns undefined when the field is missing or contains multiple values.
+ */
+function getSingleFormDataValue(formData, name) {
+  const values = formData.getAll(name);
+
+  return values.length === 1 ? values[0] : undefined;
+}
+
+/**
+ * Extract the supported login fields from FormData.
+ *
+ * Additional fields are intentionally ignored. Missing or duplicate values
+ * for supported fields are returned as undefined so the login schema can
+ * reject them during validation.
+ *
+ * @throws {AppError} If the input is not a FormData instance.
  */
 function extractLoginInput(formData) {
   if (!(formData instanceof FormData)) {
@@ -78,14 +91,9 @@ function extractLoginInput(formData) {
     });
   }
 
-  function getSingleValue(name) {
-    const values = formData.getAll(name);
-    return values.length === 1 ? values[0] : undefined;
-  }
-
   return {
-    identifier: getSingleValue("identifier"),
-    password: getSingleValue("password"),
+    identifier: getSingleFormDataValue(formData, "identifier"),
+    password: getSingleFormDataValue(formData, "password"),
   };
 }
 

@@ -108,6 +108,32 @@ describe("createIpIdentifier", () => {
     expect(identifierWithWhitespace).toBe(`auth:login:ip:${expectedHash}`);
     expect(identifierWithWhitespace).toBe(identifierWithoutWhitespace);
   });
+
+  it("generates the same identifier for equivalent IPv6 representations", () => {
+    const expandedIp = "2001:0DB8:0000:0000:0000:0000:0000:0001";
+
+    const compressedIp = "2001:db8::1";
+
+    const expectedHash = createExpectedHash(compressedIp);
+
+    const expandedIdentifier = createIpIdentifier("auth:login", expandedIp);
+
+    const compressedIdentifier = createIpIdentifier("auth:login", compressedIp);
+
+    expect(expandedIdentifier).toBe(compressedIdentifier);
+    expect(expandedIdentifier).toBe(`auth:login:ip:${expectedHash}`);
+  });
+
+  it.each(["::ffff:192.0.2.1", "::ffff:c000:201"])(
+    "normalizes IPv4-mapped IPv6 address %s to its IPv4 equivalent",
+    (mappedIpv6) => {
+      const ipv4 = "192.0.2.1";
+
+      expect(createIpIdentifier("auth:login", mappedIpv6)).toBe(
+        createIpIdentifier("auth:login", ipv4)
+      );
+    }
+  );
 });
 
 describe("createEmailIdentifier", () => {
@@ -179,21 +205,75 @@ describe("createLoginIdentifier", () => {
 
 describe("identifier input validation", () => {
   it.each([
-    ["user ID", () => createUserIdentifier("auth:test", null)],
-    ["user ID", () => createUserIdentifier("auth:test", undefined)],
-    ["user ID", () => createUserIdentifier("auth:test", 123)],
-    ["user prefix", () => createUserIdentifier("   ", "user-123")],
-    ["IP address", () => createIpIdentifier("auth:test", " ")],
-    ["IP address", () => createIpIdentifier("auth:test", null)],
-    ["IP prefix", () => createIpIdentifier(null, "203.0.113.42")],
-    ["email", () => createEmailIdentifier("auth:test", 123)],
-    ["email", () => createEmailIdentifier("auth:test", "   ")],
-    ["email prefix", () => createEmailIdentifier("", "user@example.com")],
-    ["login identifier", () => createLoginIdentifier(undefined)],
-    ["login identifier", () => createLoginIdentifier(null)],
-    ["login identifier", () => createLoginIdentifier("   ")],
-    ["login identifier", () => createLoginIdentifier(123)],
-  ])("rejects an invalid %s", (_field, createIdentifier) => {
+    {
+      field: "user ID",
+      createIdentifier: () => createUserIdentifier("auth:test", null),
+    },
+    {
+      field: "user ID",
+      createIdentifier: () => createUserIdentifier("auth:test", undefined),
+    },
+    {
+      field: "user ID",
+      createIdentifier: () => createUserIdentifier("auth:test", 123),
+    },
+    {
+      field: "user prefix",
+      createIdentifier: () => createUserIdentifier("   ", "user-123"),
+    },
+    {
+      field: "IP address",
+      createIdentifier: () => createIpIdentifier("auth:test", " "),
+    },
+    {
+      field: "IP address",
+      createIdentifier: () => createIpIdentifier("auth:test", null),
+    },
+    {
+      field: "IP prefix",
+      createIdentifier: () => createIpIdentifier(null, "203.0.113.42"),
+    },
+    {
+      field: "email",
+      createIdentifier: () => createEmailIdentifier("auth:test", 123),
+    },
+    {
+      field: "email",
+      createIdentifier: () => createEmailIdentifier("auth:test", "   "),
+    },
+    {
+      field: "email prefix",
+      createIdentifier: () => createEmailIdentifier("", "user@example.com"),
+    },
+    {
+      field: "login identifier",
+      createIdentifier: () => createLoginIdentifier(undefined),
+    },
+    {
+      field: "login identifier",
+      createIdentifier: () => createLoginIdentifier(null),
+    },
+    {
+      field: "login identifier",
+      createIdentifier: () => createLoginIdentifier("   "),
+    },
+    {
+      field: "login identifier",
+      createIdentifier: () => createLoginIdentifier(123),
+    },
+    {
+      field: "IP address",
+      createIdentifier: () => createIpIdentifier("auth:test", "not-an-ip"),
+    },
+    {
+      field: "IP address",
+      createIdentifier: () => createIpIdentifier("auth:test", "999.0.0.1"),
+    },
+    {
+      field: "IP address",
+      createIdentifier: () => createIpIdentifier("auth:test", "2001:db8:::1"),
+    },
+  ])("rejects an invalid $field", ({ createIdentifier }) => {
     expect(createIdentifier).toThrow(TypeError);
   });
 });

@@ -3,6 +3,9 @@ import crypto from "node:crypto";
 import { normalizeUsername } from "@/lib/normalization/normalizeUsername";
 
 import { getRateLimitHashEnv } from "@/lib/config/env";
+
+import ipaddr from "ipaddr.js";
+
 /**
  * Validate a required, non-empty string and trim surrounding whitespace.
  */
@@ -18,6 +21,22 @@ function requireNonEmptyString(value, name) {
   }
 
   return normalizedValue;
+}
+
+/**
+ * Validate and canonicalize an IP address.
+ *
+ * IPv6 addresses are converted to their canonical RFC 5952 representation.
+ * IPv4-mapped IPv6 addresses are converted to their IPv4 equivalents.
+ */
+function normalizeIpAddress(ip) {
+  const normalizedIp = requireNonEmptyString(ip, "ip");
+
+  try {
+    return ipaddr.process(normalizedIp).toString();
+  } catch {
+    throw new TypeError("ip must be a valid IP address.");
+  }
 }
 
 /**
@@ -57,7 +76,7 @@ export function createUserIdentifier(prefix, userId) {
  */
 export function createIpIdentifier(prefix, ip) {
   const normalizedPrefix = requireNonEmptyString(prefix, "prefix");
-  const normalizedIp = requireNonEmptyString(ip, "ip");
+  const normalizedIp = normalizeIpAddress(ip);
 
   return `${normalizedPrefix}:ip:${hashValue(normalizedIp)}`;
 }
