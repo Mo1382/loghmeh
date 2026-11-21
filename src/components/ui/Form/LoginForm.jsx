@@ -1,13 +1,12 @@
 "use client";
 
-import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
 
-import { CheckboxCheckedIcon, LogInIcon } from "@/components/icons";
+import { LogInIcon } from "@/components/icons";
 import AuthFormGroup from "./AuthFormGroup";
-import ButtonSpinner from "@/components/shared/ButtonSpinner";
 
 import { loginAction } from "@/app/actions/auth/login";
 import { loginUserSchema } from "@/validations/auth.validation";
@@ -120,7 +119,7 @@ export default function LoginForm() {
        relative flex min-h-dvh w-full flex-col items-center justify-center
         bg-neutral-2 
 
- md:max-w-[578px]
+        md:max-w-[608px]
 
         lg:max-w-none lg:w-1/2 lg:right-1/2 lg:px-40 max-w-[700px]
       "
@@ -162,12 +161,13 @@ export default function LoginForm() {
           flex-col rounded-[16px] border border-neutral-4
           bg-neutral-1 px-[15px] pb-30 pt-[23px]
           shadow-card
+          min-h-[420px]
 
-          md:mt-[27px]
+          md:mt-[27px] md:min-h-[455px]
           md:rounded-[24px] md:px-[31px]
           md:pb-[35px] md:pt-[35px]
 
-          lg:mt-32 
+          lg:mt-32 lg:min-h-[482px]
           lg:max-w-none lg:px-[37px]
           lg:pb-[33px] lg:pt-[37px]
         "
@@ -207,7 +207,7 @@ export default function LoginForm() {
         </div>
 
         {/* General server error */}
-        {errors.root?.server?.message ? (
+        {/* {errors.root?.server?.message ? (
           <p
             role="alert"
             className="
@@ -219,7 +219,19 @@ export default function LoginForm() {
           >
             {errors.root.server.message}
           </p>
-        ) : null}
+        ) : null} */}
+
+        <p
+          role="alert"
+          className="
+              mt-12 w-full text-right text-12
+              text-red-500
+              md:text-13
+              lg:text-14
+            "
+        >
+          مشکل ای پیش آمده است.
+        </p>
 
         {/* Authentication links */}
         <div
