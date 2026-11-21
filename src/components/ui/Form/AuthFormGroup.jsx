@@ -15,6 +15,7 @@ export default function AuthFormGroup({
   placeholder = "آدرس پست الکترونیکی خود را وارد نمایید",
   errorMsg,
   isError = false,
+  registration,
   autoComplete,
   dir = "auto",
   onChange,
@@ -23,15 +24,21 @@ export default function AuthFormGroup({
 }) {
   const errorId = `${inputId}-error`;
 
+  const handleChange = (event) => {
+    registration?.onChange?.(event);
+    onChange?.(event);
+  };
+
   return (
-    <div className="w-full ">
+    <div className="w-full">
       <label className={labelClassName} htmlFor={inputId}>
         {label}
       </label>
 
       <input
+        ref={registration?.ref}
+        name={registration?.name ?? name}
         id={inputId}
-        name={name}
         type={type}
         dir={dir}
         autoComplete={autoComplete}
@@ -39,7 +46,8 @@ export default function AuthFormGroup({
         disabled={disabled}
         aria-invalid={isError}
         aria-describedby={isError && errorMsg ? errorId : undefined}
-        onChange={onChange}
+        onChange={handleChange}
+        onBlur={registration?.onBlur}
         placeholder={placeholder}
         className={`${inputClassName} ${
           isError ? "border-red-500 focus:border-red-500" : ""

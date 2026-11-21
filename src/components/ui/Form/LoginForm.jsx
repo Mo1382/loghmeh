@@ -117,25 +117,20 @@ export default function LoginForm() {
   return (
     <section
       className="
-        flex min-h-dvh w-full flex-col items-center
-        bg-neutral-2 px-24 pt-40
+       relative flex min-h-dvh w-full flex-col items-center justify-center
+        bg-neutral-2 
 
-        md:min-h-[1021px] md:px-0 md:pt-20
+ md:max-w-[578px]
 
-        lg:min-h-[810px] lg:w-[762px] lg:shrink-0
-        lg:px-[84px] lg:pt-[68px]
+        lg:max-w-none lg:w-1/2 lg:right-1/2 lg:px-40 max-w-[700px]
       "
     >
       {/* Page heading */}
       <header
         dir="ltr"
         className="
-          flex h-[25px] w-full max-w-[364px]
+          flex w-full
           items-center justify-end gap-8
-
-          md:h-[31px] md:max-w-[608px]
-
-          lg:h-9 lg:max-w-none lg:w-[638px]
         "
       >
         <h1
@@ -163,16 +158,16 @@ export default function LoginForm() {
         onSubmit={handleSubmit(onSubmit)}
         aria-label="فرم ورود"
         className="
-          mt-[22px] flex min-h-[376px] w-full max-w-[364px]
+          mt-[22px] flex w-full
           flex-col rounded-[16px] border border-neutral-4
           bg-neutral-1 px-[15px] pb-30 pt-[23px]
           shadow-card
 
-          md:mt-[27px] md:min-h-[424px] md:max-w-[608px]
+          md:mt-[27px]
           md:rounded-[24px] md:px-[31px]
           md:pb-[35px] md:pt-[35px]
 
-          lg:mt-32 lg:min-h-[444px] lg:w-[638px]
+          lg:mt-32 
           lg:max-w-none lg:px-[37px]
           lg:pb-[33px] lg:pt-[37px]
         "
@@ -260,7 +255,7 @@ export default function LoginForm() {
 
         {/* Submit button */}
         <div className="mt-36 md:mt-40 lg:mt-[56px]">
-          <SignInBtn disabled={isSubmitting} />
+          <SignInBtn disabled={isSubmitting} isLoading={isSubmitting} />
         </div>
       </form>
     </section>

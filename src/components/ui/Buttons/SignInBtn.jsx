@@ -34,6 +34,7 @@ export default function SignInBtn({ disabled = false, isLoading = false }) {
       {isLoading ? (
         <>
           <ButtonSpinner />
+          <span className="sr-only">در حال ورود</span>
         </>
       ) : (
         <>
