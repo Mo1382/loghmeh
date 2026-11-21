@@ -84,19 +84,13 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="fa" className={`${IRANSansX.variable}`} dir="rtl">
-      <body className="min-h-full flex flex-col bg-neutral-2">
-        <MenuProvider>
-          {/* <MainNavigation /> */}
-          {/* <TopNavigation /> */}
-          {children}
-        </MenuProvider>
+      <body className="min-h-dvh bg-neutral-2">
+        {children}
 
         <Toaster
           position="top-center"
           gutter={16}
-          containerStyle={{
-            top: 43,
-          }}
+          containerStyle={{ top: 43 }}
         />
       </body>
     </html>

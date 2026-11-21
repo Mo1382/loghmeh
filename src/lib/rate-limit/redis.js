@@ -1,8 +1,9 @@
 import { Redis } from "@upstash/redis";
 
-import { getRateLimitEnv } from "@/lib/config/env";
+import { getUpstashRedisEnv } from "@/lib/config/env";
 
-const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } = getRateLimitEnv();
+const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } =
+  getUpstashRedisEnv();
 
 export const redis = new Redis({
   url: UPSTASH_REDIS_REST_URL,

@@ -1,5 +1,5 @@
 const inputClassName =
-  "py-12 w-full rounded-[10px] border border-neutral-5 bg-neutral-1 px-14 text-14 font-normal text-neutral-8 outline-none placeholder:text-neutral-6 focus:border-red-400 md:rounded-xl md:px-16 md:text-15 lg:text-16";
+  "py-12 w-full text-right rounded-[10px] border border-neutral-5 bg-neutral-1 px-14 text-14 font-normal text-neutral-8 outline-none placeholder:text-neutral-6 focus:border-red-400 md:rounded-xl md:px-16 md:text-15 lg:text-16";
 
 const labelClassName =
   "block mb-12 text-right text-15 font-medium text-neutral-8 md:mb-14 md:text-16";
@@ -9,23 +9,48 @@ const errorClassName =
 
 export default function AuthFormGroup({
   inputId,
+  name = inputId,
+  type = "text",
   label = "ایمیل",
   placeholder = "آدرس پست الکترونیکی خود را وارد نمایید",
-  errorMsg = "پر کردن این فیلد الزامی است.",
+  errorMsg,
+  isError = false,
+  autoComplete,
+  dir = "auto",
+  onChange,
+  disabled = false,
+  required = true,
 }) {
-  const isError = false;
+  const errorId = `${inputId}-error`;
 
   return (
-    <div className="w-full">
+    <div className="w-full ">
       <label className={labelClassName} htmlFor={inputId}>
         {label}
       </label>
+
       <input
         id={inputId}
-        className={`${inputClassName} ${isError ? "border-red-500" : ""}`}
+        name={name}
+        type={type}
+        dir={dir}
+        autoComplete={autoComplete}
+        required={required}
+        disabled={disabled}
+        aria-invalid={isError}
+        aria-describedby={isError && errorMsg ? errorId : undefined}
+        onChange={onChange}
         placeholder={placeholder}
+        className={`${inputClassName} ${
+          isError ? "border-red-500 focus:border-red-500" : ""
+        }`}
       />
-      {isError ? <span className={errorClassName}>{errorMsg}</span> : null}
+
+      {isError && errorMsg ? (
+        <span id={errorId} className={errorClassName}>
+          {errorMsg}
+        </span>
+      ) : null}
     </div>
   );
 }
