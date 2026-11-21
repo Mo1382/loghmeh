@@ -49,7 +49,6 @@ export default function LoginForm() {
   async function onSubmit(values) {
     clearErrors("root.server");
 
-    // Use Zod-normalized values returned by the resolver.
     const formData = new FormData();
 
     formData.set("identifier", values.identifier);
@@ -81,19 +80,17 @@ export default function LoginForm() {
         }
       }
 
-      // Map general server-side errors.
-      const serverFormError = getFirstErrorMessage(response.error?.formErrors);
+      // Show a general server error only when no field error exists.
+      if (!hasFieldErrors) {
+        const serverFormError = getFirstErrorMessage(
+          response.error?.formErrors
+        );
 
-      if (serverFormError) {
-        setError("root.server", {
-          type: "server",
-          message: serverFormError,
-        });
-      } else if (!hasFieldErrors) {
         setError("root.server", {
           type: "server",
           message:
-            response.error?.message ??
+            serverFormError ||
+            response.error?.message ||
             "ورود با مشکل مواجه شد. لطفاً دوباره تلاش کنید.",
         });
       }
@@ -116,20 +113,22 @@ export default function LoginForm() {
   return (
     <section
       className="
-       relative flex min-h-dvh w-full flex-col items-center justify-center
-        bg-neutral-2 
+        relative flex min-h-dvh w-full flex-col
+        items-center justify-center bg-neutral-2
 
         md:max-w-[608px]
 
-        lg:max-w-none lg:w-1/2 lg:right-1/2 lg:px-40 max-w-[700px]
+        lg:max-w-none lg:w-1/2 lg:right-1/2
+        lg:px-40
+
+        max-w-[700px]
       "
     >
       {/* Page heading */}
       <header
         dir="ltr"
         className="
-          flex w-full
-          items-center justify-end gap-8
+          flex w-full items-center justify-end gap-8
         "
       >
         <h1
@@ -153,33 +152,27 @@ export default function LoginForm() {
 
       {/* Login form */}
       <form
+        dir="rtl"
         noValidate
         onSubmit={handleSubmit(onSubmit)}
         aria-label="فرم ورود"
         className="
-          mt-[22px] flex w-full
-          flex-col rounded-[16px] border border-neutral-4
-          bg-neutral-1 px-[15px] pb-30 pt-[23px]
-          shadow-card
-          min-h-[420px]
+  mt-[22px] flex h-[476px] w-full shrink-0
+  flex-col rounded-[16px] border border-neutral-4
+  bg-neutral-1 px-[15px] pb-30 pt-[23px]
+  shadow-card
 
-          md:mt-[27px] md:min-h-[455px]
-          md:rounded-[24px] md:px-[31px]
-          md:pb-[35px] md:pt-[35px]
+  md:mt-[27px] md:h-[519px]
+  md:rounded-[24px] md:px-[31px]
+  md:pb-[35px] md:pt-[35px]
 
-          lg:mt-32 lg:min-h-[482px]
-          lg:max-w-none lg:px-[37px]
-          lg:pb-[33px] lg:pt-[37px]
-        "
+  lg:mt-32 lg:h-[548px]
+  lg:max-w-none lg:px-[37px]
+  lg:pb-[33px] lg:pt-[37px]
+"
       >
         {/* Input fields */}
-        <div
-          className="
-            flex w-full flex-col gap-y-20
-            md:gap-y-24
-            lg:gap-y-[22px]
-          "
-        >
+        <div className="flex w-full shrink-0 flex-col gap-y-12 md:gap-y-14">
           <AuthFormGroup
             inputId="login-identifier"
             label="نام کاربری یا ایمیل"
@@ -206,68 +199,61 @@ export default function LoginForm() {
           />
         </div>
 
-        {/* General server error */}
-        {/* {errors.root?.server?.message ? (
-          <p
-            role="alert"
-            className="
-              mt-12 w-full text-right text-12
-              text-red-500
-              md:text-13
-              lg:text-14
-            "
-          >
-            {errors.root.server.message}
-          </p>
-        ) : null} */}
-
-        <p
-          role="alert"
+        {/* General server error — reserved space */}
+        <div
           className="
-              mt-12 w-full text-right text-12
-              text-red-500
-              md:text-13
-              lg:text-14
-            "
+    mt-12 h-[18px] w-full shrink-0
+    md:h-5
+    lg:h-[21px]
+  "
+          aria-live="polite"
+          aria-atomic="true"
         >
-          مشکل ای پیش آمده است.
-        </p>
+          {errors.root?.server?.message ? (
+            <p
+              role="alert"
+              title={errors.root.server.message}
+              className="
+                h-full w-full truncate text-right
+                text-12 leading-[18px] text-red-500
+                md:text-13 md:leading-5
+                lg:text-14 lg:leading-[21px]
+              "
+            >
+              {errors.root.server.message}
+            </p>
+          ) : null}
+        </div>
 
         {/* Authentication links */}
         <div
           className="
-            mt-24 flex w-full flex-col gap-y-10
-            text-right
-
-            md:mt-[27px] md:gap-y-12
-
-            lg:mt-[21px]
-          "
+    mt-24 flex w-full shrink-0 flex-col gap-y-10
+    text-right
+    md:mt-[27px] md:gap-y-12
+    lg:mt-[21px]
+  "
         >
           <FormFooter>
             رمزتان را فراموش کرده‌اید؟{" "}
-            <Link
-              href="/forgot-password"
-              className="text-red-500 transition-colors hover:text-red-hover"
-            >
-              بازیابی رمز
-            </Link>
+            <Link href="/forgot-password">بازیابی رمز</Link>
           </FormFooter>
 
           <FormFooter>
-            هنوز عضو نشده‌اید؟{" "}
-            <Link
-              href="/register"
-              className="text-red-500 transition-colors hover:text-red-hover"
-            >
-              ثبت نام
-            </Link>
+            هنوز عضو نشده‌اید؟ <Link href="/register">ثبت نام</Link>
           </FormFooter>
         </div>
 
         {/* Submit button */}
-        <div className="mt-36 md:mt-40 lg:mt-[56px]">
-          <SignInBtn disabled={isSubmitting} isLoading={isSubmitting} />
+        <div
+          className="
+    mt-auto shrink-0
+    pt-36
+    md:pt-40
+    lg:pt-[56px]
+  "
+        >
+          <SignInBtn isLoading={isSubmitting} />
         </div>
       </form>
     </section>
