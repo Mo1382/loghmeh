@@ -2,7 +2,8 @@ import { Ratelimit } from "@upstash/ratelimit";
 
 import { redis } from "./redis";
 
-const DEFAULT_RATE_LIMIT_TIMEOUT_MS = 1_500;
+// const DEFAULT_RATE_LIMIT_TIMEOUT_MS = 1_500;
+const DEFAULT_RATE_LIMIT_TIMEOUT_MS = 5_000;
 
 function createLimiter({
   name,

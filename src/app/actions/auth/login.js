@@ -26,6 +26,8 @@ import { loginUser } from "@/services/auth.service";
 import { setSessionCookie } from "@/lib/auth/session-cookie";
 import { loginUserSchema } from "@/validations/auth.validation";
 
+import { connectDB } from "@/lib/db";
+
 const DEVELOPMENT_CLIENT_IP = "127.0.0.1";
 const RATE_LIMIT_UNAVAILABLE_MESSAGE =
   "در حال حاضر امکان بررسی محدودیت درخواست‌ها وجود ندارد. لطفاً کمی بعد دوباره تلاش کنید.";
@@ -141,11 +143,12 @@ export async function loginAction(formData) {
       throw parsedInput.error;
     }
 
-    // Apply the per-identifier limit.
     await checkRateLimit({
       limiter: loginIdentifierLimiter,
       identifier: createLoginIdentifier(parsedInput.data.identifier),
     });
+
+    await connectDB();
 
     const { sessionContext } = await loginUser(parsedInput.data);
 
