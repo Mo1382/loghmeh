@@ -12,9 +12,9 @@ import { loginUserSchema } from "@/validations/auth.validation";
 import SignInBtn from "../Buttons/SignInBtn";
 import AuthFormGroup from "./AuthFormGroup";
 import FormFooter from "./FormFooter";
+import FormErrorMessage from "../Auth/FormErrorMessage";
 
 const PERSISTENT_ROOT_ERROR_CODES = new Set([
-  ERROR_CODES.RATE_LIMIT_EXCEEDED,
   ERROR_CODES.RATE_LIMIT_UNAVAILABLE,
 ]);
 
@@ -88,16 +88,29 @@ export default function LoginForm() {
         }
       }
 
-      // Show a general server error only when no field error exists.
       if (!hasFieldErrors) {
         const serverFormError = getFirstErrorMessage(serverError?.formErrors);
 
+        const baseMessage =
+          serverFormError ||
+          serverError?.message ||
+          "ورود با مشکل مواجه شد. لطفاً دوباره تلاش کنید.";
+
+        const retryAfter =
+          serverError?.code === ERROR_CODES.RATE_LIMIT_EXCEEDED &&
+          Number.isSafeInteger(serverError.retryAfter) &&
+          serverError.retryAfter > 0
+            ? serverError.retryAfter
+            : null;
+
+        const message =
+          retryAfter !== null
+            ? `لطفاً ${retryAfter.toLocaleString("fa-IR")} ثانیه دیگر تلاش کنید.`
+            : baseMessage;
+
         setError("root.server", {
           type: serverError?.code ?? "server",
-          message:
-            serverFormError ||
-            serverError?.message ||
-            "ورود با مشکل مواجه شد. لطفاً دوباره تلاش کنید.",
+          message,
         });
       }
     } catch {
@@ -145,6 +158,9 @@ export default function LoginForm() {
           registration={identifierRegistration}
           type="text"
           autoComplete="username"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           errorMsg={errors.identifier?.message}
           disabled={isSubmitting}
         />
@@ -170,20 +186,10 @@ export default function LoginForm() {
           lg:h-[21px]
         "
       >
-        {errors.root?.server?.message ? (
-          <p
-            role="alert"
-            title={errors.root.server.message}
-            className="
-              h-full w-full truncate text-right
-              text-12 leading-[18px] text-red-500
-              md:text-13 md:leading-5
-              lg:text-14 lg:leading-[21px]
-            "
-          >
-            {errors.root.server.message}
-          </p>
-        ) : null}
+        <FormErrorMessage
+          message={errors.root?.server?.message}
+          className="h-full"
+        />
       </div>
 
       {/* Authentication links */}

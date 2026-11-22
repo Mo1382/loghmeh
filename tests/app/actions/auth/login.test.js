@@ -14,16 +14,38 @@ const mocks = vi.hoisted(() => ({
   loginIpLimiter: { name: "login-ip-limiter" },
   loginIdentifierLimiter: { name: "login-identifier-limiter" },
 
+  connectDB: vi.fn(),
+
   loginUser: vi.fn(),
 
   createSessionForUser: vi.fn(),
   revokeSessionByToken: vi.fn(),
 
   setSessionCookie: vi.fn(),
+
+  redirect: vi.fn(),
+  redirectSignal: new Error("Mocked Next.js redirect"),
 }));
+
+/*
+ * ============================================================================
+ * Module Mocks
+ * ============================================================================
+ */
 
 vi.mock("next/headers", () => ({
   headers: mocks.headers,
+}));
+
+vi.mock("next/navigation", () => ({
+  redirect: mocks.redirect,
+  RedirectType: {
+    replace: "replace",
+  },
+}));
+
+vi.mock("@/lib/db", () => ({
+  connectDB: mocks.connectDB,
 }));
 
 vi.mock("@/lib/rate-limit/identifiers", () => ({
@@ -66,7 +88,8 @@ const DEVELOPMENT_CLIENT_IP = "127.0.0.1";
 
 const SESSION_TOKEN = "test-session-token";
 
-const LOGIN_SUCCESS_MESSAGE = "با موفقیت وارد حساب کاربری شدید.";
+const REDIRECT_PATH = "/";
+const REDIRECT_TYPE = "replace";
 
 const RATE_LIMIT_UNAVAILABLE_MESSAGE =
   "در حال حاضر امکان بررسی محدودیت درخواست‌ها وجود ندارد. لطفاً کمی بعد دوباره تلاش کنید.";
@@ -111,6 +134,39 @@ function mockForwardedIp(value) {
   });
 }
 
+/**
+ * Simulate Next.js redirect control flow.
+ *
+ * The real redirect() throws a framework-managed control-flow error.
+ * This helper verifies that the Action reaches the redirect only after
+ * completing the successful login flow.
+ */
+async function expectLoginRedirect(formData = createValidFormData()) {
+  await expect(loginAction(formData)).rejects.toBe(mocks.redirectSignal);
+
+  expect(mocks.redirect).toHaveBeenCalledTimes(1);
+
+  expect(mocks.redirect).toHaveBeenCalledWith(REDIRECT_PATH, REDIRECT_TYPE);
+}
+
+/**
+ * Validate a failed Action response.
+ *
+ * A failed login must never trigger navigation.
+ */
+function expectErrorResponse(response, code) {
+  expect(response).toMatchObject({
+    success: false,
+    error: {
+      code,
+      fieldErrors: expect.any(Object),
+      formErrors: expect.any(Array),
+    },
+  });
+
+  expect(mocks.redirect).not.toHaveBeenCalled();
+}
+
 function createRateLimitError() {
   return new AppError(
     ERROR_CODES.RATE_LIMIT_EXCEEDED,
@@ -135,17 +191,6 @@ function createRateLimitUnavailableError() {
       },
     }
   );
-}
-
-function expectErrorResponse(response, code) {
-  expect(response).toMatchObject({
-    success: false,
-    error: {
-      code,
-      fieldErrors: expect.any(Object),
-      formErrors: expect.any(Array),
-    },
-  });
 }
 
 /*
@@ -176,6 +221,9 @@ beforeEach(() => {
     success: true,
   });
 
+  // MongoDB connection succeeds by default.
+  mocks.connectDB.mockResolvedValue(undefined);
+
   // Authentication succeeds by default.
   mocks.loginUser.mockResolvedValue({
     user: mockUser,
@@ -193,6 +241,11 @@ beforeEach(() => {
 
   // Session revocation succeeds by default.
   mocks.revokeSessionByToken.mockResolvedValue(true);
+
+  // Simulate the Next.js redirect control-flow error.
+  mocks.redirect.mockImplementation(() => {
+    throw mocks.redirectSignal;
+  });
 });
 
 afterEach(() => {
@@ -220,9 +273,7 @@ describe("Client IP address", () => {
     ])("accepts a valid $type address", async ({ ip }) => {
       mockForwardedIp(` ${ip} `);
 
-      const response = await loginAction(createValidFormData());
-
-      expect(response.success).toBe(true);
+      await expectLoginRedirect();
 
       expect(mocks.createIpIdentifier).toHaveBeenCalledWith("auth:login", ip);
 
@@ -263,6 +314,8 @@ describe("Client IP address", () => {
 
       expect(mocks.createIpIdentifier).not.toHaveBeenCalled();
       expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+
+      expect(mocks.connectDB).not.toHaveBeenCalled();
       expect(mocks.loginUser).not.toHaveBeenCalled();
     });
   });
@@ -294,16 +347,14 @@ describe("Client IP address", () => {
 
       mockForwardedIp(headerValue);
 
-      const response = await loginAction(createValidFormData());
-
-      expect(response.success).toBe(true);
+      await expectLoginRedirect();
 
       expect(mocks.createIpIdentifier).toHaveBeenCalledWith(
         "auth:login",
         DEVELOPMENT_CLIENT_IP
       );
 
-      expect(mocks.checkRateLimit).toHaveBeenCalledWith({
+      expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, {
         limiter: mocks.loginIpLimiter,
         identifier: `auth:login:ip:${DEVELOPMENT_CLIENT_IP}`,
       });
@@ -327,6 +378,8 @@ describe("Client IP address", () => {
 
     expect(mocks.createIpIdentifier).not.toHaveBeenCalled();
     expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+
+    expect(mocks.connectDB).not.toHaveBeenCalled();
     expect(mocks.loginUser).not.toHaveBeenCalled();
 
     expect(consoleErrorSpy).toHaveBeenCalledWith(headersError);
@@ -354,6 +407,8 @@ describe("FormData extraction and validation", () => {
     expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
 
     expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
+
+    expect(mocks.connectDB).not.toHaveBeenCalled();
     expect(mocks.loginUser).not.toHaveBeenCalled();
   });
 
@@ -377,6 +432,8 @@ describe("FormData extraction and validation", () => {
       expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
 
       expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
+
+      expect(mocks.connectDB).not.toHaveBeenCalled();
       expect(mocks.loginUser).not.toHaveBeenCalled();
     }
   );
@@ -398,6 +455,8 @@ describe("FormData extraction and validation", () => {
       expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
 
       expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
+
+      expect(mocks.connectDB).not.toHaveBeenCalled();
       expect(mocks.loginUser).not.toHaveBeenCalled();
     }
   );
@@ -419,6 +478,37 @@ describe("FormData extraction and validation", () => {
       expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
 
       expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
+
+      expect(mocks.connectDB).not.toHaveBeenCalled();
+      expect(mocks.loginUser).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["identifier", "password"])(
+    "rejects a File value for the %s field",
+    async (field) => {
+      const formData = createValidFormData();
+
+      formData.set(
+        field,
+        new Blob(["unexpected-value"], {
+          type: "text/plain",
+        }),
+        "unexpected.txt"
+      );
+
+      const response = await loginAction(formData);
+
+      expectErrorResponse(response, ERROR_CODES.INVALID_REQUEST);
+
+      expect(response.error.fieldErrors).toHaveProperty(field);
+
+      // File values must be rejected before identifier-based limiting.
+      expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
+
+      expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
+
+      expect(mocks.connectDB).not.toHaveBeenCalled();
       expect(mocks.loginUser).not.toHaveBeenCalled();
     }
   );
@@ -428,9 +518,7 @@ describe("FormData extraction and validation", () => {
 
     formData.set("unexpectedField", "unexpected-value");
 
-    const response = await loginAction(formData);
-
-    expect(response.success).toBe(true);
+    await expectLoginRedirect(formData);
 
     expect(mocks.loginUser).toHaveBeenCalledWith({
       identifier: "user@example.com",
@@ -456,9 +544,7 @@ describe("FormData extraction and validation", () => {
 
       formData.set("identifier", inputIdentifier);
 
-      const response = await loginAction(formData);
-
-      expect(response.success).toBe(true);
+      await expectLoginRedirect(formData);
 
       expect(mocks.createLoginIdentifier).toHaveBeenCalledWith(
         expectedIdentifier
@@ -478,13 +564,12 @@ describe("FormData extraction and validation", () => {
 
   it("preserves the password exactly as submitted", async () => {
     const formData = createValidFormData();
+
     const password = "  ValidPassword123  ";
 
     formData.set("password", password);
 
-    const response = await loginAction(formData);
-
-    expect(response.success).toBe(true);
+    await expectLoginRedirect(formData);
 
     expect(mocks.loginUser).toHaveBeenCalledWith({
       identifier: "user@example.com",
@@ -505,6 +590,8 @@ describe("FormData extraction and validation", () => {
     expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
 
     expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
+
+    expect(mocks.connectDB).not.toHaveBeenCalled();
     expect(mocks.loginUser).not.toHaveBeenCalled();
   });
 });
@@ -517,9 +604,7 @@ describe("FormData extraction and validation", () => {
 
 describe("Rate limiting", () => {
   it("checks the IP-based limit before processing login data", async () => {
-    const response = await loginAction(createValidFormData());
-
-    expect(response.success).toBe(true);
+    await expectLoginRedirect();
 
     expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, {
       limiter: mocks.loginIpLimiter,
@@ -546,6 +631,8 @@ describe("Rate limiting", () => {
     expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
 
     expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
+
+    expect(mocks.connectDB).not.toHaveBeenCalled();
     expect(mocks.loginUser).not.toHaveBeenCalled();
   });
 
@@ -563,6 +650,8 @@ describe("Rate limiting", () => {
     expect(response.error.retryAfter).toBe(45);
 
     expect(mocks.checkRateLimit).toHaveBeenCalledTimes(2);
+
+    expect(mocks.connectDB).not.toHaveBeenCalled();
 
     expect(mocks.loginUser).not.toHaveBeenCalled();
     expect(mocks.createSessionForUser).not.toHaveBeenCalled();
@@ -600,8 +689,11 @@ describe("Rate limiting", () => {
 
       expect(mocks.checkRateLimit).toHaveBeenCalledTimes(expectedCalls);
 
+      expect(mocks.connectDB).not.toHaveBeenCalled();
+
       expect(mocks.loginUser).not.toHaveBeenCalled();
       expect(mocks.createSessionForUser).not.toHaveBeenCalled();
+
       expect(mocks.setSessionCookie).not.toHaveBeenCalled();
       expect(mocks.revokeSessionByToken).not.toHaveBeenCalled();
 
@@ -616,27 +708,75 @@ describe("Rate limiting", () => {
 
 /*
  * ============================================================================
+ * Database Connection
+ * ============================================================================
+ */
+
+describe("Database connection", () => {
+  it("connects to MongoDB after both rate limits pass and before authentication", async () => {
+    await expectLoginRedirect();
+
+    expect(mocks.connectDB).toHaveBeenCalledTimes(1);
+
+    const callOrder = [
+      mocks.checkRateLimit.mock.invocationCallOrder[0],
+      mocks.checkRateLimit.mock.invocationCallOrder[1],
+      mocks.connectDB.mock.invocationCallOrder[0],
+      mocks.loginUser.mock.invocationCallOrder[0],
+    ];
+
+    expect(callOrder.every(Number.isInteger)).toBe(true);
+
+    expect(callOrder).toEqual([...callOrder].sort((a, b) => a - b));
+  });
+
+  it("returns an internal error when the database connection fails", async () => {
+    const databaseError = new Error("MongoDB connection failed");
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    mocks.connectDB.mockRejectedValueOnce(databaseError);
+
+    const response = await loginAction(createValidFormData());
+
+    expectErrorResponse(response, ERROR_CODES.INTERNAL_SERVER_ERROR);
+
+    expect(response.error.message).toBe(INTERNAL_SERVER_ERROR_MESSAGE);
+
+    expect(mocks.checkRateLimit).toHaveBeenCalledTimes(2);
+
+    expect(mocks.connectDB).toHaveBeenCalledTimes(1);
+
+    expect(mocks.loginUser).not.toHaveBeenCalled();
+    expect(mocks.createSessionForUser).not.toHaveBeenCalled();
+
+    expect(mocks.setSessionCookie).not.toHaveBeenCalled();
+    expect(mocks.revokeSessionByToken).not.toHaveBeenCalled();
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(databaseError);
+  });
+});
+
+/*
+ * ============================================================================
  * Authentication
  * ============================================================================
  */
 
 describe("Authentication", () => {
-  it("returns a successful response after completing the login flow", async () => {
+  it("completes the login flow and redirects to the home page", async () => {
     const formData = createValidFormData();
 
     formData.set("identifier", " User@Example.COM ");
 
-    const response = await loginAction(formData);
-
-    expect(response).toEqual({
-      success: true,
-      data: {
-        user: mockUser,
-      },
-      message: LOGIN_SUCCESS_MESSAGE,
-    });
+    await expectLoginRedirect(formData);
 
     expect(mocks.checkRateLimit).toHaveBeenCalledTimes(2);
+
+    expect(mocks.connectDB).toHaveBeenCalledTimes(1);
+
     expect(mocks.loginUser).toHaveBeenCalledTimes(1);
     expect(mocks.createSessionForUser).toHaveBeenCalledTimes(1);
     expect(mocks.setSessionCookie).toHaveBeenCalledTimes(1);
@@ -654,16 +794,10 @@ describe("Authentication", () => {
     );
 
     expect(mocks.revokeSessionByToken).not.toHaveBeenCalled();
-
-    // Internal session data must not be returned to the client.
-    expect(response.data).not.toHaveProperty("sessionContext");
-    expect(JSON.stringify(response)).not.toContain(SESSION_TOKEN);
   });
 
   it("executes the successful login flow in the expected order", async () => {
-    const response = await loginAction(createValidFormData());
-
-    expect(response.success).toBe(true);
+    await expectLoginRedirect();
 
     const callOrder = [
       mocks.headers.mock.invocationCallOrder[0],
@@ -671,15 +805,15 @@ describe("Authentication", () => {
       mocks.checkRateLimit.mock.invocationCallOrder[0],
       mocks.createLoginIdentifier.mock.invocationCallOrder[0],
       mocks.checkRateLimit.mock.invocationCallOrder[1],
+      mocks.connectDB.mock.invocationCallOrder[0],
       mocks.loginUser.mock.invocationCallOrder[0],
       mocks.createSessionForUser.mock.invocationCallOrder[0],
       mocks.setSessionCookie.mock.invocationCallOrder[0],
+      mocks.redirect.mock.invocationCallOrder[0],
     ];
 
-    // Ensure every expected operation was actually called.
     expect(callOrder.every(Number.isInteger)).toBe(true);
 
-    // Ensure the operations happened in the expected sequence.
     expect(callOrder).toEqual([...callOrder].sort((a, b) => a - b));
   });
 
@@ -687,7 +821,7 @@ describe("Authentication", () => {
     mocks.loginUser.mockRejectedValueOnce(
       new AppError(
         ERROR_CODES.INVALID_CREDENTIALS,
-        "نام کاربری یا رمز عبور نادرست است.",
+        "ایمیل، نام کاربری یا رمز عبور نامعتبر است.",
         {
           statusCode: 401,
         }
@@ -698,7 +832,10 @@ describe("Authentication", () => {
 
     expectErrorResponse(response, ERROR_CODES.INVALID_CREDENTIALS);
 
+    expect(mocks.connectDB).toHaveBeenCalledTimes(1);
+
     expect(mocks.createSessionForUser).not.toHaveBeenCalled();
+
     expect(mocks.setSessionCookie).not.toHaveBeenCalled();
     expect(mocks.revokeSessionByToken).not.toHaveBeenCalled();
   });
@@ -725,6 +862,8 @@ describe("Session creation", () => {
     const response = await loginAction(createValidFormData());
 
     expectErrorResponse(response, ERROR_CODES.USER_LIFECYCLE_CONFLICT);
+
+    expect(mocks.connectDB).toHaveBeenCalledTimes(1);
 
     expect(mocks.createSessionForUser).toHaveBeenCalledTimes(1);
 
@@ -753,13 +892,17 @@ describe("Cookie setup and session cleanup", () => {
 
     const response = await loginAction(createValidFormData());
 
+    expect(mocks.connectDB).toHaveBeenCalledTimes(1);
+
     expect(mocks.setSessionCookie).toHaveBeenCalledTimes(1);
+
     expect(mocks.setSessionCookie).toHaveBeenCalledWith(
       SESSION_TOKEN,
       mockSession
     );
 
     expect(mocks.revokeSessionByToken).toHaveBeenCalledTimes(1);
+
     expect(mocks.revokeSessionByToken).toHaveBeenCalledWith(SESSION_TOKEN);
 
     expect(mocks.setSessionCookie.mock.invocationCallOrder[0]).toBeLessThan(
@@ -793,9 +936,12 @@ describe("Cookie setup and session cleanup", () => {
 
     const response = await loginAction(createValidFormData());
 
+    expect(mocks.connectDB).toHaveBeenCalledTimes(1);
+
     expect(mocks.setSessionCookie).toHaveBeenCalledTimes(1);
 
     expect(mocks.revokeSessionByToken).toHaveBeenCalledTimes(1);
+
     expect(mocks.revokeSessionByToken).toHaveBeenCalledWith(SESSION_TOKEN);
 
     expectErrorResponse(response, ERROR_CODES.INTERNAL_SERVER_ERROR);
@@ -826,9 +972,12 @@ describe("Cookie setup and session cleanup", () => {
 
     const response = await loginAction(createValidFormData());
 
+    expect(mocks.connectDB).toHaveBeenCalledTimes(1);
+
     expect(mocks.setSessionCookie).toHaveBeenCalledTimes(1);
 
     expect(mocks.revokeSessionByToken).toHaveBeenCalledTimes(1);
+
     expect(mocks.revokeSessionByToken).toHaveBeenCalledWith(SESSION_TOKEN);
 
     expectErrorResponse(response, ERROR_CODES.INTERNAL_SERVER_ERROR);
@@ -839,7 +988,7 @@ describe("Cookie setup and session cleanup", () => {
       revokeError
     );
 
-    // The original cookie error is still propagated to the action's
+    // The original cookie error is still propagated to the Action's
     // error handler rather than being replaced by the cleanup error.
     expect(consoleErrorSpy).toHaveBeenCalledWith(cookieError);
 

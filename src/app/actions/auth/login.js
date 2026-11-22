@@ -123,8 +123,8 @@ async function setCookieOrRevokeSession(token, session) {
  * Authenticate a user, create a server-side Session, and set its HttpOnly
  * browser Cookie.
  *
- * Returns a plain Action response. Client-side navigation should happen only
- * after the caller receives a successful response.
+ * Returns a standardized Action error response when the login flow fails.
+ * On successful authentication, redirects to the home page.
  */
 export async function loginAction(formData) {
   try {
