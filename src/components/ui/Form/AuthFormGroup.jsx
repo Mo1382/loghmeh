@@ -24,20 +24,19 @@ const errorClassName = `
 
 export default function AuthFormGroup({
   inputId,
-  name = inputId,
   type = "text",
-  label = "ایمیل",
-  placeholder = "آدرس پست الکترونیکی خود را وارد نمایید",
+  label,
+  placeholder,
   errorMsg,
-  isError = false,
   registration,
   autoComplete,
   dir = "auto",
-  onChange,
   disabled = false,
   required = true,
 }) {
   const errorId = `${inputId}-error`;
+
+  const hasError = Boolean(errorMsg);
 
   const handleChange = (event) => {
     registration?.onChange?.(event);
@@ -50,24 +49,21 @@ export default function AuthFormGroup({
         {label}
       </label>
       <input
-        ref={registration?.ref}
-        name={registration?.name ?? name}
+        {...registration}
         id={inputId}
         type={type}
         dir={dir}
         autoComplete={autoComplete}
         required={required}
         disabled={disabled}
-        aria-invalid={isError}
-        aria-describedby={isError && errorMsg ? errorId : undefined}
-        onChange={handleChange}
-        onBlur={registration?.onBlur}
+        aria-invalid={hasError}
+        aria-describedby={hasError ? errorId : undefined}
         placeholder={placeholder}
         className={`${inputClassName} ${
-          isError ? "border-red-500 focus:border-red-500" : ""
+          hasError ? "border-red-500 focus:border-red-500" : ""
         }`}
       />
-      {isError && errorMsg ? (
+      {hasError && errorMsg ? (
         <span
           id={errorId}
           role="alert"

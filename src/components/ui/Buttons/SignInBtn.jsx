@@ -1,9 +1,10 @@
 import CheckboxChecked from "@/components/icons/CheckboxChecked";
 import ButtonSpinner from "@/components/shared/ButtonSpinner";
 
-const className = `
-  inline-flex h-[44px] w-[102px] items-center justify-center
-  gap-x-[7px] rounded-[10px] bg-red-500
+const buttonClassName = `
+  relative isolate inline-flex h-[44px] w-[102px]
+  items-center justify-center
+  rounded-[10px] bg-red-500
   text-15 font-medium text-neutral-1 transition-colors
   hover:bg-red-hover
   focus-visible:outline-2 focus-visible:outline-offset-2
@@ -14,7 +15,13 @@ const className = `
   md:rounded-lg md:text-16
 
   lg:h-[52px] lg:w-[102px]
-  lg:gap-x-10 lg:py-12 lg:pr-14 lg:pl-20 lg:text-19
+  lg:py-12 lg:pr-14 lg:pl-20 lg:text-19
+`;
+
+const contentClassName = `
+  inline-flex items-center gap-x-[7px]
+  md:gap-x-[7px]
+  lg:gap-x-10
 `;
 
 const iconClassName = `
@@ -29,19 +36,22 @@ export default function SignInBtn({ disabled = false, isLoading = false }) {
       type="submit"
       disabled={disabled || isLoading}
       aria-busy={isLoading}
-      className={className}
+      className={buttonClassName}
     >
+      <span
+        className={`${contentClassName} ${isLoading ? "invisible" : ""}`}
+        aria-hidden={isLoading}
+      >
+        <CheckboxChecked className={iconClassName} />
+        <span>ورود</span>
+      </span>
+
       {isLoading ? (
         <>
           <ButtonSpinner />
           <span className="sr-only">در حال ورود</span>
         </>
-      ) : (
-        <>
-          <CheckboxChecked className={iconClassName} />
-          <span>ورود</span>
-        </>
-      )}
+      ) : null}
     </button>
   );
 }

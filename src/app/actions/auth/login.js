@@ -4,6 +4,8 @@ import { isIP } from "node:net";
 
 import { headers } from "next/headers";
 
+import { redirect, RedirectType } from "next/navigation";
+
 import { ERROR_CODES } from "@/constants/error-codes";
 import AppError from "@/lib/errors/AppError";
 import {
@@ -15,10 +17,7 @@ import {
   loginIpLimiter,
 } from "@/lib/rate-limit/policies";
 import { checkRateLimit } from "@/lib/rate-limit/rate-limit";
-import {
-  createActionErrorResponse,
-  createActionSuccessResponse,
-} from "@/lib/actions/action-response";
+import { createActionErrorResponse } from "@/lib/actions/action-response";
 import {
   createSessionForUser,
   revokeSessionByToken,
@@ -129,7 +128,7 @@ export async function loginAction(formData) {
   try {
     const clientIp = await getClientIpAddress();
 
-    // Apply the IP limit before validation to also count malformed requests.
+    // Apply the IP limit before validation.
     await checkRateLimit({
       limiter: loginIpLimiter,
       identifier: createIpIdentifier("auth:login", clientIp),
@@ -142,23 +141,21 @@ export async function loginAction(formData) {
       throw parsedInput.error;
     }
 
-    // Apply the per-identifier limit using the schema-normalized value.
+    // Apply the per-identifier limit.
     await checkRateLimit({
       limiter: loginIdentifierLimiter,
       identifier: createLoginIdentifier(parsedInput.data.identifier),
     });
 
-    const { user, sessionContext } = await loginUser(parsedInput.data);
+    const { sessionContext } = await loginUser(parsedInput.data);
 
     const { token, session } = await createSessionForUser(sessionContext);
 
     await setCookieOrRevokeSession(token, session);
-
-    return createActionSuccessResponse(
-      { user },
-      "با موفقیت وارد حساب کاربری شدید."
-    );
   } catch (error) {
     return createActionErrorResponse(error);
   }
+
+  // Redirect only after successful authentication.
+  redirect("/", RedirectType.replace);
 }

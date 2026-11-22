@@ -128,12 +128,9 @@ body {
   font-size: 16px;
 }
 
-button,
-a {
+button:enabled,
+a[href] {
   cursor: pointer;
-  /* To make spinners centerized easily */
-  position: relative;
-  overflow: hidden;
 }
 
 /* Chrome, Safari, Edge */

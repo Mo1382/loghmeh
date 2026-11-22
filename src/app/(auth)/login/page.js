@@ -1,5 +1,6 @@
 import Image from "next/image";
 import LoginForm from "@/components/ui/Form/LoginForm";
+import { LogInIcon } from "@/components/icons";
 
 export const metadata = {
   title: "ورود",
@@ -15,7 +16,6 @@ export default function LoginPage() {
     >
       {/* Desktop illustration */}
       <div
-        aria-hidden="true"
         className="
           fixed hidden
           shrink-0 overflow-hidden
@@ -34,7 +34,46 @@ export default function LoginPage() {
         />
       </div>
 
-      <LoginForm />
+      <section
+        className="
+        relative flex min-h-dvh w-full flex-col
+        items-center justify-center bg-neutral-2
+
+        md:max-w-[608px]
+
+        lg:max-w-none lg:w-1/2 lg:right-1/2
+        lg:px-40
+
+        max-w-[700px]
+      "
+      >
+        {/* Page heading */}
+        <header
+          dir="ltr"
+          className="
+          flex w-full items-center justify-end gap-8
+        "
+        >
+          <h1
+            dir="rtl"
+            className="
+            text-18 font-medium text-neutral-8
+            md:text-22
+            lg:text-26 lg:font-semibold
+          "
+          >
+            ورود
+          </h1>
+
+          <LogInIcon
+            className="
+            size-24 shrink-0 text-neutral-8
+            lg:size-28
+          "
+          />
+        </header>
+        <LoginForm />
+      </section>
     </main>
   );
 }
