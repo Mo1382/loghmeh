@@ -4,7 +4,7 @@ import { ERROR_CODES } from "@/constants/error-codes";
 import AppError from "@/lib/errors/AppError";
 
 const mocks = vi.hoisted(() => ({
-  headers: vi.fn(),
+  getClientIpAddress: vi.fn(),
 
   createIpIdentifier: vi.fn(),
   createLoginIdentifier: vi.fn(),
@@ -33,8 +33,8 @@ const mocks = vi.hoisted(() => ({
  * ============================================================================
  */
 
-vi.mock("next/headers", () => ({
-  headers: mocks.headers,
+vi.mock("@/lib/rate-limit/get-client-ip-address", () => ({
+  getClientIpAddress: mocks.getClientIpAddress,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -84,12 +84,17 @@ import { loginAction } from "@/app/actions/auth/login";
  */
 
 const CLIENT_IP = "203.0.113.42";
-const DEVELOPMENT_CLIENT_IP = "127.0.0.1";
+
+const LOGIN_IDENTIFIER = "user@example.com";
+const LOGIN_PASSWORD = "ValidPassword123";
 
 const SESSION_TOKEN = "test-session-token";
 
 const REDIRECT_PATH = "/";
 const REDIRECT_TYPE = "replace";
+
+const IP_RATE_LIMIT_IDENTIFIER = "mock-ip-rate-limit-identifier";
+const LOGIN_RATE_LIMIT_IDENTIFIER = "mock-login-rate-limit-identifier";
 
 const RATE_LIMIT_UNAVAILABLE_MESSAGE =
   "در حال حاضر امکان بررسی محدودیت درخواست‌ها وجود ندارد. لطفاً کمی بعد دوباره تلاش کنید.";
@@ -101,7 +106,7 @@ const INTERNAL_SERVER_ERROR_MESSAGE = "خطای غیرمنتظره‌ای رخ �
 const mockUser = {
   _id: "user-id-123",
   username: "test_user",
-  email: "user@example.com",
+  email: LOGIN_IDENTIFIER,
 };
 
 const mockSessionContext = {
@@ -122,24 +127,16 @@ const mockSession = {
 function createValidFormData() {
   const formData = new FormData();
 
-  formData.set("identifier", "user@example.com");
-  formData.set("password", "ValidPassword123");
+  formData.set("identifier", LOGIN_IDENTIFIER);
+  formData.set("password", LOGIN_PASSWORD);
 
   return formData;
 }
 
-function mockForwardedIp(value) {
-  mocks.headers.mockResolvedValue({
-    get: (name) => (name === "x-forwarded-for" ? value : null),
-  });
-}
-
 /**
- * Simulate Next.js redirect control flow.
+ * Simulate the Next.js redirect control flow.
  *
  * The real redirect() throws a framework-managed control-flow error.
- * This helper verifies that the Action reaches the redirect only after
- * completing the successful login flow.
  */
 async function expectLoginRedirect(formData = createValidFormData()) {
   await expect(loginAction(formData)).rejects.toBe(mocks.redirectSignal);
@@ -202,19 +199,13 @@ function createRateLimitUnavailableError() {
 beforeEach(() => {
   vi.resetAllMocks();
 
-  vi.stubEnv("NODE_ENV", "production");
-
-  // Default request headers.
-  mockForwardedIp(CLIENT_IP);
+  // Client IP helper succeeds by default.
+  mocks.getClientIpAddress.mockResolvedValue(CLIENT_IP);
 
   // Default identifier implementations.
-  mocks.createIpIdentifier.mockImplementation(
-    (prefix, ip) => `${prefix}:ip:${ip}`
-  );
+  mocks.createIpIdentifier.mockReturnValue(IP_RATE_LIMIT_IDENTIFIER);
 
-  mocks.createLoginIdentifier.mockImplementation(
-    (identifier) => `auth:login:identifier:${identifier}`
-  );
+  mocks.createLoginIdentifier.mockReturnValue(LOGIN_RATE_LIMIT_IDENTIFIER);
 
   // Rate limits pass by default.
   mocks.checkRateLimit.mockResolvedValue({
@@ -250,125 +241,72 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.unstubAllEnvs();
 });
 
 /*
  * ============================================================================
- * Client IP Address
+ * Client IP Dependency
  * ============================================================================
  */
 
-describe("Client IP address", () => {
-  describe("valid forwarded IP", () => {
-    it.each([
-      {
-        type: "IPv4",
-        ip: "203.0.113.42",
-      },
-      {
-        type: "IPv6",
-        ip: "2001:db8::1",
-      },
-    ])("accepts a valid $type address", async ({ ip }) => {
-      mockForwardedIp(` ${ip} `);
+describe("Client IP dependency", () => {
+  it("retrieves and uses the client IP for IP-based rate limiting", async () => {
+    await expectLoginRedirect();
 
-      await expectLoginRedirect();
+    expect(mocks.getClientIpAddress).toHaveBeenCalledTimes(1);
 
-      expect(mocks.createIpIdentifier).toHaveBeenCalledWith("auth:login", ip);
+    expect(mocks.createIpIdentifier).toHaveBeenCalledTimes(1);
+    expect(mocks.createIpIdentifier).toHaveBeenCalledWith(
+      "auth:login",
+      CLIENT_IP
+    );
 
-      expect(mocks.headers).toHaveBeenCalledTimes(1);
+    expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, {
+      limiter: mocks.loginIpLimiter,
+      identifier: IP_RATE_LIMIT_IDENTIFIER,
     });
+
+    const callOrder = [
+      mocks.getClientIpAddress.mock.invocationCallOrder[0],
+      mocks.createIpIdentifier.mock.invocationCallOrder[0],
+      mocks.checkRateLimit.mock.invocationCallOrder[0],
+    ];
+
+    expect(callOrder.every(Number.isInteger)).toBe(true);
+
+    expect(callOrder).toEqual([...callOrder].sort((a, b) => a - b));
   });
 
-  describe("production environment", () => {
-    it.each([
-      {
-        description: "missing header",
-        headerValue: null,
-      },
-      {
-        description: "empty header",
-        headerValue: "",
-      },
-      {
-        description: "whitespace-only header",
-        headerValue: "   ",
-      },
-      {
-        description: "invalid IP",
-        headerValue: "not-an-ip",
-      },
-      {
-        description: "multiple forwarded IPs",
-        headerValue: "203.0.113.42, 198.51.100.10",
-      },
-    ])("rejects $description", async ({ headerValue }) => {
-      mockForwardedIp(headerValue);
+  it("stops when retrieving the client IP fails with a rate-limit error", async () => {
+    const ipError = createRateLimitUnavailableError();
 
-      const response = await loginAction(createValidFormData());
+    mocks.getClientIpAddress.mockRejectedValueOnce(ipError);
 
-      expectErrorResponse(response, ERROR_CODES.RATE_LIMIT_UNAVAILABLE);
+    const response = await loginAction(createValidFormData());
 
-      expect(response.error.message).toBe(RATE_LIMIT_UNAVAILABLE_MESSAGE);
+    expectErrorResponse(response, ERROR_CODES.RATE_LIMIT_UNAVAILABLE);
 
-      expect(mocks.createIpIdentifier).not.toHaveBeenCalled();
-      expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+    expect(response.error.message).toBe(RATE_LIMIT_UNAVAILABLE_MESSAGE);
 
-      expect(mocks.connectDB).not.toHaveBeenCalled();
-      expect(mocks.loginUser).not.toHaveBeenCalled();
-    });
+    expect(mocks.getClientIpAddress).toHaveBeenCalledTimes(1);
+
+    expect(mocks.createIpIdentifier).not.toHaveBeenCalled();
+    expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+
+    expect(mocks.connectDB).not.toHaveBeenCalled();
+    expect(mocks.loginUser).not.toHaveBeenCalled();
+    expect(mocks.createSessionForUser).not.toHaveBeenCalled();
+    expect(mocks.setSessionCookie).not.toHaveBeenCalled();
   });
 
-  describe("development environment", () => {
-    it.each([
-      {
-        description: "missing header",
-        headerValue: null,
-      },
-      {
-        description: "empty header",
-        headerValue: "",
-      },
-      {
-        description: "whitespace-only header",
-        headerValue: "   ",
-      },
-      {
-        description: "invalid IP",
-        headerValue: "not-an-ip",
-      },
-      {
-        description: "multiple forwarded IPs",
-        headerValue: "203.0.113.42, 198.51.100.10",
-      },
-    ])("uses the local fallback for $description", async ({ headerValue }) => {
-      vi.stubEnv("NODE_ENV", "development");
-
-      mockForwardedIp(headerValue);
-
-      await expectLoginRedirect();
-
-      expect(mocks.createIpIdentifier).toHaveBeenCalledWith(
-        "auth:login",
-        DEVELOPMENT_CLIENT_IP
-      );
-
-      expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, {
-        limiter: mocks.loginIpLimiter,
-        identifier: `auth:login:ip:${DEVELOPMENT_CLIENT_IP}`,
-      });
-    });
-  });
-
-  it("returns an internal error when reading request headers fails", async () => {
-    const headersError = new Error("Request headers unavailable");
+  it("returns an internal error when the client IP helper throws an unexpected error", async () => {
+    const helperError = new Error("Client IP helper failed");
 
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
 
-    mocks.headers.mockRejectedValueOnce(headersError);
+    mocks.getClientIpAddress.mockRejectedValueOnce(helperError);
 
     const response = await loginAction(createValidFormData());
 
@@ -376,13 +314,17 @@ describe("Client IP address", () => {
 
     expect(response.error.message).toBe(INTERNAL_SERVER_ERROR_MESSAGE);
 
+    expect(mocks.getClientIpAddress).toHaveBeenCalledTimes(1);
+
     expect(mocks.createIpIdentifier).not.toHaveBeenCalled();
     expect(mocks.checkRateLimit).not.toHaveBeenCalled();
 
     expect(mocks.connectDB).not.toHaveBeenCalled();
     expect(mocks.loginUser).not.toHaveBeenCalled();
+    expect(mocks.createSessionForUser).not.toHaveBeenCalled();
+    expect(mocks.setSessionCookie).not.toHaveBeenCalled();
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith(headersError);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(helperError);
   });
 });
 
@@ -395,8 +337,8 @@ describe("Client IP address", () => {
 describe("FormData extraction and validation", () => {
   it("rejects a non-FormData input", async () => {
     const response = await loginAction({
-      identifier: "user@example.com",
-      password: "ValidPassword123",
+      identifier: LOGIN_IDENTIFIER,
+      password: LOGIN_PASSWORD,
     });
 
     expectErrorResponse(response, ERROR_CODES.INVALID_REQUEST);
@@ -404,6 +346,7 @@ describe("FormData extraction and validation", () => {
     expect(response.error.message).toBe(INVALID_REQUEST_MESSAGE);
 
     // IP-based rate limiting happens before FormData validation.
+    expect(mocks.getClientIpAddress).toHaveBeenCalledTimes(1);
     expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
 
     expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
@@ -451,7 +394,6 @@ describe("FormData extraction and validation", () => {
 
       expect(response.error.fieldErrors).toHaveProperty(field);
 
-      // Only the IP-based limit should have been checked.
       expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
 
       expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
@@ -474,7 +416,6 @@ describe("FormData extraction and validation", () => {
 
       expect(response.error.fieldErrors).toHaveProperty(field);
 
-      // Only the IP-based limit should have been checked.
       expect(mocks.checkRateLimit).toHaveBeenCalledTimes(1);
 
       expect(mocks.createLoginIdentifier).not.toHaveBeenCalled();
@@ -521,8 +462,8 @@ describe("FormData extraction and validation", () => {
     await expectLoginRedirect(formData);
 
     expect(mocks.loginUser).toHaveBeenCalledWith({
-      identifier: "user@example.com",
-      password: "ValidPassword123",
+      identifier: LOGIN_IDENTIFIER,
+      password: LOGIN_PASSWORD,
     });
   });
 
@@ -552,12 +493,12 @@ describe("FormData extraction and validation", () => {
 
       expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(2, {
         limiter: mocks.loginIdentifierLimiter,
-        identifier: `auth:login:identifier:${expectedIdentifier}`,
+        identifier: LOGIN_RATE_LIMIT_IDENTIFIER,
       });
 
       expect(mocks.loginUser).toHaveBeenCalledWith({
         identifier: expectedIdentifier,
-        password: "ValidPassword123",
+        password: LOGIN_PASSWORD,
       });
     }
   );
@@ -572,7 +513,7 @@ describe("FormData extraction and validation", () => {
     await expectLoginRedirect(formData);
 
     expect(mocks.loginUser).toHaveBeenCalledWith({
-      identifier: "user@example.com",
+      identifier: LOGIN_IDENTIFIER,
       password,
     });
   });
@@ -603,18 +544,24 @@ describe("FormData extraction and validation", () => {
  */
 
 describe("Rate limiting", () => {
-  it("checks the IP-based limit before processing login data", async () => {
+  it("checks IP and identifier limits in the expected order", async () => {
     await expectLoginRedirect();
+
+    expect(mocks.checkRateLimit).toHaveBeenCalledTimes(2);
 
     expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(1, {
       limiter: mocks.loginIpLimiter,
-      identifier: `auth:login:ip:${CLIENT_IP}`,
+      identifier: IP_RATE_LIMIT_IDENTIFIER,
     });
 
     expect(mocks.checkRateLimit).toHaveBeenNthCalledWith(2, {
       limiter: mocks.loginIdentifierLimiter,
-      identifier: "auth:login:identifier:user@example.com",
+      identifier: LOGIN_RATE_LIMIT_IDENTIFIER,
     });
+
+    expect(mocks.checkRateLimit.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.checkRateLimit.mock.invocationCallOrder[1]
+    );
   });
 
   it("stops when the IP-based rate limit rejects the request", async () => {
@@ -634,6 +581,8 @@ describe("Rate limiting", () => {
 
     expect(mocks.connectDB).not.toHaveBeenCalled();
     expect(mocks.loginUser).not.toHaveBeenCalled();
+    expect(mocks.createSessionForUser).not.toHaveBeenCalled();
+    expect(mocks.setSessionCookie).not.toHaveBeenCalled();
   });
 
   it("stops when the identifier-based rate limit rejects the request", async () => {
@@ -655,6 +604,7 @@ describe("Rate limiting", () => {
 
     expect(mocks.loginUser).not.toHaveBeenCalled();
     expect(mocks.createSessionForUser).not.toHaveBeenCalled();
+    expect(mocks.setSessionCookie).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -713,23 +663,6 @@ describe("Rate limiting", () => {
  */
 
 describe("Database connection", () => {
-  it("connects to MongoDB after both rate limits pass and before authentication", async () => {
-    await expectLoginRedirect();
-
-    expect(mocks.connectDB).toHaveBeenCalledTimes(1);
-
-    const callOrder = [
-      mocks.checkRateLimit.mock.invocationCallOrder[0],
-      mocks.checkRateLimit.mock.invocationCallOrder[1],
-      mocks.connectDB.mock.invocationCallOrder[0],
-      mocks.loginUser.mock.invocationCallOrder[0],
-    ];
-
-    expect(callOrder.every(Number.isInteger)).toBe(true);
-
-    expect(callOrder).toEqual([...callOrder].sort((a, b) => a - b));
-  });
-
   it("returns an internal error when the database connection fails", async () => {
     const databaseError = new Error("MongoDB connection failed");
 
@@ -761,17 +694,19 @@ describe("Database connection", () => {
 
 /*
  * ============================================================================
- * Authentication
+ * Authentication and Session Creation
  * ============================================================================
  */
 
-describe("Authentication", () => {
+describe("Authentication and session creation", () => {
   it("completes the login flow and redirects to the home page", async () => {
     const formData = createValidFormData();
 
     formData.set("identifier", " User@Example.COM ");
 
     await expectLoginRedirect(formData);
+
+    expect(mocks.getClientIpAddress).toHaveBeenCalledTimes(1);
 
     expect(mocks.checkRateLimit).toHaveBeenCalledTimes(2);
 
@@ -782,8 +717,8 @@ describe("Authentication", () => {
     expect(mocks.setSessionCookie).toHaveBeenCalledTimes(1);
 
     expect(mocks.loginUser).toHaveBeenCalledWith({
-      identifier: "user@example.com",
-      password: "ValidPassword123",
+      identifier: LOGIN_IDENTIFIER,
+      password: LOGIN_PASSWORD,
     });
 
     expect(mocks.createSessionForUser).toHaveBeenCalledWith(mockSessionContext);
@@ -794,13 +729,9 @@ describe("Authentication", () => {
     );
 
     expect(mocks.revokeSessionByToken).not.toHaveBeenCalled();
-  });
-
-  it("executes the successful login flow in the expected order", async () => {
-    await expectLoginRedirect();
 
     const callOrder = [
-      mocks.headers.mock.invocationCallOrder[0],
+      mocks.getClientIpAddress.mock.invocationCallOrder[0],
       mocks.createIpIdentifier.mock.invocationCallOrder[0],
       mocks.checkRateLimit.mock.invocationCallOrder[0],
       mocks.createLoginIdentifier.mock.invocationCallOrder[0],
@@ -839,15 +770,7 @@ describe("Authentication", () => {
     expect(mocks.setSessionCookie).not.toHaveBeenCalled();
     expect(mocks.revokeSessionByToken).not.toHaveBeenCalled();
   });
-});
 
-/*
- * ============================================================================
- * Session Creation
- * ============================================================================
- */
-
-describe("Session creation", () => {
   it("does not set a cookie when session creation fails", async () => {
     mocks.createSessionForUser.mockRejectedValueOnce(
       new AppError(

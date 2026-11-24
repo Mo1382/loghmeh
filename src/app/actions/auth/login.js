@@ -1,13 +1,7 @@
 "use server";
 
-import { isIP } from "node:net";
-
-import { headers } from "next/headers";
-
 import { redirect, RedirectType } from "next/navigation";
 
-import { ERROR_CODES } from "@/constants/error-codes";
-import AppError from "@/lib/errors/AppError";
 import {
   createIpIdentifier,
   createLoginIdentifier,
@@ -26,44 +20,9 @@ import { loginUser } from "@/services/auth.service";
 import { setSessionCookie } from "@/lib/auth/session-cookie";
 import { loginUserSchema } from "@/validations/auth.validation";
 
+import { getClientIpAddress } from "@/lib/rate-limit/get-client-ip-address";
+
 import { connectDB } from "@/lib/db";
-
-const DEVELOPMENT_CLIENT_IP = "127.0.0.1";
-const RATE_LIMIT_UNAVAILABLE_MESSAGE =
-  "در حال حاضر امکان بررسی محدودیت درخواست‌ها وجود ندارد. لطفاً کمی بعد دوباره تلاش کنید.";
-
-/**
- * Read the client IP from the trusted ingress header.
- *
- * The reverse proxy must overwrite x-forwarded-for with the connecting
- * client's IP instead of appending an untrusted client-supplied value.
- * A single valid IP is required so this action never guesses which address
- * in a proxy chain should be trusted.
- */
-async function getClientIpAddress() {
-  const requestHeaders = await headers();
-  const forwardedFor = requestHeaders.get("x-forwarded-for")?.trim();
-
-  if (forwardedFor && isIP(forwardedFor)) {
-    return forwardedFor;
-  }
-
-  // Local development does not always provide a forwarded client IP.
-  if (process.env.NODE_ENV !== "production") {
-    return DEVELOPMENT_CLIENT_IP;
-  }
-
-  throw new AppError(
-    ERROR_CODES.RATE_LIMIT_UNAVAILABLE,
-    RATE_LIMIT_UNAVAILABLE_MESSAGE,
-    {
-      statusCode: 503,
-      details: {
-        reason: "client_ip_unavailable",
-      },
-    }
-  );
-}
 
 /**
  * Return the single value associated with a FormData field.
