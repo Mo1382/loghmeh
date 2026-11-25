@@ -171,7 +171,7 @@ describe("policies.js", () => {
       expect(policy.redis).toBe(redisMock);
       expect(policy.prefix).toBe(`loghmeh:${name}`);
       expect(policy.analytics).toBe(true);
-      expect(policy.timeout).toBe(1_500);
+      expect(policy.timeout).toBe(5_000);
 
       expect(policy.limiter).toEqual({
         type: "slidingWindow",

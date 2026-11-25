@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { startSessionMock } = vi.hoisted(() => ({
+const { startSessionMock, connectDBMock } = vi.hoisted(() => ({
   startSessionMock: vi.fn(),
+  connectDBMock: vi.fn(),
 }));
 
 vi.mock("mongoose", () => ({
@@ -10,12 +11,18 @@ vi.mock("mongoose", () => ({
   },
 }));
 
+vi.mock("@/lib/db", () => ({
+  connectDB: connectDBMock,
+}));
+
 import { withTransaction } from "@/lib/transaction";
 
 let session;
 
 beforeEach(() => {
   vi.resetAllMocks();
+
+  connectDBMock.mockResolvedValue(undefined);
 
   session = {
     withTransaction: vi.fn(async (transactionCallback) =>

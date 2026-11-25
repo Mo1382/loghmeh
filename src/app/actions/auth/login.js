@@ -22,25 +22,20 @@ import { loginUserSchema } from "@/validations/auth.validation";
 
 import { getClientIpAddress } from "@/lib/rate-limit/get-client-ip-address";
 
+import { getSingleFormDataValue } from "@/lib/form-data/get-single-form-data-value";
+
+import AppError from "@/lib/errors/AppError";
+
+import { ERROR_CODES } from "@/constants/error-codes";
+
 import { connectDB } from "@/lib/db";
-
-/**
- * Return the single value associated with a FormData field.
- *
- * Returns undefined when the field is missing or contains multiple values.
- */
-function getSingleFormDataValue(formData, name) {
-  const values = formData.getAll(name);
-
-  return values.length === 1 ? values[0] : undefined;
-}
 
 /**
  * Extract the supported login fields from FormData.
  *
- * Additional fields are intentionally ignored. Missing or duplicate values
- * for supported fields are returned as undefined so the login schema can
- * reject them during validation.
+ * Additional fields are intentionally ignored.
+ * Missing and duplicate values are returned as undefined and null,
+ * respectively, so the login schema can reject invalid input.
  *
  * @throws {AppError} If the input is not a FormData instance.
  */
