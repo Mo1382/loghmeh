@@ -9,7 +9,7 @@ import { ERROR_CODES } from "@/constants/error-codes";
 import { loginAction } from "@/app/actions/auth/login";
 import { loginUserSchema } from "@/validations/auth.validation";
 
-import SignInBtn from "../Buttons/SignInBtn";
+import AuthSubmitButton from "../Buttons/AuthSubmitButton";
 import AuthFormGroup from "./AuthFormGroup";
 import FormFooter from "./FormFooter";
 import FormErrorMessage from "../Auth/FormErrorMessage";
@@ -214,13 +214,17 @@ export default function LoginForm() {
       {/* Submit button */}
       <div
         className="
-          mt-auto shrink-0
-          pt-36
-          md:pt-40
-          lg:pt-[56px]
-        "
+    mt-auto shrink-0
+    pt-36
+    md:pt-40
+    lg:pt-[56px]
+  "
       >
-        <SignInBtn isLoading={isSubmitting} />
+        <AuthSubmitButton
+          label="ورود"
+          loadingLabel="در حال ورود"
+          isLoading={isSubmitting}
+        />
       </div>
     </form>
   );
