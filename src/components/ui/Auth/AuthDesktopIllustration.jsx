@@ -1,6 +1,6 @@
 import Image from "next/image";
 
-export default function LoginDesktopIllustration() {
+export default function AuthDesktopIllustration() {
   return (
     <div
       className="

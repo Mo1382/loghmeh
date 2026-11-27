@@ -1,7 +1,5 @@
 "use client";
 
-import { useRef, useState } from "react";
-
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { Controller, useForm } from "react-hook-form";
@@ -55,90 +53,6 @@ const PERSISTENT_ROOT_ERROR_CODES = new Set([
   ERROR_CODES.RATE_LIMIT_UNAVAILABLE,
 ]);
 
-const titleLabelClassName = `
-  mb-12 block text-right
-  text-15 font-medium text-neutral-8
-  md:mb-14 md:text-16
-`;
-
-const titleControlClassName = `
-  relative flex w-full items-center justify-between
-  rounded-[10px] border border-neutral-5
-  bg-neutral-1 py-12
-  pl-12 pr-14
-  text-right text-14 font-normal text-neutral-8
-  outline-none
-  focus:border-red-400
-  focus-visible:outline-2
-  focus-visible:outline-offset-2
-  focus-visible:outline-red-600
-  disabled:cursor-not-allowed disabled:opacity-60
-  md:rounded-xl md:px-16 md:text-15
-  lg:text-16
-`;
-
-const titleMenuClassName = `
-  absolute left-0 right-0 top-[calc(100%+16px)] z-30
-  rounded-[24px] border border-neutral-5
-  bg-neutral-1 px-20 py-4
-  text-right text-15 font-normal text-neutral-8
-  shadow-card
-`;
-
-const titleOptionClassName = `
-  flex w-full items-center justify-between
-  border-b border-neutral-4
-  py-14 text-right
-  text-15 font-normal text-neutral-8
-  transition-colors
-  hover:text-red-600
-  focus-visible:rounded-sm
-  focus-visible:outline-2
-  focus-visible:outline-offset-2
-  focus-visible:outline-red-600
-  last:border-b-0
-`;
-
-const titleRadioClassName = `
-  flex h-22 w-22 shrink-0 items-center justify-center
-  rounded-full border border-red-300 bg-red-50
-`;
-
-const titleErrorClassName = `
-  mt-[10px] min-h-[18px] font-normal
-  md:mt-[12px] md:min-h-5
-  lg:min-h-[21px]
-`;
-
-const buttonClassName = `
-  relative isolate flex h-[44px] w-[102px]
-  items-center justify-center
-  rounded-[10px] bg-red-500
-  text-15 font-medium text-neutral-1
-  transition-colors
-  hover:bg-red-hover
-  focus-visible:outline-2 focus-visible:outline-offset-2
-  focus-visible:outline-red-500
-  disabled:cursor-not-allowed disabled:opacity-60
-
-  md:h-[46px] md:w-[106px]
-  md:rounded-lg md:text-16
-
-  lg:h-[52px] lg:w-[102px]
-  lg:py-12 lg:pr-14 lg:pl-20 lg:text-19
-`;
-
-const buttonContentClassName = `
-  inline-flex items-center gap-x-[7px]
-  lg:gap-x-10
-`;
-
-const buttonIconClassName = `
-  h-20 w-20 stroke-2
-  md:h-[21px] md:w-[21px]
-  lg:h-24 lg:w-24
-`;
-
 /*
  * ============================================================================
  * Helpers
@@ -164,10 +78,6 @@ function getFirstErrorMessage(messages) {
  */
 
 export default function RegisterForm() {
-  const [isTitleOpen, setIsTitleOpen] = useState(false);
-
-  const titleTriggerRef = useRef(null);
-
   const {
     register,
     control,

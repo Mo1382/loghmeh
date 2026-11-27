@@ -1,7 +1,7 @@
 import { LogInIcon } from "@/components/icons";
 
 import AuthPageContent from "@/components/ui/Auth/AuthPageContent";
-import LoginDesktopIllustration from "@/components/ui/Auth/LoginDesktopIllustration";
+import AuthDesktopIllustration from "@/components/ui/Auth/AuthDesktopIllustration";
 import LoginForm from "@/components/ui/Form/LoginForm";
 
 export const metadata = {
@@ -12,7 +12,7 @@ export const metadata = {
 export default function LoginPage() {
   return (
     <>
-      <LoginDesktopIllustration />
+      <AuthDesktopIllustration />
 
       <AuthPageContent title="ورود" icon={LogInIcon} headingId="login-heading">
         <LoginForm />

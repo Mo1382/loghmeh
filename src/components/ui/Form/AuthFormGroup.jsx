@@ -11,6 +11,7 @@ const inputClassName = `
   focus-visible:outline-red-600
   md:rounded-xl md:px-16 md:text-15
   lg:text-16
+  disabled:cursor-not-allowed disabled:opacity-60
 `;
 
 const labelClassName = `

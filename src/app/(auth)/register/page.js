@@ -1,7 +1,7 @@
 import { LogInIcon } from "@/components/icons";
 
 import AuthPageContent from "@/components/ui/Auth/AuthPageContent";
-import LoginDesktopIllustration from "@/components/ui/Auth/LoginDesktopIllustration";
+import AuthDesktopIllustration from "@/components/ui/Auth/AuthDesktopIllustration";
 import RegisterForm from "@/components/ui/Form/RegisterForm";
 
 export const metadata = {
@@ -12,7 +12,7 @@ export const metadata = {
 export default function RegisterPage() {
   return (
     <>
-      <LoginDesktopIllustration />
+      <AuthDesktopIllustration />
 
       <AuthPageContent
         title="ثبت‌نام"

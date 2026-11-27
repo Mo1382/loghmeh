@@ -1,7 +1,6 @@
 const baseClassName = `
-  block w-full truncate text-right
+  block w-full whitespace-normal break-words text-right
   text-12 leading-[18px] text-red-600
-
   md:text-13 md:leading-5
   lg:text-14 lg:leading-[21px]
 `;
