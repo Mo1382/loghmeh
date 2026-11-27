@@ -21,9 +21,9 @@ const labelClassName = `
 `;
 
 const fieldErrorClassName = `
-  mt-[10px] h-[18px] font-normal
-  md:mt-[12px] md:h-5
-  lg:h-[21px]
+  mt-[10px] min-h-[18px] font-normal
+  md:mt-[12px] md:min-h-5
+  lg:min-h-[21px]
 `;
 
 export default function AuthFormGroup({

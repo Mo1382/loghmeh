@@ -47,13 +47,14 @@ export default function AuthSubmitButton({
       className={buttonClassName}
     >
       <span
-        aria-hidden="true"
         className={`
-          ${contentClassName}
-          ${isLoading ? "invisible" : ""}
-        `}
+    ${contentClassName}
+    ${isLoading ? "invisible" : ""}
+  `}
       >
-        <CheckboxChecked className={iconClassName} />
+        <span aria-hidden="true">
+          <CheckboxChecked className={iconClassName} />
+        </span>
 
         <span>{label}</span>
       </span>
